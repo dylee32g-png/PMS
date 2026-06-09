@@ -73,5 +73,7 @@ React + Firebase로 만든 웹앱. 팀들이 **공정현황(주간/월간 진행
 ## 진행 상황 (새 챗에서 이어가기용)
 - 2026-06-09: Cowork 초기 설정 완료 — 플러그인(operations·productivity·product-management) 설치, `D:\pms-app` 폴더 연결, 이 CLAUDE.md 생성.
 - pms-app 전체 구조·동작 흐름 파악 완료(위 표 참고).
-- `npm start` 미리보기 실행 확인함.
-- ▶ 다음 할 일: 특정 화면(예: WeeklyInputScreen 주간 입력)을 골라 동작을 자세히 뜯어보기. (팀장님이 화면 지정하면 시작)
+- `npm start` 미리보기 실행 확인함 (포트 3000 충돌 시 기존 서버 종료 후 재실행).
+- 깃허브 연결 완료: 비공개 저장소 https://github.com/TipPick07/pms-app (최초 커밋 78784f1, main). 실제 push는 인증된 VS Code 쪽에서 수행.
+- 일일리포트 작성: `일일리포트/2026-06-09_Cowork초기설정-깃허브연동.md` (첫날 상세 기록).
+- ▶ 다음 할 일: ① (선택) 불필요 파일 `src/import tkinter as tk.ini` 정리 ② 특정 화면(예: WeeklyInputScreen 주간 입력) 동작을 자세히 뜯어보기. (팀장님이 지정하면 시작)
