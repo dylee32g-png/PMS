@@ -1,0 +1,362 @@
+body {
+  margin: 0;
+  font-family: '맑은 고딕', 'Malgun Gothic', 'Calibri', 'Arial', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #ffffff;
+  color: #000000;
+}
+
+code {
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* =========================================================
+   EXCEL LIGHT THEME — 전역 다크테마 → 엑셀 라이트 오버라이드
+   ========================================================= */
+
+/* ── 배경색 ── */
+.bg-slate-950,
+[class*="bg-slate-950"] { background-color: #ffffff !important; }
+
+.bg-slate-900 { background-color: #f5f5f5 !important; }
+[class~="bg-slate-900\/50"],
+.bg-slate-900\/50 { background-color: rgba(245,245,245,0.92) !important; }
+[class~="bg-slate-900\/80"],
+.bg-slate-900\/80 { background-color: rgba(240,240,240,0.96) !important; }
+[class~="bg-slate-900\/40"],
+.bg-slate-900\/40 { background-color: rgba(245,245,245,0.7) !important; }
+[class~="bg-slate-950\/80"],
+.bg-slate-950\/80 { background-color: rgba(255,255,255,0.97) !important; }
+[class~="bg-slate-950\/95"],
+.bg-slate-950\/95 { background-color: rgba(255,255,255,0.98) !important; }
+[class~="bg-slate-950\/50"],
+.bg-slate-950\/50 { background-color: rgba(255,255,255,0.9) !important; }
+
+.bg-slate-800 { background-color: #ebebeb !important; }
+[class~="bg-slate-800\/80"],
+.bg-slate-800\/80 { background-color: rgba(235,235,235,0.85) !important; }
+[class~="bg-slate-800\/50"],
+.bg-slate-800\/50 { background-color: rgba(235,235,235,0.6) !important; }
+
+.bg-slate-700 { background-color: #dedede !important; }
+.bg-slate-600 { background-color: #cecece !important; }
+
+/* ── 텍스트색 ── */
+.text-white { color: #1a1a1a !important; }
+.text-slate-100 { color: #111111 !important; }
+.text-slate-200 { color: #222222 !important; }
+.text-slate-300 { color: #444444 !important; }
+.text-slate-400 { color: #666666 !important; }
+.text-slate-500 { color: #888888 !important; }
+.text-slate-600 { color: #999999 !important; }
+
+/* ── 테두리색 ── */
+.border-slate-900 { border-color: #d8d8d8 !important; }
+.border-slate-800 { border-color: #d0d0d0 !important; }
+[class~="border-slate-800\/50"],
+.border-slate-800\/50 { border-color: rgba(200,200,200,0.6) !important; }
+.border-slate-700 { border-color: #c0c0c0 !important; }
+[class~="border-slate-700\/80"],
+.border-slate-700\/80 { border-color: rgba(192,192,192,0.8) !important; }
+[class~="border-slate-700\/50"],
+.border-slate-700\/50 { border-color: rgba(192,192,192,0.6) !important; }
+.border-slate-600 { border-color: #b0b0b0 !important; }
+
+/* ── divide (행 구분선) ── */
+.divide-slate-800 > * + * { border-color: #d4d4d4 !important; }
+[class~="divide-slate-800\/50"] > * + * { border-color: rgba(212,212,212,0.6) !important; }
+.divide-slate-700 > * + * { border-color: #c4c4c4 !important; }
+
+/* ── hover 배경 ── */
+.hover\:bg-slate-800:hover { background-color: #dce8fa !important; }
+.hover\:bg-slate-700:hover { background-color: #ccdaf5 !important; }
+.group:hover .group-hover\:bg-slate-800 { background-color: #dce8fa !important; }
+.group:hover .group-hover\:bg-slate-700 { background-color: #ccdaf5 !important; }
+.hover\:text-white:hover { color: #000000 !important; }
+.group:hover .group-hover\:text-white { color: #000000 !important; }
+
+/* ── 투명 그라디언트 텍스트 → 진한 텍스트로 ── */
+.bg-clip-text.text-transparent {
+  -webkit-text-fill-color: #1a1a1a !important;
+  color: #1a1a1a !important;
+}
+
+/* ── 모달 오버레이 ── */
+.bg-black\/60 { background-color: rgba(0,0,0,0.45) !important; }
+
+/* =========================================================
+   EXCEL 테이블 그리드 스타일
+   ========================================================= */
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  font-family: '맑은 고딕', 'Malgun Gothic', 'Calibri', 'Arial', sans-serif !important;
+  font-size: 12px !important;
+}
+
+/* ── 모든 th/td 에 완전한 그리드선 적용 (Chrome sticky+collapse 버그 우회: separate) ── */
+thead tr th,
+thead tr td {
+  background-color: #dce3ec !important;
+  color: #1a1a1a !important;
+  border-right: 2px solid #4e6880 !important;
+  border-top: 1px solid #8aa0b8 !important;
+  border-bottom: 1px solid #8aa0b8 !important;
+  border-left: none !important;
+  font-weight: 600 !important;
+}
+
+thead tr th:first-child,
+thead tr td:first-child {
+  border-left: 1px solid #8aa0b8 !important;
+}
+
+thead tr:last-child th,
+thead tr:last-child td {
+  border-bottom: 3px solid #4e6880 !important;
+}
+
+tbody tr td {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-right: 1px solid #d0d4dc !important;
+  border-bottom: 1px solid #d0d4dc !important;
+  border-top: none !important;
+  border-left: none !important;
+}
+
+tbody tr td:first-child {
+  border-left: 1px solid #d0d4dc !important;
+}
+
+tbody tr:hover td {
+  background-color: #e8f0fe !important;
+}
+
+/* ── sticky 고정 컬럼 ── */
+.sticky-col { background-color: #edf1f7 !important; }
+th.sticky-col { background-color: #d4dde8 !important; }
+tr:hover td.sticky-col { background-color: #d8e8fa !important; }
+.sticky-last { border-right: 2px solid #1e7ac8 !important; box-shadow: 4px 0 6px -2px rgba(0,0,0,0.08) !important; }
+
+/* ── 짝수 행 배경 (엑셀 스타일) ── */
+tbody tr:nth-child(even) td { background-color: #f9fafc !important; }
+tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
+
+/* =========================================================
+   입력창 / 폼 요소 (Excel 셀 스타일)
+   ========================================================= */
+input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]),
+textarea,
+select {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #b8b8b8 !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="range"]):focus,
+textarea:focus,
+select:focus {
+  border-color: #1e7ac8 !important;
+  box-shadow: 0 0 0 2px rgba(30,122,200,0.2) !important;
+  outline: none !important;
+}
+
+/* color-scheme-dark → light으로 (날짜 input 등) */
+.color-scheme-dark { color-scheme: light !important; }
+
+/* =========================================================
+   스크롤바 (Excel 스타일)
+   ========================================================= */
+::-webkit-scrollbar { width: 14px; height: 14px; }
+::-webkit-scrollbar-track { background: #f0f0f0; border: 1px solid #d8d8d8; }
+::-webkit-scrollbar-thumb { background: #b0b0b0; border: 2px solid #f0f0f0; }
+::-webkit-scrollbar-thumb:hover { background: #888888; }
+::-webkit-scrollbar-corner { background: #f0f0f0; }
+
+.custom-scrollbar::-webkit-scrollbar { width: 14px !important; height: 14px !important; }
+.custom-scrollbar::-webkit-scrollbar-track { background: #f0f0f0 !important; border: 1px solid #d8d8d8 !important; border-radius: 0 !important; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #b0b0b0 !important; border: 2px solid #f0f0f0 !important; border-radius: 2px !important; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #888888 !important; }
+
+/* =========================================================
+   카드 / 버튼 (Excel Ribbon 스타일)
+   ========================================================= */
+.team-card:hover {
+  animation: none !important;
+  border-color: #1e7ac8 !important;
+  box-shadow: 0 2px 8px rgba(30,122,200,0.15) !important;
+}
+
+/* 그림자 경량화 (다크테마 그림자 → 라이트테마) */
+.shadow-\[0_0_40px_rgba\(6\,182\,212\,0\.15\)\],
+[class*="shadow-[0_0_"] { box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
+.shadow-2xl { box-shadow: 0 4px 16px rgba(0,0,0,0.10) !important; }
+.shadow-xl { box-shadow: 0 3px 10px rgba(0,0,0,0.08) !important; }
+.shadow-lg { box-shadow: 0 2px 8px rgba(0,0,0,0.07) !important; }
+.shadow-md { box-shadow: 0 2px 6px rgba(0,0,0,0.06) !important; }
+
+/* ── 드래그 중 컬럼 투명도 배경 ── */
+.bg-slate-900.opacity-20 { background-color: #f5f5f5 !important; }
+
+/* ── backdrop-blur (모달 배경 흐림) ── */
+.backdrop-blur-sm { backdrop-filter: blur(3px) !important; }
+.backdrop-blur-md { backdrop-filter: blur(6px) !important; }
+
+/* =========================================================
+   로딩 스피너
+   ========================================================= */
+.border-cyan-500 { border-color: #1e7ac8 !important; }
+.border-t-transparent { border-top-color: transparent !important; }
+
+/* =========================================================
+   헤더 / 네비게이션 바 (Excel Ribbon 스타일)
+   ========================================================= */
+header.flex,
+header[class*="flex"] {
+  background-color: #dce3ec !important;
+  border-top: 1px solid #b8c0cc !important;
+  border-bottom: 2px solid #9aa8b8 !important;
+  border-left: 1px solid #b8c0cc !important;
+  border-right: 1px solid #b8c0cc !important;
+  padding: 6px 10px !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* =========================================================
+   인라인 에디팅 (Excel 셀 편집)
+   ========================================================= */
+.bg-slate-950.text-slate-200 {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* 인라인 에디팅 input/textarea/select */
+td input, td textarea, td select {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #1e7ac8 !important;
+  box-shadow: 0 0 0 1px rgba(30,122,200,0.3) !important;
+}
+
+/* 인라인 에디팅 hover 영역 */
+.hover\:bg-slate-800\/80:hover { background-color: #e8f0fe !important; }
+.group\/inline:hover { background-color: #e8f0fe !important; }
+
+/* =========================================================
+   직각 모서리 (Excel 스타일 — 모든 rounded 제거)
+   ========================================================= */
+[class*="rounded"] { border-radius: 0 !important; }
+
+/* 로딩 스피너 원형 유지 */
+.animate-spin { border-radius: 9999px !important; }
+
+/* 버튼 / 입력창 직각 강제 */
+button { border-radius: 0 !important; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { border-radius: 0 !important; }
+textarea { border-radius: 0 !important; }
+select { border-radius: 0 !important; }
+
+/* =========================================================
+   컬럼 간 빈공간 완전 제거 — 완전 그리드 테두리
+   ========================================================= */
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+thead th, thead td {
+  border-right: 2px solid #4e6880 !important;
+  border-top: 1px solid #8aa0b8 !important;
+  border-bottom: 1px solid #8aa0b8 !important;
+  border-left: none !important;
+  background-color: #dce3ec !important;
+}
+
+thead th:first-child, thead td:first-child {
+  border-left: 1px solid #8aa0b8 !important;
+}
+
+thead tr:last-child th,
+thead tr:last-child td {
+  border-bottom: 3px solid #4e6880 !important;
+}
+
+tbody td {
+  border-right: 1px solid #c4ccd8 !important;
+  border-bottom: 1px solid #c4ccd8 !important;
+  border-top: none !important;
+  border-left: none !important;
+}
+
+tbody td:first-child {
+  border-left: 1px solid #c4ccd8 !important;
+}
+
+/* =========================================================
+   진행실적 등록 모달 테이블 — 글로벌 스타일 리셋
+   ========================================================= */
+.progress-modal-table thead th,
+.progress-modal-table thead td {
+  border-right: 1px solid #c8d0da !important;
+  border-bottom: 1px solid #c8d0da !important;
+  border-top: none !important;
+  border-left: none !important;
+  background-color: #f8fafc !important;
+  color: #64748b !important;
+  font-weight: 700 !important;
+}
+.progress-modal-table thead th:first-child,
+.progress-modal-table thead td:first-child {
+  border-left: 1px solid #c8d0da !important;
+}
+.progress-modal-table thead tr:last-child th,
+.progress-modal-table thead tr:last-child td {
+  border-bottom: 1px solid #c8d0da !important;
+}
+.progress-modal-table tbody td {
+  border-right: 1px solid #d4dae2 !important;
+  border-bottom: 1px solid #d4dae2 !important;
+  border-top: none !important;
+  border-left: none !important;
+  background-color: #f8fafc !important;
+}
+.progress-modal-table tbody td:first-child {
+  border-left: 1px solid #d4dae2 !important;
+}
+.progress-modal-table tbody tr:hover td {
+  background-color: inherit !important;
+}
+.progress-modal-table tbody tr:nth-child(even) td {
+  background-color: inherit !important;
+}
+.progress-modal-table td input,
+.progress-modal-table td textarea {
+  border: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  border-radius: 0 !important;
+}
+.progress-modal-table td input:focus {
+  border: none !important;
+  box-shadow: inset 0 0 0 2px #6366f1 !important;
+}
+/* 시작일 컬럼 */
+.progress-modal-table .pw-start {
+  background-color: #dbeafe !important;
+  border-left: 3px solid #2563eb !important;
+}
+.progress-modal-table thead .pw-start {
+  background-color: #bfdbfe !important;
+  border-left: 3px solid #2563eb !important;
+}
+/* 완료일 컬럼 */
+.progress-modal-table .pw-end {
+  background-color: #fde8d8 !important;
+  border-right: 3px solid #ea580c !important;
+}
+.progress-modal-table thead .pw-end {
+  background-color: #fed7aa !important;
+  border-right: 3px solid #ea580c !important;
+}

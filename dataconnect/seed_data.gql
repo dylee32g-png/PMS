@@ -1,0 +1,72 @@
+mutation SeedData @transaction @auth(level: USER, insecureReason: "This mutation is for seeding data and should only be run by authenticated users.") {
+  user_upsertMany(data: [
+    {
+      id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      username: "john_doe",
+      email: "john.doe@example.com",
+      createdAt: "2023-01-01T10:00:00Z"
+    },
+    {
+      id: "b1f1d2c3-d4e5-6f78-9a0b-1c2d3e4f5a6b",
+      username: "jane_smith",
+      email: "jane.smith@example.com",
+      createdAt: "2023-01-02T11:00:00Z"
+    }
+  ])
+  notebook_upsertMany(data: [
+    {
+      id: "c2d3e4f5-a6b7-8c9d-0e1f-2a3b4c5d6e7f",
+      userId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      name: "John's First Notebook",
+      description: "Notes about my projects",
+      createdAt: "2023-01-03T12:00:00Z"
+    },
+    {
+      id: "d3e4f5a6-b7c8-d9e0-f1a2-b3c4d5e6f7a8",
+      userId: "b1f1d2c3-d4e5-6f78-9a0b-1c2d3e4f5a6b",
+      name: "Jane's Ideas",
+      description: "Brainstorming for new features",
+      createdAt: "2023-01-04T13:00:00Z"
+    }
+  ])
+  note_upsertMany(data: [
+    {
+      id: "e4f5a6b7-c8d9-e0f1-a2b3-c4d5e6f7a8b9",
+      userId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+      notebookId: "c2d3e4f5-a6b7-8c9d-0e1f-2a3b4c5d6e7f",
+      title: "Project Alpha Overview",
+      content: "Initial ideas and requirements for Project Alpha.",
+      isPinned: true,
+      createdAt: "2023-01-05T14:00:00Z",
+      updatedAt: "2023-01-05T14:00:00Z"
+    },
+    {
+      id: "f5a6b7c8-d9e0-f1a2-b3c4-d5e6f7a8b9c0",
+      userId: "b1f1d2c3-d4e5-6f78-9a0b-1c2d3e4f5a6b",
+      notebookId: "d3e4f5a6-b7c8-d9e0-f1a2-b3c4d5e6f7a8",
+      title: "New Feature Idea: Dark Mode",
+      content: "Consider implementing dark mode for better user experience.",
+      isPinned: false,
+      createdAt: "2023-01-06T15:00:00Z",
+      updatedAt: "2023-01-06T15:00:00Z"
+    }
+  ])
+  task_upsertMany(data: [
+    {
+      id: "16b7c8d9-e0f1-a2b3-c4d5-e6f7a8b9c0d1",
+      noteId: "e4f5a6b7-c8d9-e0f1-a2b3-c4d5e6f7a8b9",
+      description: "Research competitor features",
+      isCompleted: false,
+      dueDate: "2023-01-10",
+      createdAt: "2023-01-05T14:30:00Z"
+    },
+    {
+      id: "27c8d9e0-f1a2-b3c4-d5e6-f7a8b9c0d1e2",
+      noteId: "f5a6b7c8-d9e0-f1a2-b3c4-d5e6f7a8b9c0",
+      description: "Create UI mockups for dark mode",
+      isCompleted: false,
+      dueDate: "2023-01-12",
+      createdAt: "2023-01-06T15:30:00Z"
+    }
+  ])
+}

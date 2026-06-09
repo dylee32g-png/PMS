@@ -1,0 +1,44 @@
+{
+  "name": "pms-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@dataconnect/generated": "file:src/dataconnect-generated",
+    "@emailjs/browser": "^4.4.1",
+    "@fortune-sheet/react": "^1.0.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^13.5.0",
+    "firebase": "^12.11.0",
+    "lucide-react": "^1.0.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-scripts": "5.0.1",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "node --max-old-space-size=8192 --jitless node_modules/react-scripts/bin/react-scripts.js build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "techteampms"
+  },
+  "targets": {
+    "techteampms": {
+      "hosting": {
+        "neconsys": [
+          "neconsys"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

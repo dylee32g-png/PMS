@@ -1,0 +1,30 @@
+type User @table {
+  username: String!
+  email: String
+  createdAt: Timestamp!
+}
+
+type Notebook @table {
+  user: User!
+  name: String!
+  description: String
+  createdAt: Timestamp!
+}
+
+type Note @table {
+  user: User!
+  notebook: Notebook
+  title: String!
+  content: String!
+  isPinned: Boolean
+  createdAt: Timestamp!
+  updatedAt: Timestamp!
+}
+
+type Task @table {
+  note: Note!
+  description: String!
+  isCompleted: Boolean!
+  dueDate: Date
+  createdAt: Timestamp!
+}

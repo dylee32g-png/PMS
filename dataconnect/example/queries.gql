@@ -1,0 +1,35 @@
+mutation CreateUserProfile($username: String!, $email: String) @auth(level: USER, insecureReason: "This mutation creates a user profile and is tied to the authenticated user's ID upon insertion.") {
+  user_insert(data: {
+    username: $username,
+    email: $email,
+    createdAt_expr: "request.time",
+    id_expr: "auth.uid"
+  })
+}
+
+query GetMyNotebooks @auth(level: USER) {
+  notebooks(where: {userId: {eq_expr: "auth.uid"}}) {
+    id
+    name
+    description
+    createdAt
+  }
+}
+
+mutation CreateNoteInNotebook($notebookId: UUID!, $title: String!, $content: String!, $isPinned: Boolean) @auth(level: USER, insecureReason: "This mutation allows a logged-in user to add a note to one of their notebooks.") {
+  note_insert(data: {
+    notebookId: $notebookId,
+    title: $title,
+    content: $content,
+    isPinned: $isPinned,
+    createdAt_expr: "request.time",
+    updatedAt_expr: "request.time",
+    userId_expr: "auth.uid"
+  })
+}
+
+mutation MarkTaskCompleted($id: UUID!) @auth(level: USER, insecureReason: "This mutation allows a logged-in user to mark one of their tasks as completed.") {
+  task_update(key: {id: $id}, data: {
+    isCompleted: true
+  })
+}
