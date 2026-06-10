@@ -13,7 +13,27 @@
       "PowerShell(git status --short 2>&1; \"---\"; \"untracked+modified count: $\\(\\(git status --short 2>&1 | Measure-Object\\).Count\\)\")",
       "PowerShell(git add -A)",
       "PowerShell(git push origin main)",
-      "Bash(npm start *)"
+      "Bash(npm start *)",
+      "Bash(firebase deploy *)",
+      "Bash(npx firebase *)",
+      "PowerShell($c = Get-Command firebase -ErrorAction SilentlyContinue; if \\($c\\) { $c.Source } else { \"NOT FOUND\" }; if \\(Test-Path \"d:\\\\pms-app\\\\firebase.json\"\\) { \"firebase.json: YES\" } else { \"firebase.json: NO\" })",
+      "Bash(npm install *)",
+      "PowerShell($c = Get-Command firebase -ErrorAction SilentlyContinue; if \\($c\\) { \"firebase: \" + $c.Source; & firebase --version } else { \"STILL NOT FOUND\" })",
+      "PowerShell(& firebase login:list 2>&1)",
+      "Bash(firebase login *)",
+      "PowerShell(& firebase projects:list 2>&1)",
+      "PowerShell(\"===== projects =====\")",
+      "PowerShell(& firebase use techteampms 2>&1)",
+      "PowerShell(& firebase hosting:sites:list --project techteampms 2>&1)",
+      "PowerShell(\"===== hosting sites =====\")",
+      "Bash(firebase projects:list)",
+      "PowerShell(& firebase projects:list --project techteampms 2>&1)",
+      "PowerShell(\"=== logged in as ===\")",
+      "PowerShell(\"=== direct access test ===\")",
+      "PowerShell(\"=== projects ===\")",
+      "PowerShell(& firebase deploy --only hosting --project techteampms 2>&1)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

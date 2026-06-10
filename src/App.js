@@ -63,7 +63,7 @@ try {
 const appId = (typeof window !== 'undefined' && typeof window.__app_id !== 'undefined') ? window.__app_id : 'tech-team-pms-app';
 
 // 로그인 스킵 (개발용) — 배포 전 false로 변경
-const SKIP_LOGIN = true;
+const SKIP_LOGIN = false;
 const GUEST_USER = { email: 'guest@local', displayName: '게스트' };
 const GUEST_REGISTERED = { email: 'guest@local', displayName: '게스트', role: 'admin', active: true };
 
@@ -1361,11 +1361,22 @@ const TechTeamPMS = () => {
       return { currMonthStr, prevMonthStr };
   }, [baseDate]);
 
-  // 월별 통합 데이터 항목 읽기 — monthlyData 우선, 레거시 monthlyPoints/monthlyStatus/플랫 폴백
+  // 월별 통합 데이터 항목 읽기 — monthlyData(이월 포함) 우선, 레거시 monthlyPoints/monthlyStatus/플랫 폴백
+  // 이월 규칙(A안): 기준월 이전 기록들을 날짜순으로 겹쳐 읽어, 일부 칸만 있는 기록이 있어도
+  // 빠진 칸은 가장 최근 값으로 채운다. 금월 실적(currPoints)만은 해당 월에 직접 기록된 값만 사용.
   const getMonthEntry = (p, monthStr) => {
-      if (p.monthlyData?.length > 0) {
-          const found = p.monthlyData.find(m => m.date === monthStr);
-          if (found) return found;
+      const upTo = (p.monthlyData || [])
+          .filter(m => m.date <= monthStr)
+          .sort((a, b) => a.date.localeCompare(b.date));
+      if (upTo.length > 0) {
+          const exact = upTo[upTo.length - 1].date === monthStr ? upTo[upTo.length - 1] : null;
+          const merged = {};
+          upTo.forEach(m => {
+              Object.keys(m).forEach(k => {
+                  if (m[k] !== undefined && m[k] !== null && m[k] !== '') merged[k] = m[k];
+              });
+          });
+          return { ...merged, date: monthStr, currPoints: exact ? safeNumber(exact.currPoints) : 0 };
       }
       const legacyPts = (p.monthlyPoints || []).find(m => m.date === monthStr);
       const legacySt  = (p.monthlyStatus  || []).find(m => m.date === monthStr);
@@ -1382,13 +1393,14 @@ const TechTeamPMS = () => {
   };
 
   const getEffectiveStatus = (p) => {
-      if (p.monthlyData?.length > 0) {
-          const found = p.monthlyData.find(m => m.date === targetMonths.currMonthStr);
-          if (found?.progressStatus) return found.progressStatus;
+      // 기준월 이하에서 상태가 기록된 가장 최근 항목 사용 (상태 없는 기록은 건너뜀)
+      const withStatus = (p.monthlyData || []).filter(m => m.date <= targetMonths.currMonthStr && m.progressStatus);
+      if (withStatus.length > 0) {
+          return withStatus.reduce((a, b) => (a.date > b.date ? a : b)).progressStatus;
       }
       if (p.monthlyStatus?.length > 0) {
-          const found = p.monthlyStatus.find(m => m.date === targetMonths.currMonthStr);
-          if (found) return found.value;
+          const legacy = p.monthlyStatus.find(m => m.date === targetMonths.currMonthStr);
+          if (legacy) return legacy.value;
       }
       return p.progressStatus || '';
   };
@@ -1480,16 +1492,20 @@ const TechTeamPMS = () => {
       const currPointsVal = Math.trunc(safeNumber(curr.currPoints));
       const prevPointsVal = Math.trunc(safeNumber(prev.currPoints));
 
-      // 누적: monthlyData 우선, 레거시 monthlyPoints, dyn_, 플랫 순
+      // 누적: monthlyData 우선, 레거시 monthlyPoints, dyn_, 플랫 순 — 기준월까지의 실적만 합산
       let accPointsVal = 0;
       if (p.monthlyData?.length > 0) {
-          accPointsVal = p.monthlyData.reduce((sum, m) => sum + safeNumber(m.currPoints), 0);
-          // 레거시 monthlyPoints 중 monthlyData에 없는 달도 합산
+          accPointsVal = p.monthlyData
+              .filter(m => m.date <= targetMonths.currMonthStr)
+              .reduce((sum, m) => sum + safeNumber(m.currPoints), 0);
+          // 레거시 monthlyPoints 중 monthlyData에 없는 달도 합산 (기준월까지만)
           (p.monthlyPoints || []).forEach(mp => {
-              if (!p.monthlyData.some(md => md.date === mp.date)) accPointsVal += safeNumber(mp.value);
+              if (mp.date <= targetMonths.currMonthStr && !p.monthlyData.some(md => md.date === mp.date)) accPointsVal += safeNumber(mp.value);
           });
       } else if (p.monthlyPoints?.length > 0) {
-          accPointsVal = p.monthlyPoints.reduce((sum, m) => sum + safeNumber(m.value), 0);
+          accPointsVal = p.monthlyPoints
+              .filter(m => m.date <= targetMonths.currMonthStr)
+              .reduce((sum, m) => sum + safeNumber(m.value), 0);
       } else {
           let hasDyn = false; let dynSum = 0;
           const cSuffix = parseInt(targetMonths.currMonthStr.split('-')[1], 10) + '월';
@@ -1551,7 +1567,12 @@ const TechTeamPMS = () => {
       if (currIdx >= 0) {
           updatedMd[currIdx] = { ...updatedMd[currIdx], ...currUpdates };
       } else {
-          updatedMd = [...updatedMd, { date: monthStr, ...currUpdates }];
+          // 이월 규칙(A안): 새 달 기록 생성 시 이전 달 기록을 이어받은 뒤 입력값 반영 (금월 실적은 0부터)
+          const earlier = updatedMd.filter(m => m.date < monthStr);
+          const seed = earlier.length > 0
+              ? { ...earlier.reduce((a, b) => (a.date > b.date ? a : b)), currPoints: 0 }
+              : {};
+          updatedMd = [...updatedMd, { ...seed, date: monthStr, ...currUpdates }];
       }
 
       const merged = { ...base, ...(pendingEdits[pid] || {}), monthlyData: updatedMd };
@@ -2906,9 +2927,19 @@ const TechTeamPMS = () => {
               }
           }
 
+          // 이월 규칙(A안): 새 달 기록을 처음 만들 때, 이전 달 기록을 이어받은 뒤 입력값 반영
+          // (금월 실적 currPoints는 새 달이므로 0부터)
+          let seed = {};
+          if (!existing) {
+              const earlier = baseMd.filter(m => m.date < monthDate);
+              if (earlier.length > 0) {
+                  const last = earlier.reduce((a, b) => (a.date > b.date ? a : b));
+                  seed = { ...last, currPoints: 0 };
+              }
+          }
           const updatedMd = existing
               ? baseMd.map(m => m.date === monthDate ? { ...m, [dataKey]: parsedValue } : m)
-              : [...baseMd, { date: monthDate, [dataKey]: parsedValue }];
+              : [...baseMd, { ...seed, date: monthDate, [dataKey]: parsedValue }];
           // monthlyData만 저장 — flat 필드를 업데이트하면 다른 달 폴백 시 오염됨
           updateData = { monthlyData: updatedMd };
       }
@@ -4011,7 +4042,7 @@ const TechTeamPMS = () => {
 
                                               // ★ 월간보고 메인 화면 인라인 에디팅 적용 로직
                                               const isNAField = PROGRESS_KEYS.includes(col.key) && !isApplied(col.key);
-                                              const isEditableField = !['no', 'prevProgress', 'currProgress', 'progress'].includes(col.key) && !isNAField;
+                                              const isEditableField = !['no', 'prevProgress', 'currProgress', 'progress', 'accPoints'].includes(col.key) && !isNAField;
                                               if (editingInline?.id === rId && editingInline?.field === col.key && !isPreviewMode && isEditableField) {
                                                   const commonProps = {
                                                       autoFocus: true,
@@ -4254,8 +4285,11 @@ const TechTeamPMS = () => {
           let totalCount = 0;
 
           teamProjects.forEach(p => {
-              const mdEntry = (p.monthlyData || []).find(m => m.date === dStr);
-              const status = mdEntry?.progressStatus || p.progressStatus || '';
+              // 이월 규칙(A안): 해당 월 이하에서 상태가 기록된 가장 최근 기록 사용
+              const withStatus = (p.monthlyData || []).filter(m => m.date <= dStr && m.progressStatus);
+              const status = withStatus.length > 0
+                  ? withStatus.reduce((a, b) => (a.date > b.date ? a : b)).progressStatus
+                  : (p.progressStatus || '');
               if (TARGET_STATUSES.includes(status)) {
                   counts[status]++;
                   totalCount++;
