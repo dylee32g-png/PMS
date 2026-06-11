@@ -28,7 +28,7 @@ import WeeklyPanelViewer from './components/WeeklyPanelViewer';
 import WeeklyInputScreen from './components/WeeklyInputScreen';
 import WeeklySummaryScreen from './components/WeeklySummaryScreen';
 import HelpModal from './components/HelpModal';
-import { pmsIdbSave, pmsIdbLoad, pmsIdbDelete, wrIdbLoadAll, wrIdbAdd, wrIdbGet, wrIdbDelete } from './utils';
+import { pmsIdbSave, pmsIdbLoad, pmsIdbDelete, wrIdbLoadAll, wrIdbAdd, wrIdbGet, wrIdbDelete, generatePid } from './utils';
 
 // --- Firebase 라이브러리 임포트 ---
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -365,6 +365,8 @@ const TechTeamPMS = () => {
 
   const [alertMessage, setAlertMessage] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [pidMigModal, setPidMigModal] = useState(null); // A-4a: pid 일괄 발급 — null|{stage:'scan'}|{stage:'ready',...}|{stage:'running'}|{stage:'done',...}
+  const [wkMigModal, setWkMigModal] = useState(null);   // A-4b: 주간장부 pid 통일 병합 — 같은 단계 구조
   const [confirmRowSaveId, setConfirmRowSaveId] = useState(null);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [isSaveConfirmModalOpen, setIsSaveConfirmModalOpen] = useState(false);
@@ -1437,7 +1439,14 @@ const TechTeamPMS = () => {
   const handleOpenModal = (project) => {
       if (project) {
           setEditingProject(project);
-          const mergedPoints = buildMonthlyPointsFromLegacy(project);
+          // 월별 실적 리스트: 레거시(monthlyPoints/dyn_) 위에 장부A(monthlyData.currPoints)를 덮어 진실값 표시
+          const legacyList = buildMonthlyPointsFromLegacy(project);
+          const byDate = {};
+          legacyList.forEach(mp => { if (mp?.date) byDate[mp.date] = safeNumber(mp.value); });
+          (project.monthlyData || []).forEach(md => {
+              if (md?.date && md.currPoints !== undefined && md.currPoints !== null && md.currPoints !== '') byDate[md.date] = safeNumber(md.currPoints);
+          });
+          const mergedPoints = Object.entries(byDate).map(([date, value]) => ({ date, value })).sort((a, b) => b.date.localeCompare(a.date));
           // 현재 기준월 데이터를 formData에 로드 (월별 필드 반영)
           const currEntry = getMonthEntry(project, targetMonths.currMonthStr);
           setFormData({
@@ -1489,38 +1498,23 @@ const TechTeamPMS = () => {
       const avgProgress     = calcAvg(curr, applied);
       const prevAvgProgress = calcAvg(prev, applied);
 
-      const currPointsVal = Math.trunc(safeNumber(curr.currPoints));
-      const prevPointsVal = Math.trunc(safeNumber(prev.currPoints));
+      // 시운전 포인트: 통일 계산기 하나만 사용 (자체=self가 기존 단일 숫자의 의미)
+      const pointsTriple = getPointsTriple(p);
+      const currPointsVal = pointsTriple.curr.self;
+      const prevPointsVal = pointsTriple.prev.self;
+      let accPointsVal = pointsTriple.acc.self;
 
-      // 누적: monthlyData 우선, 레거시 monthlyPoints, dyn_, 플랫 순 — 기준월까지의 실적만 합산
-      let accPointsVal = 0;
-      if (p.monthlyData?.length > 0) {
-          accPointsVal = p.monthlyData
-              .filter(m => m.date <= targetMonths.currMonthStr)
-              .reduce((sum, m) => sum + safeNumber(m.currPoints), 0);
-          // 레거시 monthlyPoints 중 monthlyData에 없는 달도 합산 (기준월까지만)
-          (p.monthlyPoints || []).forEach(mp => {
-              if (mp.date <= targetMonths.currMonthStr && !p.monthlyData.some(md => md.date === mp.date)) accPointsVal += safeNumber(mp.value);
-          });
-      } else if (p.monthlyPoints?.length > 0) {
-          accPointsVal = p.monthlyPoints
-              .filter(m => m.date <= targetMonths.currMonthStr)
-              .reduce((sum, m) => sum + safeNumber(m.value), 0);
-      } else {
+      // 레거시 폴백: 월별 기록이 아무 데도 없는 옛 데이터(dyn_/플랫 accPoints)만 해당
+      if (accPointsVal === 0 && !(p.monthlyData?.length > 0) && !(p.monthlyPoints?.length > 0)) {
           let hasDyn = false; let dynSum = 0;
-          const cSuffix = parseInt(targetMonths.currMonthStr.split('-')[1], 10) + '월';
-          const pSuffix = parseInt(targetMonths.prevMonthStr.split('-')[1], 10) + '월';
           Object.keys(p).forEach(k => {
               if (k.startsWith('dyn_')) { hasDyn = true; dynSum += safeNumber(p[k]); }
-              if (k.startsWith('dyn_') && k.endsWith(cSuffix)) accPointsVal += safeNumber(p[k]);
-              if (k.startsWith('dyn_') && k.endsWith(pSuffix)) accPointsVal += safeNumber(p[k]);
           });
-          accPointsVal = hasDyn ? dynSum : safeNumber(p.accPoints);
+          accPointsVal = Math.trunc(hasDyn ? dynSum : safeNumber(p.accPoints));
       }
 
-      accPointsVal = Math.trunc(accPointsVal);
       return {
-          avgProgress, prevAvgProgress, accPointsVal, prevPointsVal, currPointsVal,
+          avgProgress, prevAvgProgress, accPointsVal, prevPointsVal, currPointsVal, pointsTriple,
           currPlc: safeNumber(curr.plc), currEtos: safeNumber(curr.etos),
           currHmi: safeNumber(curr.hmi), currInternalTest: safeNumber(curr.internalTest),
           currIntegratedTest: safeNumber(curr.integratedTest),
@@ -1541,19 +1535,22 @@ const TechTeamPMS = () => {
       const baseMd = (pendingEdits[pid]?.monthlyData) || base.monthlyData || [];
       const monthStr = data.monthStr;
 
-      // progressRecords의 월별 자체시운전 합산을 monthlyData에 병합
-      // 누적(accPoints)은 sum(monthlyData[*].currPoints)로 자동 계산됨
+      // progressRecords의 월별 시운전 합산을 monthlyData에 병합
+      // 자체 → currPoints, 통합 → intPoints. 누적은 통일 계산기(getPointsTriple)가 자동 계산
       let updatedMd = [...baseMd];
-      if (data.monthlyCommSums) {
-          Object.entries(data.monthlyCommSums).forEach(([date, pts]) => {
+      const mergeSums = (sums, fieldKey) => {
+          if (!sums) return;
+          Object.entries(sums).forEach(([date, pts]) => {
               const idx = updatedMd.findIndex(m => m.date === date);
               if (idx >= 0) {
-                  updatedMd[idx] = { ...updatedMd[idx], currPoints: pts };
+                  updatedMd[idx] = { ...updatedMd[idx], [fieldKey]: pts };
               } else {
-                  updatedMd = [...updatedMd, { date, currPoints: pts }];
+                  updatedMd = [...updatedMd, { date, [fieldKey]: pts }];
               }
           });
-      }
+      };
+      mergeSums(data.monthlyCommSums, 'currPoints');
+      mergeSums(data.monthlyIntCommSums, 'intPoints');
 
       // 금월 전체 업데이트 (plc/etos/hmi/internalTest/integratedTest/currPoints)
       const currUpdates = {};
@@ -1567,11 +1564,14 @@ const TechTeamPMS = () => {
       if (currIdx >= 0) {
           updatedMd[currIdx] = { ...updatedMd[currIdx], ...currUpdates };
       } else {
-          // 이월 규칙(A안): 새 달 기록 생성 시 이전 달 기록을 이어받은 뒤 입력값 반영 (금월 실적은 0부터)
+          // 이월 규칙(A안): 새 달 기록 생성 시 이전 달 기록을 이어받은 뒤 입력값 반영
+          // 단, 실적(currPoints/intPoints)은 이월하지 않음 — 미정의로 두면 통일 계산기가 장부B로 폴백
           const earlier = updatedMd.filter(m => m.date < monthStr);
-          const seed = earlier.length > 0
-              ? { ...earlier.reduce((a, b) => (a.date > b.date ? a : b)), currPoints: 0 }
-              : {};
+          let seed = {};
+          if (earlier.length > 0) {
+              const { currPoints: _cp, intPoints: _ip, ...rest } = earlier.reduce((a, b) => (a.date > b.date ? a : b));
+              seed = rest;
+          }
           updatedMd = [...updatedMd, { ...seed, date: monthStr, ...currUpdates }];
       }
 
@@ -1582,33 +1582,56 @@ const TechTeamPMS = () => {
       setPendingEdits(prev => { const next = { ...prev }; delete next[pid]; return next; });
   };
 
-  // 진행실적(progressRecords)에서 자체시운전/통합시운전 월별 집계
-  // key: execNo 우선, 없으면 _id/id 폴백 (ProgressModal과 동일 규칙)
-  const getCommissioningStats = (execNo, fallbackId) => {
-      const rec = progressRecordsMap[execNo] || (fallbackId ? progressRecordsMap[String(fallbackId)] : undefined);
-      const zero = { self: 0, int: 0 };
-      if (!rec?.weekly) return { curr: zero, prev: zero, acc: zero };
-      const selfData = rec.weekly.commissioning    || {};
-      const intgData = rec.weekly.intCommissioning || {};
-      const [cy, cm] = targetMonths.currMonthStr.split('-').map(Number);
-      const [py, pm] = targetMonths.prevMonthStr.split('-').map(Number);
-      const sumMonth = (data, y, m) =>
-          Object.entries(data).reduce((s, [k, v]) => {
-              const p = k.split('-');
-              return (Number(p[0]) === y && Number(p[1]) === m) ? s + (Number(v) || 0) : s;
-          }, 0);
-      const sumUpTo = (data, y, m) =>
-          Object.entries(data).reduce((s, [k, v]) => {
-              const p = k.split('-');
-              const ky = Number(p[0]), km = Number(p[1]);
-              return (ky < y || (ky === y && km <= m)) ? s + (Number(v) || 0) : s;
-          }, 0);
+  // ───────── 통일 계산기 (2026-06-11 전수검사 §6: 계산 로직 일원화) ─────────
+  // 장부B(progressRecords) 월별 합산 맵 — 메인 행 키 + sub_i_* 하위 행 키 모두 포함
+  // key: pid 우선(A-4b) → execNo → _id/id 폴백 (ProgressModal과 동일 규칙), 이관 표시(_migratedTo) 문서는 무시
+  const getRecordMonthlySums = (p) => {
+      const pick = (k) => { const r = k ? progressRecordsMap[k] : undefined; return r && !r._migratedTo ? r : undefined; };
+      const rec = pick(p.pid) || pick(p.execNo) || pick(String(p._id || p.id));
+      const self = {}, intg = {};
+      const add = (data, target) => Object.entries(data || {}).forEach(([k, v]) => {
+          const parts = String(k).split('-');
+          if (parts.length < 2) return;
+          const mk = `${parts[0]}-${String(Number(parts[1])).padStart(2, '0')}`; // 'YYYY-MM' 정규화
+          target[mk] = (target[mk] || 0) + (Number(v) || 0);
+      });
+      if (rec?.weekly) {
+          Object.keys(rec.weekly).forEach(key => {
+              if (key === 'commissioning' || /^sub_\d+_commissioning$/.test(key)) add(rec.weekly[key], self);
+              else if (key === 'intCommissioning' || /^sub_\d+_intCommissioning$/.test(key)) add(rec.weekly[key], intg);
+          });
+      }
+      return { self, intg };
+  };
+
+  // 달마다 "장부A(monthlyData) 우선 → 레거시 monthlyPoints(자체만) → 장부B(progressRecords)"
+  // 규칙으로 합친 월별 포인트 맵. 자체=self, 통합=intg
+  const hasVal = (v) => v !== undefined && v !== null && v !== '';
+  const getMergedPointsByMonth = (p) => {
+      const b = getRecordMonthlySums(p);
+      const self = { ...b.self };
+      const intg = { ...b.intg };
+      buildMonthlyPointsFromLegacy(p).forEach(mp => { if (mp?.date) self[mp.date] = safeNumber(mp.value); }); // C: monthlyPoints, 없으면 dyn_ 파싱
+      (p.monthlyData || []).forEach(md => {
+          if (!md?.date) return;
+          if (hasVal(md.currPoints)) self[md.date] = safeNumber(md.currPoints);
+          if (hasVal(md.intPoints))  intg[md.date] = safeNumber(md.intPoints);
+      });
+      return { self, intg };
+  };
+
+  // 누적/전월/금월 (자체·통합) — 화면 표, 내보내기, 셀 초기값 전부 이 함수 하나만 사용
+  const getPointsTriple = (p) => {
+      const { self, intg } = getMergedPointsByMonth(p);
+      const cm = targetMonths.currMonthStr, pm = targetMonths.prevMonthStr;
+      const upTo = (map, lim) => Object.entries(map).reduce((s, [k, v]) => (k <= lim ? s + v : s), 0);
       return {
-          curr: { self: sumMonth(selfData, cy, cm), int: sumMonth(intgData, cy, cm) },
-          prev: { self: sumMonth(selfData, py, pm), int: sumMonth(intgData, py, pm) },
-          acc:  { self: sumUpTo(selfData, cy, cm),  int: sumUpTo(intgData, cy, cm)  },
+          curr: { self: Math.trunc(self[cm] || 0), int: Math.trunc(intg[cm] || 0) },
+          prev: { self: Math.trunc(self[pm] || 0), int: Math.trunc(intg[pm] || 0) },
+          acc:  { self: Math.trunc(upTo(self, cm)), int: Math.trunc(upTo(intg, cm)) },
       };
   };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleMouseDown = (e, colKey) => {
       setResizingCol(colKey);
@@ -2619,7 +2642,7 @@ const TechTeamPMS = () => {
 
               projects.forEach(p => {
                   const { avgProgress, prevAvgProgress } = getCalculatedRowData(p);
-                  const cs = getCommissioningStats(p.execNo, p._id || p.id);
+                  const cs = getPointsTriple(p); // 통일 계산기 (화면 표와 동일 숫자)
                   secSelfAcc  += cs.acc.self;  secSelfPrev += cs.prev.self; secSelfCurr += cs.curr.self;
                   secIntAcc   += cs.acc.int;   secIntPrev  += cs.prev.int;  secIntCurr  += cs.curr.int;
 
@@ -2928,13 +2951,13 @@ const TechTeamPMS = () => {
           }
 
           // 이월 규칙(A안): 새 달 기록을 처음 만들 때, 이전 달 기록을 이어받은 뒤 입력값 반영
-          // (금월 실적 currPoints는 새 달이므로 0부터)
+          // 단, 실적(currPoints/intPoints)은 이월하지 않음 — 미정의로 두면 통일 계산기가 장부B로 폴백
           let seed = {};
           if (!existing) {
               const earlier = baseMd.filter(m => m.date < monthDate);
               if (earlier.length > 0) {
-                  const last = earlier.reduce((a, b) => (a.date > b.date ? a : b));
-                  seed = { ...last, currPoints: 0 };
+                  const { currPoints: _cp, intPoints: _ip, ...rest } = earlier.reduce((a, b) => (a.date > b.date ? a : b));
+                  seed = rest;
               }
           }
           const updatedMd = existing
@@ -3006,9 +3029,21 @@ const TechTeamPMS = () => {
       const updatedMd = existing
           ? existingMd.map(m => m.date === monthDate ? { ...m, ...newEntry } : m)
           : [...existingMd, newEntry];
+
+      // 월별 실적 리스트(팝업 키인)를 장부A(monthlyData.currPoints)에 직접 반영 — 2026-06-11 일원화
+      const updatedMd2 = [...updatedMd];
+      (formData.monthlyPoints || []).forEach(mp => {
+          if (!mp?.date) return;
+          const v = Math.round(Math.max(0, safeNumber(mp.value)));
+          const i = updatedMd2.findIndex(m => m.date === mp.date);
+          if (i >= 0) updatedMd2[i] = { ...updatedMd2[i], currPoints: v };
+          else updatedMd2.push({ date: mp.date, currPoints: v });
+      });
+
       const formDataClean = { ...formData };
       delete formDataClean.progressItems;
-      const payload = { ...formDataClean, id: projectId, team: currentTeam, monthlyData: updatedMd };
+      const payload = { ...formDataClean, id: projectId, team: currentTeam, monthlyData: updatedMd2 };
+      if (!payload.pid) payload.pid = generatePid(); // A-4a: 고유 ID 자동 발급 (불변)
 
       if (localUnsavedProjects.find(p => p.id === projectId)) {
           setLocalUnsavedProjects(prev => prev.map(p => p.id === projectId ? { ...payload, isUnsaved: true } : p));
@@ -3035,7 +3070,22 @@ const TechTeamPMS = () => {
 
       if (!db || !user || !confirmDeleteId) return;
       try {
-          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', String(confirmDeleteId)));
+          // A-4a: 삭제 도장(soft delete) — 문서를 지우지 않고 상태='삭제' 표시 (기준문서 A3 §5)
+          // 데이터·이력 보존, 상태 필터에서 '삭제'를 켜면 다시 볼 수 있음
+          const target = allProjects.find(p => String(p.id) === String(confirmDeleteId));
+          const baseMd = target?.monthlyData || [];
+          const monthStr = targetMonths.currMonthStr;
+          const idx = baseMd.findIndex(m => m.date === monthStr);
+          const updatedMd = idx >= 0
+              ? baseMd.map(m => m.date === monthStr ? { ...m, progressStatus: '삭제' } : m)
+              : [...baseMd, { date: monthStr, progressStatus: '삭제' }];
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', String(confirmDeleteId)), {
+              progressStatus: '삭제',
+              monthlyData: updatedMd,
+              _deletedAt: new Date().toISOString(),
+              _deletedBy: user?.email || user?.uid || '',
+          }, { merge: true });
+          addLog(`[삭제 도장] ${confirmDeleteId} 상태='삭제' 표시 (데이터 보존)`);
           setConfirmDeleteId(null);
       } catch (error) {
           console.error("삭제 실패", error);
@@ -3071,6 +3121,182 @@ const TechTeamPMS = () => {
       } finally {
           setIsDbLoading(false);
       }
+  };
+
+  // ── A-4a-0: 데이터 백업 (JSON 다운로드) — 마이그레이션 전 안전장치 ──
+  // 세 장부(projects 전체 / List·메타 / 주간기록) + 팀 설정을 한 파일로 저장
+  const handleBackupData = async () => {
+      if (!db || !user || !currentTeam) { setAlertMessage('로그인과 팀 선택 후 사용할 수 있습니다.'); return; }
+      setIsDbLoading(true);
+      try {
+          const backup = { savedAt: new Date().toISOString(), team: currentTeam, appVersion: 'v6.9.x' };
+          const base = ['artifacts', appId, 'public', 'data'];
+          const projSnap = await getDocs(collection(db, ...base, 'projects'));
+          backup.projects = projSnap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+          const listSnap = await getDocs(collection(db, ...base, `projectListRows_${currentTeam}`));
+          backup.projectListRows = listSnap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+          const metaSnap = await getDoc(doc(db, ...base, 'projectListMeta', currentTeam));
+          backup.projectListMeta = metaSnap.exists() ? metaSnap.data() : null;
+          const recSnap = await getDocs(collection(db, ...base, `progressRecords_${currentTeam}`));
+          backup.progressRecords = recSnap.docs.map(d => ({ _docId: d.id, ...d.data() }));
+          const setSnap = await getDoc(doc(db, ...base, 'settings', 'teamSettings'));
+          backup.teamSettings = setSnap.exists() ? setSnap.data() : null;
+
+          const counts = `projects ${backup.projects.length}건 / List ${backup.projectListRows.length}건 / 주간기록 ${backup.progressRecords.length}건`;
+          const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const ts = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          a.href = url;
+          a.download = `PMS백업_${currentTeam}_${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}_${pad(ts.getHours())}${pad(ts.getMinutes())}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          addLog(`[백업] 다운로드 완료 — ${counts}`);
+          setAlertMessage(`백업 파일 다운로드 완료!\n${counts}\n\n다운로드 폴더의 JSON 파일을 안전한 곳에 보관하세요.`);
+      } catch (e) {
+          console.error('백업 실패', e);
+          setAlertMessage(`백업 중 오류: ${e.message}`);
+      } finally { setIsDbLoading(false); }
+  };
+
+  // ── A-4a: 기존 데이터 고유 ID(pid) 일괄 발급 — 미리보기(스캔) → 확인 → 실행 ──
+  const openPidMigration = async () => {
+      if (!db || !user || !currentTeam) { setAlertMessage('로그인과 팀 선택 후 사용할 수 있습니다.'); return; }
+      setPidMigModal({ stage: 'scan' });
+      try {
+          const base = ['artifacts', appId, 'public', 'data'];
+          const projSnap = await getDocs(collection(db, ...base, 'projects'));
+          // 현재 팀 것만 (다른 팀 데이터는 그 팀 확대 시 처리)
+          const projTargets = projSnap.docs
+              .filter(d => { const p = d.data(); return p.team === currentTeam && !p.pid; })
+              .map(d => d.id);
+          const projTeamTotal = projSnap.docs.filter(d => d.data().team === currentTeam).length;
+          const listSnap = await getDocs(collection(db, ...base, `projectListRows_${currentTeam}`));
+          const listTargets = listSnap.docs.filter(d => !d.data()._pid).map(d => d.id);
+          setPidMigModal({ stage: 'ready', projTargets, listTargets, projTeamTotal, listTotal: listSnap.size });
+      } catch (e) { setPidMigModal(null); setAlertMessage('스캔 오류: ' + e.message); }
+  };
+
+  const runPidMigration = async () => {
+      const m = pidMigModal;
+      if (!m || m.stage !== 'ready') return;
+      setPidMigModal({ stage: 'running' });
+      try {
+          const base = ['artifacts', appId, 'public', 'data'];
+          let batch = writeBatch(db), cnt = 0;
+          for (const id of m.projTargets) {
+              batch.set(doc(db, ...base, 'projects', id), { pid: generatePid() }, { merge: true });
+              if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
+          }
+          for (const id of m.listTargets) {
+              batch.set(doc(db, ...base, `projectListRows_${currentTeam}`, id), { _pid: generatePid() }, { merge: true });
+              if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
+          }
+          if (cnt > 0) await batch.commit();
+          addLog(`[pid 일괄발급] 월간보고 ${m.projTargets.length}건 + List ${m.listTargets.length}건 발급 완료`);
+          setPidMigModal({ stage: 'done', projN: m.projTargets.length, listN: m.listTargets.length });
+      } catch (e) { setPidMigModal(null); setAlertMessage('발급 중 오류: ' + e.message); }
+  };
+
+  // ── A-4b: 주간장부(progressRecords) pid 통일 병합 — 스캔(드라이런) → 확인 → 실행 ──
+  // 옛 키(실행번호·행ID) 장부를 pid 장부로 병합. 충돌(같은 주차에 다른 값)은 자동 병합하지 않고 보류.
+  const sumWeeklyAll = (weekly) => {
+      let s = 0;
+      Object.values(weekly || {}).forEach(cat => {
+          if (cat && typeof cat === 'object') Object.values(cat).forEach(v => { s += Number(v) || 0; });
+      });
+      return Math.round(s * 100) / 100;
+  };
+
+  const openWkMigration = async () => {
+      if (!db || !user || !currentTeam) { setAlertMessage('로그인과 팀 선택 후 사용할 수 있습니다.'); return; }
+      setWkMigModal({ stage: 'scan' });
+      try {
+          const base = ['artifacts', appId, 'public', 'data'];
+          const recSnap = await getDocs(collection(db, ...base, `progressRecords_${currentTeam}`));
+          const recs = {}; recSnap.docs.forEach(d => { recs[d.id] = d.data(); });
+          const projSnap = await getDocs(collection(db, ...base, 'projects'));
+          const teamProjects = projSnap.docs.map(d => ({ _docId: d.id, ...d.data() })).filter(p => p.team === currentTeam);
+          const listSnap = await getDocs(collection(db, ...base, `projectListRows_${currentTeam}`));
+          const listRows = listSnap.docs.map(d => ({ _id: d.id, ...d.data() }));
+
+          const plans = []; const conflictPlans = []; const ambiguous = [];
+          const claimedKeys = new Set(); // 이미 다른 프로젝트에 배정된 옛 장부 (이중 복제 방지)
+          teamProjects.forEach(p => {
+              if (!p.pid) return;
+              // 이 프로젝트의 옛 장부 키 후보: 실행번호(팀 내 유일할 때만), 월간 문서ID, 연결된 List 행ID
+              const oldKeys = new Set();
+              const execKey = String(p.execNo || '').trim();
+              if (execKey) {
+                  const sameExecCount = teamProjects.filter(q => String(q.execNo || '').trim() === execKey).length;
+                  if (sameExecCount === 1) {
+                      oldKeys.add(execKey);
+                  } else if (recs[execKey]?.weekly && !recs[execKey]?._migratedTo) {
+                      // 중복 실행번호의 장부는 어느 프로젝트 것인지 알 수 없음 → 자동 병합 금지, 보류 목록
+                      if (!ambiguous.some(a => a.key === execKey)) {
+                          ambiguous.push({ key: execKey, count: sameExecCount, sum: sumWeeklyAll(recs[execKey].weekly) });
+                      }
+                  }
+              }
+              oldKeys.add(String(p._docId));
+              listRows.filter(r => r._pid === p.pid).forEach(r => oldKeys.add(String(r._id)));
+              oldKeys.delete(p.pid);
+              const sources = [...oldKeys].filter(k => recs[k]?.weekly && !recs[k]?._migratedTo && !claimedKeys.has(k));
+              if (sources.length === 0) return;
+              sources.forEach(k => claimedKeys.add(k));
+
+              // 병합 시뮬레이션 (기존 pid 장부 포함, 빈 칸만 채움 — 값 충돌은 기록)
+              const mergedWeekly = JSON.parse(JSON.stringify(recs[p.pid]?.weekly || {}));
+              const confs = [];
+              sources.forEach(k => {
+                  Object.entries(recs[k].weekly || {}).forEach(([cat, weeks]) => {
+                      if (!mergedWeekly[cat]) { mergedWeekly[cat] = { ...(weeks || {}) }; return; }
+                      Object.entries(weeks || {}).forEach(([wk, val]) => {
+                          const ex = mergedWeekly[cat][wk];
+                          if (ex === undefined || ex === null || ex === '') mergedWeekly[cat][wk] = val;
+                          else if (Number(ex) !== Number(val)) confs.push({ cat, wk, keep: ex, incoming: val, from: k });
+                      });
+                  });
+              });
+              const plan = {
+                  pid: p.pid, project: p.project || '(이름 없음)', sources, mergedWeekly,
+                  beforeSum: sumWeeklyAll(recs[p.pid]?.weekly), srcSums: sources.map(k => ({ k, sum: sumWeeklyAll(recs[k].weekly) })),
+                  afterSum: sumWeeklyAll(mergedWeekly), confs,
+              };
+              if (confs.length > 0) conflictPlans.push(plan); else plans.push(plan);
+          });
+          setWkMigModal({ stage: 'ready', plans, conflictPlans, ambiguous, totalRecs: recSnap.size });
+      } catch (e) { setWkMigModal(null); setAlertMessage('스캔 오류: ' + e.message); }
+  };
+
+  const runWkMigration = async () => {
+      const m = wkMigModal;
+      if (!m || m.stage !== 'ready' || m.plans.length === 0) return;
+      setWkMigModal({ stage: 'running' });
+      try {
+          const base = ['artifacts', appId, 'public', 'data'];
+          for (const plan of m.plans) {
+              await setDoc(doc(db, ...base, `progressRecords_${currentTeam}`, plan.pid), {
+                  docKey: plan.pid, pid: plan.pid,
+                  weekly: plan.mergedWeekly,
+                  _mergedFrom: plan.sources,
+                  updatedAt: new Date().toISOString(),
+              });
+              // 옛 장부는 지우지 않고 '이관 도장'만 (보존 원칙) — 읽기에서는 무시됨
+              for (const k of plan.sources) {
+                  await setDoc(doc(db, ...base, `progressRecords_${currentTeam}`, k), {
+                      _migratedTo: plan.pid, _migratedAt: new Date().toISOString(),
+                  }, { merge: true });
+              }
+          }
+          // 메모리 재로드 (표 즉시 반영)
+          const snap2 = await getDocs(collection(db, ...base, `progressRecords_${currentTeam}`));
+          const map = {}; snap2.docs.forEach(d => { map[d.id] = d.data(); });
+          setProgressRecordsMap(map);
+          addLog(`[주간장부 통일] ${m.plans.length}건 병합 완료 (충돌 보류 ${m.conflictPlans.length}건)`);
+          setWkMigModal({ stage: 'done', n: m.plans.length, c: m.conflictPlans.length });
+      } catch (e) { setWkMigModal(null); setAlertMessage('병합 오류: ' + e.message); }
   };
 
   const saveSettingsToDB = async (newSettings) => {
@@ -3481,10 +3707,11 @@ const TechTeamPMS = () => {
               
               return {
                   id: projectId, parentId, isSub, team: currentTeam,
+                  pid: generatePid(), // A-4a: 고유 ID 자동 발급
                   execNo, estNo, progressStatus: status, client, investReview, material, workScope, factory, project: project || '이름 없음',
                   content, point, l1, l2, status, manager, startDate, endDate,
                   plc, etos, hmi, internalTest, integratedTest,
-                  progress: 0, totalCommissioningPoints: point, monthlyPoints 
+                  progress: 0, totalCommissioningPoints: point, monthlyPoints
               };
           }).filter(item => item !== null); 
 
@@ -3919,7 +4146,7 @@ const TechTeamPMS = () => {
                                   const hasPending = !p.isUnsaved && !!pendingEdits[String(rId)];
                                   // dp: 화면 표시용 (pendingEdits 반영). 카운트/필터링은 p(원본)만 사용
                                   const dp = hasPending ? { ...p, ...pendingEdits[String(rId)] } : p;
-                                  const { avgProgress, prevAvgProgress, accPointsVal, prevPointsVal, currPointsVal, currPlc, currEtos, currHmi, currInternalTest, currIntegratedTest, appliedKeys } = getCalculatedRowData(dp);
+                                  const { avgProgress, prevAvgProgress, pointsTriple, currPlc, currEtos, currHmi, currInternalTest, currIntegratedTest, appliedKeys } = getCalculatedRowData(dp);
                                   const isApplied = (k) => appliedKeys.includes(k);
                                   const style = getStatusStyle(safeRender(getEffectiveStatus(dp)));
                                   const isActivePanel = weeklyPanel?.projectId === rId;
@@ -3973,57 +4200,20 @@ const TechTeamPMS = () => {
                                               else if (col.key === 'internalTest') content = isApplied('internalTest') ? `${currInternalTest}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
                                               else if (col.key === 'integratedTest') content = isApplied('integratedTest') ? `${currIntegratedTest}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
                                               else if (col.key === 'prevProgress') content = `${prevAvgProgress}%`;
-                                              else if (col.key === 'accPoints') {
-                                                  const cs = getCommissioningStats(p.execNo, p._id || p.id);
+                                              else if (col.key === 'accPoints' || col.key === 'prevPoints' || col.key === 'currPoints') {
+                                                  // 통일 계산기: 세 칸 모두 같은 출처(pointsTriple), 같은 표시(자체/통합 병기)
+                                                  const t = col.key === 'accPoints' ? pointsTriple.acc
+                                                          : col.key === 'prevPoints' ? pointsTriple.prev
+                                                          : pointsTriple.curr;
                                                   const selfOn = isApplied('internalTest');
                                                   const intOn  = isApplied('integratedTest');
-                                                  const total = (selfOn ? cs.acc.self : 0) + (intOn ? cs.acc.int : 0);
+                                                  const total = (selfOn ? t.self : 0) + (intOn ? t.int : 0);
                                                   const maxPt = Math.trunc(safeNumber(dp.totalCommissioningPoints ?? dp.point));
                                                   const over = maxPt > 0 && total > maxPt;
-                                                  const parts = []; if (selfOn) parts.push(cs.acc.self.toLocaleString()); if (intOn) parts.push(cs.acc.int.toLocaleString());
-                                                  const txt = parts.join(' / ');
-                                                  const titleParts = []; if (selfOn) titleParts.push(`자체: ${cs.acc.self}`); if (intOn) titleParts.push(`통합: ${cs.acc.int}`);
-                                                  content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt || '-'}</span>;
-                                              }
-                                              else if (col.key === 'prevPoints') {
-                                                  const prevMonthEntry = dp.monthlyData?.find(m => m.date === targetMonths.prevMonthStr);
-                                                  const hasMonthlyCurrPoints = prevMonthEntry !== undefined && prevMonthEntry.currPoints !== undefined;
-                                                  if (hasMonthlyCurrPoints) {
-                                                      const maxPt = Math.trunc(safeNumber(dp.totalCommissioningPoints ?? dp.point));
-                                                      const over = maxPt > 0 && prevPointsVal > maxPt;
-                                                      content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined}>{prevPointsVal > 0 ? prevPointsVal.toLocaleString() : '-'}</span>;
-                                                  } else {
-                                                      const cs = getCommissioningStats(p.execNo, p._id || p.id);
-                                                      const selfOn = isApplied('internalTest');
-                                                      const intOn  = isApplied('integratedTest');
-                                                      const total = (selfOn ? cs.prev.self : 0) + (intOn ? cs.prev.int : 0);
-                                                      const maxPt = Math.trunc(safeNumber(dp.totalCommissioningPoints ?? dp.point));
-                                                      const over = maxPt > 0 && total > maxPt;
-                                                      const parts = []; if (selfOn) parts.push(cs.prev.self.toLocaleString()); if (intOn) parts.push(cs.prev.int.toLocaleString());
-                                                      const txt = parts.join(' / ');
-                                                      const titleParts = []; if (selfOn) titleParts.push(`자체: ${cs.prev.self}`); if (intOn) titleParts.push(`통합: ${cs.prev.int}`);
-                                                      content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt || '-'}</span>;
-                                                  }
-                                              }
-                                              else if (col.key === 'currPoints') {
-                                                  const currMonthEntry = dp.monthlyData?.find(m => m.date === targetMonths.currMonthStr);
-                                                  const hasMonthlyCurrPoints = currMonthEntry !== undefined && currMonthEntry.currPoints !== undefined;
-                                                  if (hasMonthlyCurrPoints) {
-                                                      const maxPt = Math.trunc(safeNumber(dp.totalCommissioningPoints ?? dp.point));
-                                                      const over = maxPt > 0 && currPointsVal > maxPt;
-                                                      content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined}>{currPointsVal > 0 ? currPointsVal.toLocaleString() : '-'}</span>;
-                                                  } else {
-                                                      const cs = getCommissioningStats(p.execNo, p._id || p.id);
-                                                      const selfOn = isApplied('internalTest');
-                                                      const intOn  = isApplied('integratedTest');
-                                                      const total = (selfOn ? cs.curr.self : 0) + (intOn ? cs.curr.int : 0);
-                                                      const maxPt = Math.trunc(safeNumber(dp.totalCommissioningPoints ?? dp.point));
-                                                      const over = maxPt > 0 && total > maxPt;
-                                                      const parts = []; if (selfOn) parts.push(cs.curr.self.toLocaleString()); if (intOn) parts.push(cs.curr.int.toLocaleString());
-                                                      const txt = parts.join(' / ');
-                                                      const titleParts = []; if (selfOn) titleParts.push(`자체: ${cs.curr.self}`); if (intOn) titleParts.push(`통합: ${cs.curr.int}`);
-                                                      content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt || '-'}</span>;
-                                                  }
+                                                  const parts = []; if (selfOn) parts.push(t.self > 0 ? t.self.toLocaleString() : '-'); if (intOn) parts.push(t.int > 0 ? t.int.toLocaleString() : '-');
+                                                  const txt = parts.every(v => v === '-') ? '-' : parts.join(' / ');
+                                                  const titleParts = []; if (selfOn) titleParts.push(`자체: ${t.self}`); if (intOn) titleParts.push(`통합: ${t.int}`);
+                                                  content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt}</span>;
                                               }
                                               else if (col.key === 'totalCommissioningPoints') content = safeNumber(dp[col.key]).toLocaleString();
                                               else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; content = <span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt)}</span>; }
@@ -4094,9 +4284,9 @@ const TechTeamPMS = () => {
                                                           className="group/inline flex items-center justify-between w-full h-full cursor-pointer hover:bg-slate-800/80 rounded px-1 -mx-1 transition-colors min-h-[24px]"
                                                           onClick={(e) => {
                                                               e.stopPropagation();
-                                                              const initVal = col.key === 'prevPoints' ? prevPointsVal
-                                                                  : col.key === 'currPoints' ? currPointsVal
-                                                                  : col.key === 'accPoints' ? accPointsVal
+                                                              const initVal = col.key === 'prevPoints' ? pointsTriple.prev.self
+                                                                  : col.key === 'currPoints' ? pointsTriple.curr.self
+                                                                  : col.key === 'accPoints' ? pointsTriple.acc.self
                                                                   : col.key === 'progressStatus' ? getEffectiveStatus(dp)
                                                                   : col.key === 'plc' ? currPlc
                                                                   : col.key === 'etos' ? currEtos
@@ -4185,7 +4375,7 @@ const TechTeamPMS = () => {
       if (!graphProject) return null;
       const totalPoints = Math.trunc(safeNumber(graphProject.totalCommissioningPoints ?? graphProject.point));
       const md = graphProject.monthlyData || [];
-      const legacyPts = buildMonthlyPointsFromLegacy(graphProject);
+      const mergedSelfPts = getMergedPointsByMonth(graphProject).self; // 통일 계산기 (A→C→B)
 
       // 시작일/완료일 기반 범위 (없으면 현재월 포함 12개월)
       const now = new Date();
@@ -4223,14 +4413,8 @@ const TechTeamPMS = () => {
           const showYear = prevYyyy === null || yyyy !== prevYyyy;
           prevYyyy = yyyy;
 
-          let monthPt = 0;
           const mdEntry = md.find(m => m.date === dStr);
-          if (mdEntry) {
-              monthPt = Math.trunc(safeNumber(mdEntry.currPoints));
-          } else {
-              const legEntry = legacyPts.find(p => p.date === dStr);
-              if (legEntry) monthPt = Math.trunc(safeNumber(legEntry.value));
-          }
+          const monthPt = Math.trunc(safeNumber(mergedSelfPts[dStr] || 0)); // 통일 계산기와 동일 출처
 
           let progressPct = 0;
           if (mdEntry) {
@@ -4247,7 +4431,7 @@ const TechTeamPMS = () => {
       const totalAcc = runningAcc;
       const progressPercent = totalPoints > 0 ? Math.min(Math.round((totalAcc / totalPoints) * 100), 100) : 0;
       return { timeline, totalPoints, totalAcc, progressPercent, startDateStr, endDateStr };
-  }, [graphProject, teamSettings, currentTeam]);
+  }, [graphProject, teamSettings, currentTeam, progressRecordsMap]);
 
   // ── 팀 전체 실적 그래프 데이터 ───────────────────────────────────────────
   const teamGraphData = useMemo(() => {
@@ -4551,9 +4735,11 @@ const TechTeamPMS = () => {
           : [];
 
       setPanelApplying(true);
-      console.log('[PanelApply] execNo=', execNo, 'team=', team, 'currWKey=', currWKey);
+      // A-4b: 장부 이름 = pid 우선 (연결된 프로젝트), 없으면 실행번호 (기존 호환)
+      const panelDocKey = parentProj?.pid || execNo;
+      console.log('[PanelApply] docKey=', panelDocKey, 'execNo=', execNo, 'team=', team, 'currWKey=', currWKey);
       try {
-          const docRef = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, execNo);
+          const docRef = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, panelDocKey);
           const snap = await getDoc(docRef);
           const existing = snap.exists() ? (snap.data().weekly || {}) : {};
           const merged = JSON.parse(JSON.stringify(existing)); // deep copy
@@ -4636,10 +4822,14 @@ const TechTeamPMS = () => {
           }
 
           await setDoc(docRef, {
-              docKey: execNo, execNo,
+              docKey: panelDocKey, execNo,
+              ...(parentProj?.pid ? { pid: parentProj.pid } : {}),
               weekly: merged,
               updatedAt: new Date().toISOString(),
           }, { merge: true });
+
+          // 메모리 즉시 갱신 (표가 바로 새 숫자를 보게)
+          setProgressRecordsMap(prev => ({ ...prev, [panelDocKey]: { ...(prev[panelDocKey] || {}), weekly: merged } }));
 
           const savedItems = Object.keys(merged).filter(k => merged[k][currWKey] !== undefined).length;
           console.log('[PanelApply] 저장된 키:', Object.keys(merged).filter(k => merged[k][currWKey] !== undefined), '/ 전체 merged 키:', Object.keys(merged));
@@ -5520,9 +5710,10 @@ const TechTeamPMS = () => {
                   {contextMenu && (
                       <div 
                           className="fixed z-[9999] bg-slate-800 border border-slate-600 shadow-2xl rounded-2xl py-1.5 w-44 animate-in fade-in zoom-in duration-100 overflow-hidden"
-                          style={{ 
-                              top: Math.min(contextMenu.y, window.innerHeight - 150), 
-                              left: Math.min(contextMenu.x, window.innerWidth - 180)  
+                          style={{
+                              // 메뉴 실제 높이(~260px)만큼 화면 하단에서 띄워 '삭제하기'까지 항상 보이게
+                              top: Math.min(contextMenu.y, window.innerHeight - 270),
+                              left: Math.min(contextMenu.x, window.innerWidth - 180)
                           }}
                           onClick={(e) => e.stopPropagation()} 
                       >
@@ -5713,6 +5904,18 @@ const TechTeamPMS = () => {
                                                   <TerminalSquare size={14} className={showDebug ? 'text-emerald-400' : 'text-slate-500'} />
                                                   디버그 모드
                                                   <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug ? 'border-emerald-500 text-emerald-400' : 'border-slate-600 text-slate-500'}`}>{showDebug ? 'ON' : 'OFF'}</span>
+                                              </button>
+                                              {/* A-4a-0: 데이터 백업 */}
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); handleBackupData(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-amber-300 flex items-center gap-2 transition-colors border-b border-slate-800">
+                                                  <Download size={14} className="text-amber-400" /> 데이터 백업 (JSON 저장)
+                                              </button>
+                                              {/* A-4a: pid 일괄 발급 */}
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); openPidMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-violet-300 flex items-center gap-2 transition-colors border-b border-slate-800">
+                                                  <ListChecks size={14} className="text-violet-400" /> 고유 ID 일괄 발급 (A-4a)
+                                              </button>
+                                              {/* A-4b: 주간장부 pid 통일 병합 */}
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); openWkMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-cyan-300 flex items-center gap-2 transition-colors border-b border-slate-800">
+                                                  <TrendingUp size={14} className="text-cyan-400" /> 주간장부 통일 병합 (A-4b)
                                               </button>
                                               {/* 로컬→DB (조건부) */}
                                               {localSnapMonths.length > 0 && (
@@ -6206,12 +6409,117 @@ const TechTeamPMS = () => {
               <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
                   <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                           <Trash2 className="w-12 h-12 text-rose-500 mx-auto mb-4 opacity-80" />
-                          <p className="text-white text-lg font-bold mb-2">프로젝트 삭제</p>
-                          <p className="text-slate-400 text-sm mb-8">정말로 삭제하시겠습니까?<br/>이 작업은 되돌릴 수 없습니다.</p>
+                          <p className="text-white text-lg font-bold mb-2">프로젝트 삭제 표시</p>
+                          <p className="text-slate-400 text-sm mb-3">이 프로젝트에 <b className="text-rose-400">'삭제' 도장</b>을 찍습니다.</p>
+                          <p className="text-slate-500 text-xs mb-8">데이터와 이력은 보존됩니다. 상태 필터에서 '삭제'를 켜면<br/>다시 볼 수 있고, 상태를 바꾸면 복구됩니다.</p>
                           <div className="flex gap-3 justify-center">
                               <button onClick={() => setConfirmDeleteId(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
-                              <button onClick={executeDeleteProject} className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-rose-900/30">삭제하기</button>
+                              <button onClick={executeDeleteProject} className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-rose-900/30">삭제 표시</button>
                           </div>
+                  </div>
+              </div>
+          )}
+
+          {/* A-4a: pid 일괄 발급 모달 — 스캔 → 확인 → 실행 → 완료 */}
+          {pidMigModal && (
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
+                  <div className="bg-slate-900 border border-violet-500/30 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
+                      <ListChecks className="w-12 h-12 text-violet-400 mx-auto mb-4" />
+                      <p className="text-white text-lg font-bold mb-2">고유 ID(pid) 일괄 발급</p>
+                      {pidMigModal.stage === 'scan' && (
+                          <p className="text-slate-400 text-sm mb-4">대상을 스캔하는 중...</p>
+                      )}
+                      {pidMigModal.stage === 'ready' && (
+                          <>
+                              <div className="text-left text-sm text-slate-300 bg-slate-800/60 rounded-xl p-4 mb-4 leading-7">
+                                  <div>월간보고({currentTeam}): 전체 {pidMigModal.projTeamTotal}건 중 <b className="text-violet-300">{pidMigModal.projTargets.length}건</b> 발급 대상</div>
+                                  <div>프로젝트 List: 전체 {pidMigModal.listTotal}건 중 <b className="text-violet-300">{pidMigModal.listTargets.length}건</b> 발급 대상</div>
+                                  <div className="text-slate-500 text-xs mt-2">이미 ID가 있는 항목은 건드리지 않습니다. 내용·실적 데이터는 변경되지 않습니다.</div>
+                              </div>
+                              {(pidMigModal.projTargets.length + pidMigModal.listTargets.length) === 0 ? (
+                                  <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">모두 발급되어 있음 — 닫기</button>
+                              ) : (
+                                  <div className="flex gap-3 justify-center">
+                                      <button onClick={() => setPidMigModal(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
+                                      <button onClick={runPidMigration} className="flex-1 px-4 py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-violet-900/30">발급 실행</button>
+                                  </div>
+                              )}
+                          </>
+                      )}
+                      {pidMigModal.stage === 'running' && (
+                          <p className="text-violet-300 text-sm mb-4 animate-pulse">발급 중... 창을 닫지 마세요</p>
+                      )}
+                      {pidMigModal.stage === 'done' && (
+                          <>
+                              <p className="text-emerald-400 text-sm mb-4 font-bold">완료! 월간보고 {pidMigModal.projN}건 + List {pidMigModal.listN}건 발급</p>
+                              <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">닫기</button>
+                          </>
+                      )}
+                  </div>
+              </div>
+          )}
+
+          {/* A-4b: 주간장부 pid 통일 병합 모달 */}
+          {wkMigModal && (
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
+                  <div className="bg-slate-900 border border-cyan-500/30 p-8 rounded-3xl max-w-lg w-full text-center shadow-2xl">
+                      <TrendingUp className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
+                      <p className="text-white text-lg font-bold mb-2">주간장부 통일 병합 (A-4b)</p>
+                      {wkMigModal.stage === 'scan' && (
+                          <p className="text-slate-400 text-sm mb-4">옛 장부(실행번호·행ID 이름)를 스캔하는 중...</p>
+                      )}
+                      {wkMigModal.stage === 'ready' && (
+                          <>
+                              <div className="text-left text-sm text-slate-300 bg-slate-800/60 rounded-xl p-4 mb-3 leading-6">
+                                  <div>병합 가능: <b className="text-cyan-300">{wkMigModal.plans.length}건</b> / 충돌 보류: <b className="text-amber-300">{wkMigModal.conflictPlans.length}건</b> (전체 주간장부 {wkMigModal.totalRecs}개)</div>
+                                  <div className="text-slate-500 text-xs mt-1">옛 장부는 지우지 않고 '이관 도장'만 찍습니다. 같은 주차에 같은 값은 1번만 남습니다.</div>
+                              </div>
+                              {wkMigModal.plans.length > 0 && (
+                                  <div className="text-left text-xs bg-slate-800/40 rounded-xl p-3 mb-3 max-h-44 overflow-y-auto custom-scrollbar">
+                                      {wkMigModal.plans.map(pl => (
+                                          <div key={pl.pid} className="py-1 border-b border-slate-800 last:border-0">
+                                              <span className="text-slate-200 font-bold">{pl.project}</span>
+                                              <span className="text-slate-500"> — 옛 장부 {pl.sources.length}개 → 병합 후 합계 {pl.afterSum.toLocaleString()}</span>
+                                          </div>
+                                      ))}
+                                  </div>
+                              )}
+                              {wkMigModal.conflictPlans.length > 0 && (
+                                  <div className="text-left text-xs bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 mb-3 max-h-32 overflow-y-auto custom-scrollbar">
+                                      <div className="text-amber-300 font-bold mb-1">충돌 보류 (자동 병합 안 함 — 개별 확인 필요)</div>
+                                      {wkMigModal.conflictPlans.map(pl => (
+                                          <div key={pl.pid} className="py-0.5 text-amber-200/80">{pl.project} — 같은 주차 다른 값 {pl.confs.length}건</div>
+                                      ))}
+                                  </div>
+                              )}
+                              {(wkMigModal.ambiguous || []).length > 0 && (
+                                  <div className="text-left text-xs bg-rose-900/20 border border-rose-500/30 rounded-xl p-3 mb-3 max-h-32 overflow-y-auto custom-scrollbar">
+                                      <div className="text-rose-300 font-bold mb-1">주인 불명 보류 — 중복 실행번호 장부 (자동 병합 금지)</div>
+                                      {wkMigModal.ambiguous.map(a => (
+                                          <div key={a.key} className="py-0.5 text-rose-200/80">실행번호 '{a.key}' 장부 — 같은 번호 프로젝트 {a.count}개, 합계 {a.sum.toLocaleString()}pt → 어느 것인지 확인 필요</div>
+                                      ))}
+                                  </div>
+                              )}
+                              {wkMigModal.plans.length === 0 ? (
+                                  <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">병합할 옛 장부 없음 — 닫기</button>
+                              ) : (
+                                  <div className="flex gap-3 justify-center">
+                                      <button onClick={() => setWkMigModal(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
+                                      <button onClick={runWkMigration} className="flex-1 px-4 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-cyan-900/30">{wkMigModal.plans.length}건 병합 실행</button>
+                                  </div>
+                              )}
+                          </>
+                      )}
+                      {wkMigModal.stage === 'running' && (
+                          <p className="text-cyan-300 text-sm mb-4 animate-pulse">병합 중... 창을 닫지 마세요</p>
+                      )}
+                      {wkMigModal.stage === 'done' && (
+                          <>
+                              <p className="text-emerald-400 text-sm mb-2 font-bold">완료! {wkMigModal.n}건 병합 (충돌 보류 {wkMigModal.c}건)</p>
+                              <p className="text-slate-500 text-xs mb-4">표의 시운전 숫자가 그대로인지 확인해주세요 (병합은 장부 이름 정리일 뿐, 숫자가 변하면 안 됩니다)</p>
+                              <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">닫기</button>
+                          </>
+                      )}
                   </div>
               </div>
           )}
@@ -6400,6 +6708,12 @@ const TechTeamPMS = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <Activity size={13} style={{ color: '#1e7ac8' }}/>
                               <span style={{ fontSize: 13, fontWeight: 800, color: '#1a1a1a' }}>{editingProject ? '업무 실적 상세 수정' : '프로젝트 등록'}</span>
+                              {/* A-4a: 고유 ID(pid) 표시 — 발급 확인용 */}
+                              {(formData.pid || editingProject?.pid) && (
+                                  <span title="고유 ID (불변·자동 발급)" style={{ fontSize: 10, fontWeight: 700, color: '#5b21b6', background: 'rgba(124,58,237,0.10)', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 4, padding: '1px 6px', marginLeft: 4 }}>
+                                      ID: {formData.pid || editingProject?.pid}
+                                  </span>
+                              )}
                               <span style={{ fontSize: 10, color: '#888', fontWeight: 500, marginLeft: 4 }}>— 창을 끌어 이동할 수 있습니다</span>
                           </div>
                           <div style={{ display:'flex', gap:8, alignItems:'center' }}>

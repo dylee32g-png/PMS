@@ -11,7 +11,7 @@ import {
 import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import { db, appId } from '../firebase';
-import { loadXLSX, loadExcelJS, loadFileSaver } from '../utils';
+import { loadXLSX, loadExcelJS, loadFileSaver, generatePid } from '../utils';
 
 const VERSION = 'v6.8.7';
 
@@ -410,6 +410,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 const sheetRows = raw.slice(dataStart).map((row, idx) => {
                     const obj = {
                         _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
+                        _pid:  generatePid(), // A-4a: 고유 ID (보존 병합 전까지는 재업로드 시 새로 발급됨 — A-4c에서 보존)
                         _year: year
                     };
                     colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
@@ -657,13 +658,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         const rowName = nameKey ? (row[nameKey] || '') : '';
         try {
             const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'projects'));
+            // A-4a: 다른 List 행과 이미 연결된 pid 집합 (연결 상태 표시용)
+            const linkedPidSet = new Set(activeRows.filter(r => r._id !== row._id).map(r => r._pid).filter(Boolean));
             const candidates = [];
             snap.forEach(d => {
                 const p = d.data();
                 if (p.team && p.team !== currentTeam) return;
                 if (!p.execNo) return;
                 const score = calcSimilarity(rowName, p.project || '');
-                candidates.push({ execNo: p.execNo, project: p.project || '', score });
+                candidates.push({
+                    execNo: p.execNo, project: p.project || '', score,
+                    docId: d.id, pid: p.pid || '',
+                    linkedToThis: !!p.pid && p.pid === (row._pid || ''),
+                    linkedToOther: !!p.pid && p.pid !== (row._pid || '') && linkedPidSet.has(p.pid),
+                });
             });
             candidates.sort((a, b) => b.score - a.score);
             setExecNoModal(prev => ({ ...prev, candidates, loading: false }));
@@ -675,19 +683,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
     const saveExecNo = async () => {
         if (!execNoModal?.selected || !execNoModal?.row) return;
-        const { row } = execNoModal;
+        const { row, selected } = execNoModal;
         const { _id, ...rest } = row;
         try {
-            await setDoc(rowDocRef(currentTeam, _id), { ...rest, '실행번호': execNoModal.selected.execNo });
+            // A-4a: 프로젝트 연결 — 실행번호 기록 + 고유 ID 통일 (List 행의 _pid가 정(正), List = 어미)
+            const rowPid = rest._pid || generatePid();
+            await setDoc(rowDocRef(currentTeam, _id), { ...rest, _pid: rowPid, '실행번호': selected.execNo });
+            if (selected.docId) {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selected.docId), { pid: rowPid }, { merge: true });
+            }
             // 로컬 상태 업데이트
             if (dataSource !== 'firebase') {
-                const updater = rows => rows.map(r => r._id === _id ? { ...r, '실행번호': execNoModal.selected.execNo } : r);
+                const updater = rows => rows.map(r => r._id === _id ? { ...r, _pid: rowPid, '실행번호': selected.execNo } : r);
                 if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
                 if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
             }
             setExecNoModal(null);
         } catch (e) {
-            setAlertMsg('실행번호 저장 오류: ' + e.message);
+            setAlertMsg('연결 저장 오류: ' + e.message);
         }
     };
 
@@ -757,12 +770,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             return;
         }
         const newId = `row_manual_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+        const newPid = generatePid(); // A-4a: 고유 ID 자동 발급
         const newYear = selectedYear || String(new Date().getFullYear());
         // 선택된 행이 있으면 해당 데이터를 초기값으로 복사
         const baseRow = selectedRowId
             ? activeRows.find(r => r._id === selectedRowId)
             : null;
-        const newRow = { _id: newId, _year: newYear };
+        const newRow = { _id: newId, _pid: newPid, _year: newYear };
         activeHeaders.forEach(h => { newRow[h] = baseRow ? (baseRow[h] || '') : ''; });
         setAddingRow(newRow);
     };
@@ -1404,7 +1418,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 <>
                     <div className="fixed inset-0 z-[8000]" onClick={() => setContextMenu(null)}/>
                     <div className="fixed z-[8001] bg-slate-800 border border-slate-600 shadow-2xl rounded-2xl py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
-                        style={{ top: Math.min(contextMenu.y, window.innerHeight-240), left: Math.min(contextMenu.x, window.innerWidth-200) }}
+                        style={{ top: Math.min(contextMenu.y, window.innerHeight-290), left: Math.min(contextMenu.x, window.innerWidth-200) }}
                         onClick={e => e.stopPropagation()}>
                         <div className="px-3 py-1.5 border-b border-slate-700/50 mb-1">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider truncate">
@@ -1417,7 +1431,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         </button>
                         <button onClick={() => { openExecNoModal(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
-                            <FileText size={16} className="text-cyan-400"/> 실행번호 등록
+                            <FileText size={16} className="text-cyan-400"/> 프로젝트 연결 (실행번호+ID)
                         </button>
                         <button onClick={() => { setProgressRow(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
@@ -1453,8 +1467,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         {/* 헤더 */}
                         <div style={{padding:'14px 20px', borderBottom:'1px solid #1e293b', display:'flex', alignItems:'center', justifyContent:'space-between', background:'#1e293b'}}>
                             <div>
-                                <div style={{color:'#e2e8f0', fontWeight:800, fontSize:14}}>실행번호 등록</div>
-                                <div style={{color:'#64748b', fontSize:11, marginTop:2}}>월간보고 프로젝트와 비교하여 실행번호를 선택하세요</div>
+                                <div style={{color:'#e2e8f0', fontWeight:800, fontSize:14}}>프로젝트 연결 (월간보고와 잇기)</div>
+                                <div style={{color:'#64748b', fontSize:11, marginTop:2}}>선택하면 실행번호가 기록되고 양쪽의 고유 ID가 하나로 통일됩니다</div>
                             </div>
                             <button onClick={() => setExecNoModal(null)} style={{background:'none', border:'none', color:'#64748b', cursor:'pointer', padding:4}}>
                                 <X size={16}/>
@@ -1497,6 +1511,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             <div style={{flex:1, fontSize:12, color: isSelected ? '#e2e8f0' : '#94a3b8'}}>
                                                 {c.project}
                                             </div>
+                                            {c.linkedToThis && (
+                                                <span style={{fontSize:9, fontWeight:800, color:'#4ade80', border:'1px solid rgba(74,222,128,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}}>현재 연결</span>
+                                            )}
+                                            {c.linkedToOther && (
+                                                <span style={{fontSize:9, fontWeight:800, color:'#fbbf24', border:'1px solid rgba(251,191,36,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}} title="다른 List 행과 이미 연결됨 — 선택 시 이 행으로 다시 연결됩니다">타 행 연결됨</span>
+                                            )}
                                             {c.score > 0 && (
                                                 <div style={{fontSize:10, color: c.score > 0.5 ? '#4ade80' : c.score > 0.2 ? '#fbbf24' : '#475569', fontWeight:700, minWidth:36, textAlign:'right'}}>
                                                     {Math.round(c.score * 100)}%
@@ -1572,6 +1592,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 {(detailRow['번호'] || detailRow['Project'] || detailRow['프로젝트']) && (
                                     <span style={{ color:'rgba(255,255,255,0.75)', fontSize:'12px', marginLeft:4 }}>
                                         — {detailRow['번호'] || detailRow['Project'] || detailRow['프로젝트']}
+                                    </span>
+                                )}
+                                {/* A-4a: 고유 ID(_pid) 표시 — 발급 확인용 */}
+                                {detailRow._pid && (
+                                    <span title="고유 ID (불변·자동 발급)" style={{ color:'#e9d5ff', background:'rgba(255,255,255,0.15)', border:'1px solid rgba(255,255,255,0.35)', borderRadius:4, fontSize:'10px', fontWeight:700, padding:'1px 6px', marginLeft:6 }}>
+                                        ID: {detailRow._pid}
                                     </span>
                                 )}
                             </div>

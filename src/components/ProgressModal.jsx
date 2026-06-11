@@ -102,12 +102,22 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     }, []); // eslint-disable-line
 
     const execNoVal = row['실행번호'] || row.execNo || '';
-    const docKey    = execNoVal || String(row._id || row.id || 'unknown');
+    // A-4b: docKey = 고유 ID(pid) 우선 — 저장은 항상 pid 장부로, 읽기는 옛 장부(실행번호→행ID) 폴백
+    const pidVal    = row.pid || row._pid || '';
+    const docKey    = pidVal || execNoVal || String(row._id || row.id || 'unknown');
 
     const loadData = useCallback(async () => {
         console.log('[ProgressModal] loadData docKey=', docKey, 'team=', team);
         try {
-            const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, docKey));
+            let snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, docKey));
+            // A-4b 전환기 폴백: pid 장부가 아직 없으면 옛 키(실행번호 → 행ID)에서 읽기 (저장 시 pid 장부로 옮겨감)
+            if (!snap.exists() && pidVal) {
+                const oldKeys = [execNoVal, String(row._id || row.id || '')].filter(k => k && k !== docKey);
+                for (const k of oldKeys) {
+                    const oldSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, k));
+                    if (oldSnap.exists() && !oldSnap.data()._migratedTo) { snap = oldSnap; console.log('[ProgressModal] 옛 장부 폴백:', k); break; }
+                }
+            }
             console.log('[ProgressModal] snap exists=', snap.exists(), 'weekly keys=', snap.exists() ? Object.keys(snap.data().weekly || {}) : []);
             if (snap.exists()) {
                 const d = snap.data();
@@ -420,8 +430,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             return s;
         };
 
-        // 시작부터 현재 월까지 월별 자체시운전 합산 맵 { 'YYYY-MM': pts }
-        const buildMonthlyCommSums = () => {
+        // 시작부터 현재 월까지 월별 시운전 합산 맵 { 'YYYY-MM': pts }
+        // keyBase: 'commissioning'(자체) | 'intCommissioning'(통합) — 하위 행이 있으면 sub_i_* 키 합산
+        const buildMonthlySums = (keyBase) => {
             const combined = {};
             const addKey = (key) => {
                 const d = weeklyData[key] || {};
@@ -435,9 +446,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 });
             };
             if (subRows.length > 0) {
-                subRows.forEach((_, i) => addKey(`sub_${i}_commissioning`));
+                subRows.forEach((_, i) => addKey(`sub_${i}_${keyBase}`));
             } else {
-                addKey('commissioning');
+                addKey(keyBase);
             }
             return combined;
         };
@@ -452,7 +463,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const selfPct = totalPt > 0 ? Math.min(100, Math.round(selfPts / totalPt * 100)) : null;
         const intPct  = totalPt > 0 ? Math.min(100, Math.round(intPts  / totalPt * 100)) : null;
 
-        const monthlyCommSums = buildMonthlyCommSums();
+        const monthlyCommSums = buildMonthlySums('commissioning');
+        const monthlyIntCommSums = buildMonthlySums('intCommissioning');
         let pm = m - 1, py = y;
         if (pm < 1) { pm = 12; py--; }
         const prevMonthStr = `${py}-${String(pm).padStart(2, '0')}`;
@@ -469,7 +481,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             currPoints: selfPts     > 0 ? selfPts     : null,
             prevPoints: prevSelfPts > 0 ? prevSelfPts : null,
             accPoints:  accSelfPts  > 0 ? accSelfPts  : null,
-            monthlyCommSums,
+            monthlyCommSums, monthlyIntCommSums,
             selfPts, intPts, prevSelfPts, accSelfPts, curWeek: nowW,
             monthStr: baseDate, month: m, prevMonthStr,
         };

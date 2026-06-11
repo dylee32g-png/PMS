@@ -141,6 +141,11 @@ export const safeRender = (val) => {
     return String(val);
 };
 
+// ── A-4a: 프로젝트 고유 ID(pid) 발급기 (기준문서 A3 확정) ──────────────────
+// 형식: P-{발급시각 36진수}-{난수 3자리}. 한 번 발급되면 불변, 재사용·재발급 금지.
+export const generatePid = () =>
+    `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
+
 export const safeNumber = (val) => {
     if (val === null || val === undefined || val === '-' || val === '') return 0;
     const cleaned = String(val).replace(/[^0-9.-]/g, '');
