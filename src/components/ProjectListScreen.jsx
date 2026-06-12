@@ -8,7 +8,7 @@ import {
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
     PanelRight, Link, Link2Off
 } from 'lucide-react';
-import { collection, doc, setDoc, deleteDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid } from '../utils';
@@ -180,7 +180,8 @@ function parseExcelHeaders(raw, addLog) {
 
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExecNo, allProjects, onShowGraph,
-    weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal }) => {
+    weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
+    baseDate = '', onApplyProgressByPid, onProgressSaved }) => {
     // ── Firebase 데이터 ──
     const [fbHeaders,   setFbHeaders]   = useState([]);
     const [fbColGroups, setFbColGroups] = useState([]);
@@ -691,6 +692,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             await setDoc(rowDocRef(currentTeam, _id), { ...rest, _pid: rowPid, '실행번호': selected.execNo });
             if (selected.docId) {
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', selected.docId), { pid: rowPid }, { merge: true });
+            }
+            // A-4b 보완(2026-06-12): 연결로 pid가 바뀌면 기존 진행실적(progressRecords)을 옛 pid→새 pid로 이전
+            // (옛 열쇠 사물함에 남아 고아가 되는 것 방지. ProgressModal의 _migratedTo 폴백 규칙과 동일)
+            const oldPid = selected.pid;
+            if (oldPid && oldPid !== rowPid) {
+                const prCol = `progressRecords_${currentTeam}`;
+                const oldRef = doc(db, 'artifacts', appId, 'public', 'data', prCol, oldPid);
+                const newRef = doc(db, 'artifacts', appId, 'public', 'data', prCol, rowPid);
+                const [oldSnap, newSnap] = await Promise.all([getDoc(oldRef), getDoc(newRef)]);
+                const oldWeekly = oldSnap.exists() ? (oldSnap.data().weekly || {}) : {};
+                const oldHasData = Object.keys(oldWeekly).length > 0;
+                const newHasData = newSnap.exists() && Object.keys(newSnap.data().weekly || {}).length > 0;
+                if (oldHasData && !oldSnap.data()._migratedTo && !newHasData) {
+                    // 새 사물함이 비어있을 때만 자동 이전 (안전)
+                    await setDoc(newRef, { weekly: oldWeekly, execNo: selected.execNo, updatedAt: new Date().toISOString(), _mergedFrom: oldPid }, { merge: true });
+                    await setDoc(oldRef, { _migratedTo: rowPid }, { merge: true });
+                } else if (oldHasData && newHasData) {
+                    // 양쪽 다 진행실적 존재 → 자동 병합 보류 (수동 도구로 확인)
+                    setAlertMsg('연결됨. 단, 양쪽 모두 진행실적이 있어 자동 이전은 보류했습니다. [설정 > 주간장부 통일 병합]에서 확인하세요.');
+                }
             }
             // 로컬 상태 업데이트
             if (dataSource !== 'firebase') {
@@ -1571,6 +1592,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         row={progressRow}
                         team={currentTeam}
                         subRows={subs}
+                        baseDate={baseDate}
+                        onApplyToMonthly={(_, data) => onApplyProgressByPid?.(progressRow._pid, data)}
+                        onProgressSaved={onProgressSaved}
                         onClose={() => setProgressRow(null)}
                     />
                 );

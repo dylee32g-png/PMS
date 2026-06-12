@@ -54,9 +54,20 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const now0 = new Date();
     const cy0 = now0.getFullYear(), cm0 = now0.getMonth() + 1;
 
-    // 전체 데이터 범위: ±6개월 (스크롤로 탐색)
-    const { y: pm6y, m: pm6m } = addMonths(cy0, cm0, -6);
-    const { y: nm6y, m: nm6m } = addMonths(cy0, cm0, 6);
+    // 표시 범위: 기본=이번 달+지난달(2개월), '전체 기간 보기'=±6개월. 데이터·합계는 그대로, 보이는 칸만 바뀜
+    const [showAllMonths, setShowAllMonths] = useState(false);
+
+    // 계산(누적·진척률)용 전체 범위 ±6개월 — 보기 범위와 무관하게 항상 고정 (합계·누적이 정확하도록)
+    const { y: allPy, m: allPm } = addMonths(cy0, cm0, -6);
+    const { y: allNy, m: allNm } = addMonths(cy0, cm0, 6);
+    const ALL_MONTHS = genMonths(allPy, allPm, allNy, allNm);
+    const ALL_WEEKS  = ALL_MONTHS.flatMap(({ year, month }) =>
+        weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))
+    );
+
+    // 화면 표시용 범위 (기본 2개월 / 전체보기 ±6개월) — 렌더링에만 사용
+    const { y: pm6y, m: pm6m } = addMonths(cy0, cm0, showAllMonths ? -6 : -1);
+    const { y: nm6y, m: nm6m } = addMonths(cy0, cm0, showAllMonths ?  6 :  0);
     const DISP_MONTHS = genMonths(pm6y, pm6m, nm6y, nm6m);
     const DISP_WEEKS  = DISP_MONTHS.flatMap(({ year, month }) =>
         weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))
@@ -64,10 +75,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     const totalLabelW = LABEL_COL_W + TYPE_COL_W;
     const weekColW    = 44;
-    // 전체 테이블 너비 (13개월 분량 — 스크롤 가능 영역)
+    // 표시 테이블 너비
     const tableW      = DISP_WEEKS.length * weekColW + totalLabelW + TOTAL_COL_W;
-    // 모달은 3개월 분량만 보이도록 고정 (≈13주 × 44px + 라벨 + 합계)
-    const visWeekCnt  = Math.round(3 * 4.4);   // ≈ 13주
+    // 모달 뷰포트: 보이는 주차에 맞추되 최대 ≈13주(전체보기 시 가로 스크롤)
+    const visWeekCnt  = Math.min(DISP_WEEKS.length, Math.round(3 * 4.4));
     const visW        = visWeekCnt * weekColW + totalLabelW + TOTAL_COL_W;
     const progressPanelW = visW + 48;
     const wSummaryPanelW = 520;
@@ -370,6 +381,26 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         scrollRef.current.scrollBy({ left: dir * weekColW * 4.4, behavior: 'smooth' });
     };
 
+    // 키인 효율: Enter/↓=아래 칸, ↑=위 칸 (행 종류가 달라도 같은 주차 열로 이동). 마우스 안 떼고 입력.
+    const cellKeyNav = (e, wKey) => {
+        const k = e.key;
+        if (k !== 'Enter' && k !== 'ArrowDown' && k !== 'ArrowUp') return;
+        const tr = e.target.closest('tr');
+        if (!tr) return;
+        const focusSameCol = (targetTr) => {
+            const t = targetTr && targetTr.querySelector(`input[data-w="${wKey}"]`);
+            if (t) { e.preventDefault(); t.focus(); if (t.select) t.select(); return true; }
+            return false;
+        };
+        if (k === 'Enter' || k === 'ArrowDown') {
+            let r = tr.nextElementSibling;
+            while (r) { if (focusSameCol(r)) return; r = r.nextElementSibling; }
+        } else {
+            let r = tr.previousElementSibling;
+            while (r) { if (focusSameCol(r)) return; r = r.previousElementSibling; }
+        }
+    };
+
     const updateWeekly = (itemKey, wKey, val) => {
         const parsed = val === '' ? undefined : Math.max(0, Number(val));
         setWeeklyData(prev => {
@@ -519,11 +550,26 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const startWKey = dateToWKey(pmsData?.startDate);
     const endWKey   = dateToWKey(pmsData?.endDate);
 
+    // (가) 합계 기준점: 기준월의 마지막 주 — 누적 % '최신값'을 읽는 기준 (그 달 입력 없으면 직전 값 이월)
+    const [refY, refM] = (baseDate && baseDate.includes('-')) ? baseDate.split('-').map(Number) : [cy0, cm0];
+    const refWeeks = weeksInMonth(refY, refM);
+    const refWKey  = `${refY}-${refM}-${refWeeks[refWeeks.length - 1]}`;
+
     const cumByKey = useMemo(() => {
         const r = {};
-        [...SIMPLE_ITEMS, ...SECONDARY_ITEMS, ...WEEKLY_ITEMS].forEach(({ key }) => {
+        // (가) 공정 항목 = 누적 %: 각 주차 값 = 그때까지의 '최신 입력값'(빈 주는 직전 값 이어받기 = 이월)
+        [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].forEach(({ key }) => {
+            let last = 0; r[key] = {};
+            ALL_WEEKS.forEach(({ key: wKey }) => {
+                const v = (weeklyData[key] || {})[wKey];
+                if (v !== undefined && v !== null && v !== '') last = Number(v) || 0;
+                r[key][wKey] = last;
+            });
+        });
+        // 시운전 = 포인트: 그때까지의 '누적 합'
+        WEEKLY_ITEMS.forEach(({ key }) => {
             let s = 0; r[key] = {};
-            DISP_WEEKS.forEach(({ key: wKey }) => {
+            ALL_WEEKS.forEach(({ key: wKey }) => {
                 s += Number((weeklyData[key] || {})[wKey]) || 0;
                 r[key][wKey] = s;
             });
@@ -535,7 +581,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         if (subRows.length === 0) return null;
         let cumSelf = 0, cumInt = 0;
         const r = {};
-        DISP_WEEKS.forEach(({ key: wKey }) => {
+        ALL_WEEKS.forEach(({ key: wKey }) => {
             subRows.forEach((_, i) => {
                 cumSelf += Number((weeklyData[`sub_${i}_commissioning`]    || {})[wKey]) || 0;
                 cumInt  += Number((weeklyData[`sub_${i}_intCommissioning`] || {})[wKey]) || 0;
@@ -546,15 +592,19 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     }, [weeklyData, subRows]); // eslint-disable-line
 
     const itemFinalPct = (key) => {
+        // (가) 공정 항목: 기준월 최신값(누적 %) — 합계 칸과 동일 기준
+        if ([...SIMPLE_ITEMS, ...SECONDARY_ITEMS].find(i => i.key === key)) {
+            return Math.min(100, cumByKey[key]?.[refWKey] || 0);
+        }
+        // 시운전: 누적 포인트 / 총포인트
         const total = Object.values(weeklyData[key] || {}).reduce((s, v) => s + (Number(v) || 0), 0);
-        if ([...SIMPLE_ITEMS, ...SECONDARY_ITEMS].find(i => i.key === key)) return Math.min(100, total);
         return totalPt > 0 ? Math.min(100, (total / totalPt) * 100) : 0;
     };
 
     const pctByWeek = useMemo(() => {
         const r = {};
         const totalItemCnt = SIMPLE_ITEMS.length + SECONDARY_ITEMS.length + 2;
-        DISP_WEEKS.forEach(({ key: wKey }) => {
+        ALL_WEEKS.forEach(({ key: wKey }) => {
             const sim = [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].reduce((s, { key }) => s + Math.min(100, cumByKey[key]?.[wKey] || 0), 0);
             let wk;
             if (subCumByWeek) {
@@ -585,13 +635,13 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         }
         const totalItemCnt = SIMPLE_ITEMS.length + SECONDARY_ITEMS.length + 2;
         return Math.round((simPct + wkPct) / totalItemCnt * 10) / 10;
-    }, [weeklyData, totalPt, subRows]); // eslint-disable-line
+    }, [weeklyData, totalPt, subRows, refWKey]); // eslint-disable-line
 
     const renderRow = (itemKey, label, color, bgLabel = '#f8fafc', useMax = false) => {
         const d = weeklyData[itemKey] || {};
         const vals = Object.values(d).map(v => Number(v)||0).filter(v => v > 0);
         const total = useMax
-            ? (vals.length > 0 ? Math.min(100, Math.max(...vals)) : 0)
+            ? Math.min(100, cumByKey[itemKey]?.[refWKey] || 0)
             : vals.reduce((s,v) => s+v, 0);
         return (
             <tr key={itemKey}>
@@ -608,12 +658,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
                     return (
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
-                            <input type="number" min="0" value={val??''} onChange={e => updateWeekly(itemKey, wKey, e.target.value)}
+                            <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
                                     border:'none', outline:'none', color: hasVal?'#1d4ed8':'#94a3b8',
                                     fontSize:15, fontWeight: hasVal?700:400,
                                     textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
-                                onFocus={e => { e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
+                                onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
                                 onBlur={e => {
                                     const v = weeklyData[itemKey]?.[wKey];
                                     const hv = v !== undefined && v !== '';
@@ -646,12 +696,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
             return (
                 <td key={wKey} className={extraCls} style={{ ...TD, background: isCur ? '#fef9e7' : bgColor }}>
-                    <input type="number" min="0" value={val??''} onChange={e => updateWeekly(itemKey, wKey, e.target.value)}
+                    <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                         style={{ display:'block', width:'100%', height:34, background: hasVal?`${valColor}15`:'transparent',
                             border:'none', outline:'none', color: hasVal?valColor:'#94a3b8',
                             fontSize:14, fontWeight: hasVal?700:400,
                             textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
-                        onFocus={e => { e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
+                        onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
                         onBlur={e => {
                             const v = (weeklyData[itemKey]||{})[wKey];
                             const hv = v !== undefined && v !== '';
@@ -946,7 +996,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             background:'#ffffff', border:'1px solid #cbd5e1', borderRadius:14,
             boxShadow:'0 20px 60px rgba(0,0,0,0.18)',
             display:'flex', flexDirection:'column', maxHeight:'88vh' }}>
-            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.progress-modal-table td:last-child { box-shadow: -6px 0 8px -7px rgba(15,23,42,0.18); }`}</style>
 
             {/* 헤더 */}
             <div onMouseDown={onDragStart} style={{ cursor:'move', background:'#f8fafc', borderRadius:'14px 14px 0 0',
@@ -1077,6 +1128,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                 <button onClick={() => scrollMonths(1)}
                                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:6, color:'#64748b', cursor:'pointer', padding:'4px 10px', display:'flex', alignItems:'center', gap:3, fontSize:12, fontWeight:700 }}>
                                     다음 <ChevronRight size={13}/>
+                                </button>
+                                <button onClick={() => setShowAllMonths(v => !v)}
+                                    style={{ background: showAllMonths ? '#dbeafe' : '#f1f5f9', border: showAllMonths ? '1px solid #93c5fd' : BORDER, borderRadius:6, color: showAllMonths ? '#1d4ed8' : '#64748b', cursor:'pointer', padding:'4px 10px', fontSize:12, fontWeight:700 }}>
+                                    {showAllMonths ? '이번 기간만' : '전체 기간 보기'}
                                 </button>
                             </div>
                         </div>

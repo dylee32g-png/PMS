@@ -1582,6 +1582,15 @@ const TechTeamPMS = () => {
       setPendingEdits(prev => { const next = { ...prev }; delete next[pid]; return next; });
   };
 
+  // A-4b ③(2026-06-12): List 화면 진행실적 적용 — pid로 연결된 월간 프로젝트를 찾아 그쪽에 적용
+  // (List 행 id는 월간 목록(allProjects)에 없으므로, 고유ID(pid)로 짝을 찾아 위 월간적용 함수에 위임)
+  const applyProgressByPid = async (pid, data) => {
+      if (!pid) return;
+      const monthly = allProjects.find(p => p.pid === pid) || localUnsavedProjects.find(p => p.pid === pid);
+      if (!monthly) { console.warn('[ApplyByPid] 연결된 월간 프로젝트 없음 pid=', pid); return; }
+      await handleApplyProgressToMonthly(monthly.id, data);
+  };
+
   // ───────── 통일 계산기 (2026-06-11 전수검사 §6: 계산 로직 일원화) ─────────
   // 장부B(progressRecords) 월별 합산 맵 — 메인 행 키 + sub_i_* 하위 행 키 모두 포함
   // key: pid 우선(A-4b) → execNo → _id/id 폴백 (ProgressModal과 동일 규칙), 이관 표시(_migratedTo) 문서는 무시
@@ -5520,6 +5529,9 @@ const TechTeamPMS = () => {
                   }}
                   highlightExecNo={highlightExecNoInList}
                   allProjects={allProjects}
+                  baseDate={baseDate}
+                  onApplyProgressByPid={applyProgressByPid}
+                  onProgressSaved={handleProgressSaved}
                   onShowGraph={(p) => setGraphProject(p)}
                   weeklyLinks={weeklyLinks}
                   weeklyPanel={weeklyPanel}
