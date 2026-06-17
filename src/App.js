@@ -116,7 +116,7 @@ const STATUS_COLORS = {
     '삭제':     { bg:'rgba(107,114,128,0.08)', text:'#9ca3af', border:'rgba(107,114,128,0.25)' },
 };
 
-const DEFAULT_PROGRESS_ITEMS = { plc: true, etos: true, hmi: true, internalTest: true, integratedTest: true };
+const DEFAULT_PROGRESS_ITEMS = { drawing: true, iomap: true, screen: true, baseinfo: true, plc: true, etos: true, hmi: true, internalTest: true, integratedTest: true };
 const initialTeamSettings = {
     '기술1팀': { factory: ['P10', 'P9', '기반기술'], manager: ['홍길동 파트장', '이순신 선임'], status: defaultStatusOptions, defaultActiveStatuses: [], defaultActiveFactories: [], colOrderV2: [], progressItems: { ...DEFAULT_PROGRESS_ITEMS } },
     '기술2팀': { factory: ['P10', 'P9', 'P8', 'P7', 'Vietnam', 'Paju'], manager: ['김준혁 부장', '조장현 차장', '최영환 팀장', '이현우 과장', '박지성 대리'], status: defaultStatusOptions, defaultActiveStatuses: [], defaultActiveFactories: [], colOrderV2: [], progressItems: { ...DEFAULT_PROGRESS_ITEMS } },
@@ -1455,6 +1455,7 @@ const TechTeamPMS = () => {
               progressStatus: currEntry.progressStatus || project.progressStatus || '',
               plc: currEntry.plc, etos: currEntry.etos, hmi: currEntry.hmi,
               internalTest: currEntry.internalTest, integratedTest: currEntry.integratedTest,
+              progressItems: { ...DEFAULT_PROGRESS_ITEMS, ...(project.progressItems || {}) },
           });
       } else {
           setEditingProject(null);
@@ -1467,7 +1468,8 @@ const TechTeamPMS = () => {
               execNo: '', estNo: '', client: '', investReview: '',
               startDate: '', endDate: '', plc: 0, etos: 0, hmi: 0, internalTest: 0, integratedTest: 0, progress: 0,
               material: 0, l1: 0, l2: 0,
-              totalCommissioningPoints: 0, monthlyPoints: []
+              totalCommissioningPoints: 0, monthlyPoints: [],
+              progressItems: { ...DEFAULT_PROGRESS_ITEMS }
           });
       }
       // 창을 화면 중앙으로 초기 배치
@@ -1481,8 +1483,9 @@ const TechTeamPMS = () => {
   };
 
   const PROGRESS_KEYS = ['plc','etos','hmi','internalTest','integratedTest'];
-  const getAppliedKeys = () => {
-      const items = teamSettings[currentTeam]?.progressItems || DEFAULT_PROGRESS_ITEMS;
+  const getAppliedKeys = (p) => {
+      // #7 프로젝트별: 그 프로젝트의 항목 설정 우선, 없으면 전부 켜짐(DEFAULT)
+      const items = (p && p.progressItems) || DEFAULT_PROGRESS_ITEMS;
       return PROGRESS_KEYS.filter(k => items[k] !== false);
   };
   const calcAvg = (entry, appliedKeys) => {
@@ -1493,7 +1496,7 @@ const TechTeamPMS = () => {
   const getCalculatedRowData = (p) => {
       const curr = getMonthEntry(p, targetMonths.currMonthStr);
       const prev = getMonthEntry(p, targetMonths.prevMonthStr);
-      const applied = getAppliedKeys();
+      const applied = getAppliedKeys(p);
 
       const avgProgress     = calcAvg(curr, applied);
       const prevAvgProgress = calcAvg(prev, applied);
@@ -3050,7 +3053,7 @@ const TechTeamPMS = () => {
       });
 
       const formDataClean = { ...formData };
-      delete formDataClean.progressItems;
+      // #7 프로젝트별 항목 on/off: progressItems를 프로젝트에 함께 저장 (이전엔 delete로 제외했음)
       const payload = { ...formDataClean, id: projectId, team: currentTeam, monthlyData: updatedMd2 };
       if (!payload.pid) payload.pid = generatePid(); // A-4a: 고유 ID 자동 발급 (불변)
 
@@ -4427,7 +4430,7 @@ const TechTeamPMS = () => {
 
           let progressPct = 0;
           if (mdEntry) {
-              const applied = getAppliedKeys();
+              const applied = getAppliedKeys(graphProject);
               if (applied.length > 0) {
                   progressPct = Math.round(applied.reduce((s, k) => s + safeNumber(mdEntry[k]), 0) / applied.length);
               }
@@ -5714,6 +5717,7 @@ const TechTeamPMS = () => {
                           getWeeklyReport={wrIdbGet}
                           parseWeekly={parseWeeklyProgressSummary}
                           baseDate={baseDate}
+                          progressItems={pmsProgressRow.progressItems || DEFAULT_PROGRESS_ITEMS}
                           onApplyToMonthly={handleApplyProgressToMonthly}
                           onProgressSaved={handleProgressSaved}
                       />
@@ -6730,7 +6734,7 @@ const TechTeamPMS = () => {
                           </div>
                           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                               {[{k:'plc',l:'PLC'},{k:'etos',l:'ETOS'},{k:'hmi',l:'HMI'},{k:'internalTest',l:'자체'},{k:'integratedTest',l:'통합'}].map(({k,l}) =>
-                                  (teamSettings[currentTeam]?.progressItems?.[k]) !== false
+                                  ((formData.progressItems || DEFAULT_PROGRESS_ITEMS)[k]) !== false
                                       ? <span key={k} style={{fontSize:11,color:'#555',fontWeight:600}}>{l}: <b style={{color:'#1e7ac8'}}>{formData[k]??0}%</b></span>
                                       : null
                               )}
@@ -6764,27 +6768,23 @@ const TechTeamPMS = () => {
                                   <div style={rowSt}>
                                       <div style={{...lbSt, alignItems:'flex-start', paddingTop:8}}>진행현황(%)<br/><span style={{fontSize:10,fontWeight:400,color:'#888'}}>적용 항목</span></div>
                                       <div style={{...valSt, padding:'6px 10px', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center'}}>
-                                          {[{k:'plc',l:'PLC'},{k:'etos',l:'ETOS'},{k:'hmi',l:'HMI'},{k:'internalTest',l:'자체시운전'},{k:'integratedTest',l:'통합시운전'}].map(({k,l}) => {
-                                              const teamItems = teamSettings[currentTeam]?.progressItems || DEFAULT_PROGRESS_ITEMS;
-                                              const applied = teamItems[k] !== false;
+                                          {[{k:'drawing',l:'도면입수'},{k:'iomap',l:'I/O Map'},{k:'screen',l:'화면작성'},{k:'baseinfo',l:'기준정보'},{k:'plc',l:'PLC'},{k:'etos',l:'ETOS'},{k:'hmi',l:'HMI'},{k:'internalTest',l:'자체시운전'},{k:'integratedTest',l:'통합시운전'}].map(({k,l}) => {
+                                              const items = formData.progressItems || DEFAULT_PROGRESS_ITEMS;
+                                              const applied = items[k] !== false;
                                               return (
                                                   <label key={k} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'3px 8px', border:`1px solid ${applied ? '#1e7ac8' : '#ccc'}`, backgroundColor: applied ? '#e8f0fe' : '#f5f5f5' }}>
                                                       <input type="checkbox" checked={applied} onChange={e => {
-                                                          const next = {
-                                                              ...teamSettings,
-                                                              [currentTeam]: {
-                                                                  ...teamSettings[currentTeam],
-                                                                  progressItems: { ...DEFAULT_PROGRESS_ITEMS, ...(teamSettings[currentTeam]?.progressItems || {}), [k]: e.target.checked }
-                                                              }
-                                                          };
-                                                          setTeamSettings(next);
-                                                          saveSettingsToDB(next);
+                                                          const checked = e.target.checked;
+                                                          setFormData(prev => ({
+                                                              ...prev,
+                                                              progressItems: { ...DEFAULT_PROGRESS_ITEMS, ...(prev.progressItems || {}), [k]: checked }
+                                                          }));
                                                       }} style={{ width:13, height:13, accentColor:'#1e7ac8', cursor:'pointer' }} />
                                                       <span style={{ fontSize:12, fontWeight:700, color: applied ? '#1e7ac8' : '#999' }}>{l}</span>
                                                   </label>
                                               );
                                           })}
-                                          <span style={{fontSize:11,color:'#888',marginLeft:4}}>미체크 시 팀 전체에 N/A 표시·공정률 계산 제외</span>
+                                          <span style={{fontSize:11,color:'#888',marginLeft:4}}>미체크 항목은 이 프로젝트 팝업에서 숨김 · 진행현황(%) 계산은 PLC·ETOS·HMI·자체·통합만 (저장해야 반영)</span>
                                       </div>
                                   </div>
                                   <div style={rowSt}><div style={lbSt}>담당자</div><div style={valSt}><select name="manager" required value={formData.manager} onChange={handleInputChange} style={inSt}>{currentManagerOptions.map(m => <option key={m} value={m}>{m}</option>)}</select></div></div>

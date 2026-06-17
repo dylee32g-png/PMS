@@ -18,6 +18,9 @@ const WEEKLY_ITEMS = [
     { key: 'commissioning',    label: '자체시운전', color: '#10b981' },
     { key: 'intCommissioning', label: '통합시운전', color: '#f43f5e' },
 ];
+// #7 항목 on/off: 진행실적 팝업 항목 키 → 팀 설정(progressItems) 키 매핑.
+// 매핑에 없는 키(도면입수 등 SIMPLE_ITEMS)는 설정 대상이 아니므로 항상 표시.
+const ITEM_SETTING_KEY = { drawing: 'drawing', iomap: 'iomap', screen: 'screen', baseinfo: 'baseinfo', plc: 'plc', etos: 'etos', hmi: 'hmi', commissioning: 'internalTest', intCommissioning: 'integratedTest' };
 
 function weeksInMonth(year, month) {
     return new Date(year, month, 0).getDate() >= 29 ? [1,2,3,4,5] : [1,2,3,4];
@@ -50,7 +53,14 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved }) => {
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {} }) => {
+    // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
+    const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
+    const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
+    const SECONDARY_ON = SECONDARY_ITEMS.filter(it => isItemOn(it.key));
+    const WEEKLY_ON    = WEEKLY_ITEMS.filter(it => isItemOn(it.key));
+    const selfOn = isItemOn('commissioning');
+    const intOn  = isItemOn('intCommissioning');
     const now0 = new Date();
     const cy0 = now0.getFullYear(), cm0 = now0.getMonth() + 1;
 
@@ -603,39 +613,42 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     const pctByWeek = useMemo(() => {
         const r = {};
-        const totalItemCnt = SIMPLE_ITEMS.length + SECONDARY_ITEMS.length + 2;
+        const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
+        // 진척률은 SIMPLE(도면입수·I/O Map·화면작성·기준정보) 제외 — SECONDARY(PLC·ETOS·HMI)+시운전만 (메인 공정률과 항목 통일)
+        const totalItemCnt = SECONDARY_ON.length + cntCommish;
         ALL_WEEKS.forEach(({ key: wKey }) => {
-            const sim = [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].reduce((s, { key }) => s + Math.min(100, cumByKey[key]?.[wKey] || 0), 0);
-            let wk;
+            const sim = [...SECONDARY_ON].reduce((s, { key }) => s + Math.min(100, cumByKey[key]?.[wKey] || 0), 0);
+            let wk = 0;
             if (subCumByWeek) {
                 const { self = 0, int = 0 } = subCumByWeek[wKey] || {};
-                wk = (totalPt > 0 ? Math.min(100, (self / totalPt) * 100) : 0)
-                   + (totalPt > 0 ? Math.min(100, (int  / totalPt) * 100) : 0);
+                if (selfOn) wk += (totalPt > 0 ? Math.min(100, (self / totalPt) * 100) : 0);
+                if (intOn)  wk += (totalPt > 0 ? Math.min(100, (int  / totalPt) * 100) : 0);
             } else {
-                wk = WEEKLY_ITEMS.reduce((s, { key }) =>
+                wk = WEEKLY_ON.reduce((s, { key }) =>
                     s + (totalPt > 0 ? Math.min(100, ((cumByKey[key]?.[wKey] || 0) / totalPt) * 100) : 0), 0);
             }
-            r[wKey] = Math.round((sim + wk) / totalItemCnt * 10) / 10;
+            r[wKey] = totalItemCnt > 0 ? Math.round((sim + wk) / totalItemCnt * 10) / 10 : 0;
         });
         return r;
-    }, [cumByKey, totalPt, subCumByWeek]); // eslint-disable-line
+    }, [cumByKey, totalPt, subCumByWeek, progressItems]); // eslint-disable-line
 
     const overallPct = useMemo(() => {
-        const simPct = [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].reduce((s, { key }) => s + itemFinalPct(key), 0);
-        let wkPct;
+        const simPct = [...SECONDARY_ON].reduce((s, { key }) => s + itemFinalPct(key), 0);
+        let wkPct = 0;
         if (subRows.length > 0) {
             const selfT = subRows.reduce((s, _, i) =>
                 s + Object.values(weeklyData[`sub_${i}_commissioning`]    || {}).reduce((a,v) => a+(Number(v)||0), 0), 0);
             const intT  = subRows.reduce((s, _, i) =>
                 s + Object.values(weeklyData[`sub_${i}_intCommissioning`] || {}).reduce((a,v) => a+(Number(v)||0), 0), 0);
-            wkPct = (totalPt > 0 ? Math.min(100, (selfT / totalPt) * 100) : 0)
-                  + (totalPt > 0 ? Math.min(100, (intT  / totalPt) * 100) : 0);
+            if (selfOn) wkPct += (totalPt > 0 ? Math.min(100, (selfT / totalPt) * 100) : 0);
+            if (intOn)  wkPct += (totalPt > 0 ? Math.min(100, (intT  / totalPt) * 100) : 0);
         } else {
-            wkPct = WEEKLY_ITEMS.reduce((s, { key }) => s + itemFinalPct(key), 0);
+            wkPct = WEEKLY_ON.reduce((s, { key }) => s + itemFinalPct(key), 0);
         }
-        const totalItemCnt = SIMPLE_ITEMS.length + SECONDARY_ITEMS.length + 2;
-        return Math.round((simPct + wkPct) / totalItemCnt * 10) / 10;
-    }, [weeklyData, totalPt, subRows, refWKey]); // eslint-disable-line
+        const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
+        const totalItemCnt = SECONDARY_ON.length + cntCommish;
+        return totalItemCnt > 0 ? Math.round((simPct + wkPct) / totalItemCnt * 10) / 10 : 0;
+    }, [weeklyData, totalPt, subRows, refWKey, progressItems]); // eslint-disable-line
 
     const renderRow = (itemKey, label, color, bgLabel = '#f8fafc', useMax = false) => {
         const d = weeklyData[itemKey] || {};
@@ -713,14 +726,21 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             );
         });
 
+        // #7 항목 on/off: 자체/통합 시운전이 꺼지면 해당 줄 숨김. 이름 칸(rowSpan)은 보이는 줄 수에 맞춤.
+        const visibleCount = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
+        if (visibleCount === 0) return null;
+        const nameCell = (
+            <td rowSpan={visibleCount} style={{ ...TD, padding:'0 6px', fontWeight:700, color:'#374151',
+                background:'#fffbeb', position:'sticky', left:0, zIndex:1,
+                textAlign:'center', verticalAlign:'middle', borderRight: BORDER_D }}>
+                <div style={{ fontSize:12, lineHeight:1.3 }}>{subName}</div>
+            </td>
+        );
         return (
             <React.Fragment key={`sub-${subIdx}`}>
+                {selfOn && (
                 <tr>
-                    <td rowSpan={2} style={{ ...TD, padding:'0 6px', fontWeight:700, color:'#374151',
-                        background:'#fffbeb', position:'sticky', left:0, zIndex:1,
-                        textAlign:'center', verticalAlign:'middle', borderRight: BORDER_D }}>
-                        <div style={{ fontSize:12, lineHeight:1.3 }}>{subName}</div>
-                    </td>
+                    {nameCell}
                     <td style={{ ...TD, padding:'0 4px', fontWeight:800, color:'#059669',
                         background:'#ecfdf5', position:'sticky', left:LABEL_COL_W, zIndex:1,
                         fontSize:11, height:34, borderRight: BORDER, textAlign:'center' }}>자체</td>
@@ -731,7 +751,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         {selfTotal > 0 ? selfTotal : ''}
                     </td>
                 </tr>
+                )}
+                {intOn && (
                 <tr>
+                    {!selfOn && nameCell}
                     <td style={{ ...TD, padding:'0 4px', fontWeight:800, color:'#be123c',
                         background:'#fff1f2', position:'sticky', left:LABEL_COL_W, zIndex:1,
                         fontSize:11, height:34, borderRight: BORDER, textAlign:'center' }}>통합</td>
@@ -742,6 +765,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         {intTotal > 0 ? intTotal : ''}
                     </td>
                 </tr>
+                )}
             </React.Fragment>
         );
     };
@@ -1172,11 +1196,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {SIMPLE_ITEMS.map(({ key, label, color }) => renderRow(key, label, color, '#fafafa', true))}
+                                    {SIMPLE_ON.map(({ key, label, color }) => renderRow(key, label, color, '#fafafa', true))}
                                     <tr>
                                         <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'#c4b5fd', height:1, border:'none' }}/>
                                     </tr>
-                                    {SECONDARY_ITEMS.map(({ key, label, color }) => renderRow(key, label, color, '#f5f3ff', true))}
+                                    {SECONDARY_ON.map(({ key, label, color }) => renderRow(key, label, color, '#f5f3ff', true))}
 
                                     <tr>
                                         <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'#e2e8f0', height:1, border:'none' }}/>
@@ -1193,10 +1217,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         <tr>
                                             <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'#cbd5e1', height:2, border:'none' }}/>
                                         </tr>
-                                        {renderCommTotal('self')}
-                                        {renderCommTotal('int')}
+                                        {selfOn && renderCommTotal('self')}
+                                        {intOn  && renderCommTotal('int')}
                                     </>) : (<>
-                                        {WEEKLY_ITEMS.map(({ key, label, color }) => renderRow(key, label, color, '#f8fafc'))}
+                                        {WEEKLY_ON.map(({ key, label, color }) => renderRow(key, label, color, '#f8fafc'))}
                                     </>)}
 
                                     <tr>
@@ -1208,11 +1232,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         {DISP_WEEKS.map(({ key: wKey, year, month, week }) => {
                                             const pct = pctByWeek[wKey] || 0;
                                             const hasData = subRows.length > 0
-                                                ? [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0)
+                                                ? [...SECONDARY_ON].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0)
                                                   || subRows.some((_, i) =>
-                                                      (Number((weeklyData[`sub_${i}_commissioning`]   ||{})[wKey])||0) > 0 ||
-                                                      (Number((weeklyData[`sub_${i}_intCommissioning`]||{})[wKey])||0) > 0)
-                                                : [...SIMPLE_ITEMS, ...SECONDARY_ITEMS, ...WEEKLY_ITEMS].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0);
+                                                      (selfOn && (Number((weeklyData[`sub_${i}_commissioning`]   ||{})[wKey])||0) > 0) ||
+                                                      (intOn  && (Number((weeklyData[`sub_${i}_intCommissioning`]||{})[wKey])||0) > 0))
+                                                : [...SECONDARY_ON, ...WEEKLY_ON].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0);
                                             const isCur = isCurrentWeek(year, month, week);
                                             const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
                                             return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:700, fontSize:11, color:'#0ea5e9', background: isCur?'#fef9e7':'#f0f9ff' }}>
