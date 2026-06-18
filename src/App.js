@@ -2398,7 +2398,7 @@ const TechTeamPMS = () => {
                       else if (key === 'prevPoints') val = prevPointsVal;
                       else if (key === 'currPoints') val = currPointsVal;
                       else if (key === 'totalCommissioningPoints') val = safeNumber(p[key]);
-                      else if (key === 'execNo' && p.isSub) val = p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? `└ ${p.execNo}` : '└ s';
+                      else if (key === 'execNo' && p.isSub) val = p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? `└ ${p.execNo}` : '└ 하위';
                       else val = safeRender(val);
 
                       row.getCell(Number(colNumber)).value = val;
@@ -2464,8 +2464,9 @@ const TechTeamPMS = () => {
                   else if (col.key === 'accPoints') val = accPointsVal;
                   else if (col.key === 'prevPoints') val = prevPointsVal;
                   else if (col.key === 'currPoints') val = currPointsVal;
+                  else if (col.key === 'point') val = safeNumber(p.totalCommissioningPoints || p.point); // B-3: 만점=tCP 우선(수정 팝업은 tCP만 갱신 → point가 옛 값일 수 있음)
                   else if (col.key === 'totalCommissioningPoints') val = safeNumber(p[col.key]);
-                  else if (col.key === 'execNo' && p.isSub) val = p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? `└ ${p.execNo}` : '└ s';
+                  else if (col.key === 'execNo' && p.isSub) val = p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? `└ ${p.execNo}` : '└ 하위';
                   else val = safeRender(val);
                   
                   rowData[col.key] = val;
@@ -3053,6 +3054,13 @@ const TechTeamPMS = () => {
       });
 
       const formDataClean = { ...formData };
+      // 만점 동기화: 수정 팝업 TOTAL POINTS(totalCommissioningPoints)를 point에도 반영.
+      // (안 하면 표 POINT 열이 옛 point를 읽어 변경이 안 보임 — 인라인 POINT 편집과 동일 처리)
+      if (formDataClean.totalCommissioningPoints !== undefined && formDataClean.totalCommissioningPoints !== '') {
+          const tcp = safeNumber(formDataClean.totalCommissioningPoints);
+          formDataClean.totalCommissioningPoints = tcp;
+          formDataClean.point = tcp;
+      }
       // #7 프로젝트별 항목 on/off: progressItems를 프로젝트에 함께 저장 (이전엔 delete로 제외했음)
       const payload = { ...formDataClean, id: projectId, team: currentTeam, monthlyData: updatedMd2 };
       if (!payload.pid) payload.pid = generatePid(); // A-4a: 고유 ID 자동 발급 (불변)
@@ -4204,7 +4212,7 @@ const TechTeamPMS = () => {
                                                       </div>
                                                   ) : p.displayNo;
                                               }
-                                              else if (col.key === 'execNo' && p.isSub) content = <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {dp.execNo !== 's' && dp.execNo !== 'S' && dp.execNo !== '-' && dp.execNo !== '' ? dp.execNo : 's'}</span>;
+                                              else if (col.key === 'execNo' && p.isSub) content = <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {dp.execNo !== 's' && dp.execNo !== 'S' && dp.execNo !== '-' && dp.execNo !== '' ? dp.execNo : '하위'}</span>;
                                               else if (col.key === 'progress' || col.key === 'currProgress') content = `${avgProgress}%`;
                                               else if (col.key === 'plc') content = isApplied('plc') ? `${currPlc}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
                                               else if (col.key === 'etos') content = isApplied('etos') ? `${currEtos}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
@@ -4228,14 +4236,14 @@ const TechTeamPMS = () => {
                                                   content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt}</span>;
                                               }
                                               else if (col.key === 'totalCommissioningPoints') content = safeNumber(dp[col.key]).toLocaleString();
-                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; content = <span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt)}</span>; }
+                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; content = <span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt) === 'sub' ? '하위' : safeRender(effSt)}</span>; }
                                               else content = safeRender(dp[col.key]);
 
                                               if (col.key === 'project') {
                                                   content = (
                                                       <div className="flex items-center gap-2">
-                                                          {p.isSub && <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? p.execNo : 's'}</span>}
-                                                          <span className={!p.isSub && hasSubs ? 'text-cyan-300 font-extrabold' : isActivePanel ? 'text-indigo-200 font-bold' : ''}>{safeRender(p.project)}</span>
+                                                          {p.isSub && <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? p.execNo : '하위'}</span>}
+                                                          <span className={!p.isSub && hasSubs ? 'text-cyan-300 font-extrabold' : isActivePanel ? 'text-indigo-200 font-bold' : ''}>{safeRender(dp.project)}</span>
                                                           {isActivePanel && <span className="px-1.5 py-0.5 bg-indigo-500/30 text-indigo-300 text-[10px] rounded font-bold border border-indigo-400/50 ml-1 shrink-0">주간보고 열람중</span>}
                                                           {p.isUnsaved && <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded font-bold border border-amber-500/30 ml-2">임시</span>}
                                                       </div>
@@ -4244,7 +4252,7 @@ const TechTeamPMS = () => {
 
                                               // ★ 월간보고 메인 화면 인라인 에디팅 적용 로직
                                               const isNAField = PROGRESS_KEYS.includes(col.key) && !isApplied(col.key);
-                                              const isEditableField = !['no', 'prevProgress', 'currProgress', 'progress', 'accPoints'].includes(col.key) && !isNAField;
+                                              const isEditableField = !['no', 'prevProgress', 'currProgress', 'progress', 'accPoints'].includes(col.key) && !isNAField && !(p.isSub && col.key === 'execNo');
                                               if (editingInline?.id === rId && editingInline?.field === col.key && !isPreviewMode && isEditableField) {
                                                   const commonProps = {
                                                       autoFocus: true,
@@ -4283,7 +4291,7 @@ const TechTeamPMS = () => {
                                                   };
                                                   
                                                   if (col.key === 'content') content = <textarea {...commonProps} className={`${commonProps.className} resize-none min-w-[200px]`} rows={3} />;
-                                                  else if (col.key === 'progressStatus') content = <select {...commonProps} onChange={(e) => handleInlineSave(rId, col.key, e.target.value)} onBlur={() => setEditingInline(null)}>{currentStatusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}</select>;
+                                                  else if (col.key === 'progressStatus') content = <select {...commonProps} onChange={(e) => handleInlineSave(rId, col.key, e.target.value)} onBlur={() => setEditingInline(null)}>{currentStatusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label === 'sub' ? '하위' : opt.label}</option>)}</select>;
                                                   else if (col.key === 'factory') content = <select {...commonProps} onChange={(e) => handleInlineSave(rId, col.key, e.target.value)} onBlur={() => setEditingInline(null)}>{currentFactoryOptions.map(f => <option key={f} value={f}>{f}</option>)}</select>;
                                                   else if (col.key === 'manager') content = <select {...commonProps} onChange={(e) => handleInlineSave(rId, col.key, e.target.value)} onBlur={() => setEditingInline(null)}>{currentManagerOptions.map(m => <option key={m} value={m}>{m}</option>)}</select>;
                                                   else if (['startDate', 'endDate'].includes(col.key)) content = <input type="date" {...commonProps} />;
@@ -6061,7 +6069,7 @@ const TechTeamPMS = () => {
                                                    : 'border border-transparent opacity-50 hover:opacity-80 hover:bg-slate-800/50'}
                                            `}>
                                           <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-                                          <span className="text-[11px] font-bold text-slate-300">sub</span>
+                                          <span className="text-[11px] font-bold text-slate-300">하위</span>
                                           <span className="text-[11px] font-black text-orange-400">{subParentCount}</span>
                                           {subParentCount > 0 && (allCollapsed
                                               ? <ChevronDown size={10} className="text-orange-400" />
@@ -6757,7 +6765,7 @@ const TechTeamPMS = () => {
                                   <div style={rowSt}><div style={lbSt}>견적번호</div><div style={valSt}><input name="estNo" value={formData.estNo || ''} onChange={handleInputChange} style={inSt} placeholder="견적 번호"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>프로젝트명</div><div style={valSt}><input name="project" required value={formData.project} onChange={handleInputChange} style={inSt} placeholder="사업 명칭"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>내용</div><div style={valSt}><input name="content" value={formData.content} onChange={handleInputChange} style={inSt} placeholder="상세 내용 및 목표"/></div></div>
-                                  <div style={rowSt}><div style={lbSt}>진행현황</div><div style={valSt}><select name="progressStatus" value={formData.progressStatus ?? formData.status ?? ''} onChange={handleInputChange} style={inSt}>{currentStatusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label}</option>)}</select></div></div>
+                                  <div style={rowSt}><div style={lbSt}>진행현황</div><div style={valSt}><select name="progressStatus" value={formData.progressStatus ?? formData.status ?? ''} onChange={handleInputChange} style={inSt}>{currentStatusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label === 'sub' ? '하위' : opt.label}</option>)}</select></div></div>
                                   <div style={rowSt}><div style={lbSt}>발주처</div><div style={valSt}><input name="client" value={formData.client || ''} onChange={handleInputChange} style={inSt} placeholder="발주처명"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>투자심의</div><div style={valSt}><input name="investReview" value={formData.investReview || ''} onChange={handleInputChange} style={inSt} placeholder="투자심의 내용"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>시작일</div><div style={valSt}><input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} style={inSt} className="color-scheme-dark"/></div></div>

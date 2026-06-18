@@ -436,7 +436,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     };
 
     const projectName = row['Project'] || row['프로젝트명'] || row['공사명'] || row.project || '프로젝트';
-    const totalPt = Number(pmsData?.point) || 0;
+    // B-3: 만점은 totalCommissioningPoints 우선(수정 팝업은 tCP만 갱신 → point는 옛 값일 수 있음), 없으면 point 폴백
+    const totalPt = Number(pmsData?.totalCommissioningPoints || pmsData?.point) || 0;
 
     const computeApplyData = () => {
         if (!baseDate) return null;
@@ -668,10 +669,13 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const val    = d[wKey];
                     const isCur  = isCurrentWeek(year, month, week);
                     const hasVal = val !== undefined && val !== '';
+                    // #8 이전값: 공정 항목(useMax=누적%)의 빈 칸에 직전 값(이월)을 흐린 힌트로 표시 (참고용·저장 안 됨)
+                    const prevVal  = useMax ? (cumByKey[itemKey]?.[wKey] || 0) : 0;
+                    const showPrev = useMax && !hasVal && prevVal > 0;
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
                     return (
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
-                            <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
+                            <input type="number" min="0" inputMode="numeric" value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
                                     border:'none', outline:'none', color: hasVal?'#1d4ed8':'#94a3b8',
                                     fontSize:15, fontWeight: hasVal?700:400,
@@ -1021,7 +1025,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             boxShadow:'0 20px 60px rgba(0,0,0,0.18)',
             display:'flex', flexDirection:'column', maxHeight:'88vh' }}>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.progress-modal-table td:last-child { box-shadow: -6px 0 8px -7px rgba(15,23,42,0.18); }`}</style>
+.progress-modal-table td:last-child { box-shadow: -6px 0 8px -7px rgba(15,23,42,0.18); }
+.progress-modal-table input::placeholder { color:#b4bcca; font-style:italic; font-weight:400; opacity:1; }`}</style>
 
             {/* 헤더 */}
             <div onMouseDown={onDragStart} style={{ cursor:'move', background:'#f8fafc', borderRadius:'14px 14px 0 0',

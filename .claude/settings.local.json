@@ -39,7 +39,8 @@
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $pids = $c.OwningProcess | Select-Object -Unique; foreach \\($id in $pids\\) { try { Stop-Process -Id $id -Force -ErrorAction Stop; \"Killed PID $id \\(was holding port 3000\\)\" } catch { \"Failed to kill PID $id : $_\" } } } else { \"Port 3000 already free - nothing to kill\" })",
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { \"Port 3000 STILL listening \\(PID \" + \\($c.OwningProcess -join ','\\) + \"\\)\" } else { \"Port 3000 free - all clear\" })",
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { \"Port 3000 BUSY \\(PID \" + \\($c.OwningProcess -join ','\\) + \"\\)\" } else { \"Port 3000 free\" })",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $pids = $c.OwningProcess | Select-Object -Unique; foreach \\($id in $pids\\) { try { Stop-Process -Id $id -Force -ErrorAction Stop; \"Killed PID $id\" } catch { \"Failed PID $id : $_\" } } } else { \"Port 3000 already free\" }; $v = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($v\\) { \"STILL BUSY\" } else { \"Port 3000 free - all clear\" })"
     ]
   }
 }

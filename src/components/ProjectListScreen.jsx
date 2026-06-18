@@ -129,6 +129,51 @@ const ASSIGNEE_NORMALIZE = {
 const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] || String(v||'');
 const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim();
 
+// ─── A-4c: 보존 병합 '미리보기(드라이런)' — Firebase 쓰기 없음, 매칭 결과만 계산 ───
+// 매칭 1순위 (연도+번호) → 2순위 (연도+Project명 정규화). 목적 = 기존 _pid·실행번호·이력 보존.
+const a4cNormName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+const a4cNumCol  = (headers) => (headers||[]).find(h => h === '번호') || (headers||[]).find(h => h.includes('번호') && !h.includes('전화') && !h.includes('사업')) || null;
+const a4cNameCol = (headers) => {
+    for (const k of ['프로젝트명', '프로젝트', 'Project', '공사명', '건명', '명칭']) {
+        const h = (headers||[]).find(x => x.includes(k));
+        if (h) return h;
+    }
+    return null;
+};
+function computeMergePreview(existingRows, pendingRows, headers) {
+    const numCol  = a4cNumCol(headers);
+    const nameCol = a4cNameCol(headers);
+    const cols    = (headers || []).filter(Boolean); // 비교 대상 = 엑셀 헤더만 (_필드·실행번호 등 보존값은 비교·변경 안 함)
+    const byNum = new Map(), byName = new Map();
+    (existingRows || []).forEach(r => {
+        const y = r._year || '';
+        if (numCol)  { const v = String(r[numCol] ?? '').trim(); if (v) byNum.set(`${y}||${v}`, r); }
+        if (nameCol) { const v = a4cNormName(r[nameCol]);        if (v) byName.set(`${y}||${v}`, r); }
+    });
+    const matched = new Set();
+    const updates = [], news = [];
+    (pendingRows || []).forEach(p => {
+        const y = p._year || '';
+        let m = null, via = '';
+        if (numCol)        { const v = String(p[numCol] ?? '').trim(); if (v) { m = byNum.get(`${y}||${v}`) || null; if (m) via = '번호'; } }
+        if (!m && nameCol) { const v = a4cNormName(p[nameCol]);        if (v) { m = byName.get(`${y}||${v}`) || null; if (m) via = 'Project명'; } }
+        if (m) {
+            matched.add(m._id);
+            const diffs = cols.filter(c => String(m[c] ?? '') !== String(p[c] ?? ''))
+                              .map(c => ({ field: c, from: String(m[c] ?? ''), to: String(p[c] ?? '') }));
+            updates.push({ _id: m._id, _pid: m._pid, year: y, num: numCol ? String(p[numCol] ?? '') : '', name: nameCol ? String(p[nameCol] ?? '') : '', via, diffs });
+        } else {
+            news.push({ year: y, num: numCol ? String(p[numCol] ?? '') : '', name: nameCol ? String(p[nameCol] ?? '') : '' });
+        }
+    });
+    const upYears = new Set((pendingRows || []).map(p => p._year || ''));
+    const missing = (existingRows || [])
+        .filter(r => upYears.has(r._year || '') && !matched.has(r._id))
+        .map(r => ({ _id: r._id, _pid: r._pid, year: r._year || '', num: numCol ? String(r[numCol] ?? '') : '', name: nameCol ? String(r[nameCol] ?? '') : '' }));
+    return { numCol, nameCol, updates, news, missing,
+        counts: { updates: updates.length, news: news.length, missing: missing.length, changed: updates.filter(u => u.diffs.length > 0).length } };
+}
+
 // ─── 엑셀 헤더 파싱 ────────────────────────────────────────────────────────
 function parseExcelHeaders(raw, addLog) {
     let startRow = 0;
@@ -504,6 +549,29 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             addLog(`[Firebase 오류] ${err.message}`);
             setAlertMsg(`Firebase 저장 오류: ${err.message}`);
         } finally { setIsLoading(false); }
+    };
+
+    // ── A-4c 병합 미리보기(드라이런) — Firebase 저장 없이 매칭 결과만 보여줌 ──
+    const handleMergePreview = () => {
+        if (!pendingData?.rows?.length) { setAlertMsg('먼저 엑셀을 업로드하세요 (미리보기 상태에서 실행).'); return; }
+        const pv = computeMergePreview(fbRows, pendingData.rows, pendingData.headers || activeHeaders);
+        const sample = (arr) => arr.slice(0, 5).map(x => x.name || x.num || '?').join(', ') + (arr.length > 5 ? ` 외 ${arr.length - 5}건` : '');
+        addLog(`[드라이런] 갱신 ${pv.counts.updates}(값변경 ${pv.counts.changed}) · 신규 ${pv.counts.news} · 엑셀에없음 ${pv.counts.missing} | 매칭열 번호=${pv.numCol||'없음'}, 이름=${pv.nameCol||'없음'}`);
+        setAlertMsg(
+`[병합 미리보기 · 드라이런]  — 저장 안 됨, 데이터 안 바뀜
+
+매칭 기준: 연도+번호(${pv.numCol || '없음'}) → 연도+이름(${pv.nameCol || '없음'})
+
+✓ 갱신 ${pv.counts.updates}건  (그중 값이 바뀌는 행 ${pv.counts.changed}건)
+＋ 신규 ${pv.counts.news}건
+⚠ 엑셀에 없음 ${pv.counts.missing}건  (삭제하지 않음)
+
+· 신규 예: ${pv.news.length ? sample(pv.news) : '-'}
+· 엑셀에 없음 예: ${pv.missing.length ? sample(pv.missing) : '-'}
+
+※ 현재 클라우드 ${fbRows.length}건 / 업로드 ${pendingData.rows.length}건 기준.
+신규가 비정상적으로 많으면 매칭 키(번호)가 안 맞는 것 — 알려주세요.`
+        );
     };
 
     // ── 로컬 데이터 삭제 ─────────────────────────────────────────────────
@@ -2053,6 +2121,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             <HardDrive size={14}/> 로컬 임시 저장
                                         </button>
                                     )}
+                                    {/* A-4c 병합 미리보기 (드라이런 · 저장 없음 · 데이터 안 바뀜) */}
+                                    {dataSource === 'pending' && (
+                                        <button onClick={() => { setSettingsOpen(false); handleMergePreview(); }}
+                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-sky-400 flex items-center gap-2 transition-colors">
+                                            <Eye size={14}/> 병합 미리보기 (드라이런)
+                                        </button>
+                                    )}
                                     {/* Firebase 확정 저장 (pending/local) */}
                                     {(dataSource === 'pending' || dataSource === 'local') && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToFirebase(); }}
@@ -2410,8 +2485,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                     }}>
                                                     {isStatusCol(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
+                                                        const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;
                                                         const c = STATUS_CHIP_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
-                                                        return <span style={{ display:'inline-block', padding:'1px 8px', fontSize:'11px', fontWeight:700, backgroundColor:'rgba(255,255,255,0.88)', color:'#1a1a1a', border:`1px solid ${c.border}` }}>{nv}</span>;
+                                                        return <span style={{ display:'inline-block', padding:'1px 8px', fontSize:'11px', fontWeight:700, backgroundColor:'rgba(255,255,255,0.88)', color:'#1a1a1a', border:`1px solid ${c.border}` }}>{disp}</span>;
                                                     })() : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : (val || <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
