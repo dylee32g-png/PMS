@@ -28,7 +28,7 @@ import WeeklyPanelViewer from './components/WeeklyPanelViewer';
 import WeeklyInputScreen from './components/WeeklyInputScreen';
 import WeeklySummaryScreen from './components/WeeklySummaryScreen';
 import HelpModal from './components/HelpModal';
-import { pmsIdbSave, pmsIdbLoad, pmsIdbDelete, wrIdbLoadAll, wrIdbAdd, wrIdbGet, wrIdbDelete, generatePid } from './utils';
+import { pmsIdbSave, pmsIdbLoad, pmsIdbDelete, wrIdbLoadAll, wrIdbAdd, wrIdbGet, wrIdbDelete, generatePid, mapLegacyStatus } from './utils';
 
 // --- Firebase 라이브러리 임포트 ---
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -3031,9 +3031,13 @@ const TechTeamPMS = () => {
       const existingMd = editingProject?.monthlyData || [];
       const monthDate  = targetMonths.currMonthStr;
       const existing   = existingMd.find(m => m.date === monthDate);
+      // C·2차: 기존 한 칸을 두 칸(계약현황·작업현황)으로 자동 파생 저장 (formData에 수동값 있으면 우선)
+      const _mappedStatus = mapLegacyStatus(formData.progressStatus);
       const newEntry   = {
           date: monthDate,
           progressStatus: formData.progressStatus || '',
+          contractStatus: formData.contractStatus ?? _mappedStatus.contractStatus,
+          workStatus:     formData.workStatus     ?? _mappedStatus.workStatus,
           plc: safeNumber(formData.plc), etos: safeNumber(formData.etos),
           hmi: safeNumber(formData.hmi), internalTest: safeNumber(formData.internalTest),
           integratedTest: safeNumber(formData.integratedTest),
@@ -6766,6 +6770,7 @@ const TechTeamPMS = () => {
                                   <div style={rowSt}><div style={lbSt}>프로젝트명</div><div style={valSt}><input name="project" required value={formData.project} onChange={handleInputChange} style={inSt} placeholder="사업 명칭"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>내용</div><div style={valSt}><input name="content" value={formData.content} onChange={handleInputChange} style={inSt} placeholder="상세 내용 및 목표"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>진행현황</div><div style={valSt}><select name="progressStatus" value={formData.progressStatus ?? formData.status ?? ''} onChange={handleInputChange} style={inSt}>{currentStatusOptions.map(opt => <option key={opt.label} value={opt.label}>{opt.label === 'sub' ? '하위' : opt.label}</option>)}</select></div></div>
+                                  {(() => { const _m = mapLegacyStatus(formData.progressStatus ?? formData.status ?? ''); return (<div style={rowSt}><div style={lbSt}>↳ 자동 2단계</div><div style={{...valSt, fontSize:'12px', color:'#64748b'}}>계약현황 <b style={{color:'#b45309'}}>{_m.contractStatus || '–'}</b> · 작업현황 <b style={{color:'#1d4ed8'}}>{_m.workStatus || '–'}</b>{_m.pending ? ' (보류 · 4차 정리)' : ''}</div></div>); })()}
                                   <div style={rowSt}><div style={lbSt}>발주처</div><div style={valSt}><input name="client" value={formData.client || ''} onChange={handleInputChange} style={inSt} placeholder="발주처명"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>투자심의</div><div style={valSt}><input name="investReview" value={formData.investReview || ''} onChange={handleInputChange} style={inSt} placeholder="투자심의 내용"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>시작일</div><div style={valSt}><input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} style={inSt} className="color-scheme-dark"/></div></div>

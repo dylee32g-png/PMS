@@ -146,6 +146,19 @@ export const safeRender = (val) => {
 export const generatePid = () =>
     `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
 
+// ── 상태 2단계(C·2차): 기존 한 칸 progressStatus → 계약현황·작업현황 자동 매핑 ──
+// 자료기준_v1.0 §1-C 기준. 기존 progressStatus는 그대로 두고(호환), 두 칸을 보조로 채운다.
+// 작업 단계 값은 계약현황을 '수주'로 함께 채움(작업하려면 수주된 것).
+// 애매한 값(신규·하위(sub)·취소·삭제·빈값)은 pending=true로 두고 4차에서 정리.
+export const mapLegacyStatus = (progressStatus) => {
+    const s = String(progressStatus || '').trim();
+    const WORK     = { '미작업': '대기', '진행': '진행', '진행중': '진행', '금월완료': '완료', '완료': '완료', '보고완료': '보고완료' };
+    const CONTRACT = { '예상': '예상', '검토중': '검토', '검토': '검토', '물량': '물량', '투심': '투심', '견적': '견적', '수주': '수주' };
+    if (WORK[s])     return { contractStatus: '수주',        workStatus: WORK[s], pending: false };
+    if (CONTRACT[s]) return { contractStatus: CONTRACT[s],   workStatus: '',      pending: false };
+    return { contractStatus: '', workStatus: '', pending: true };
+};
+
 export const safeNumber = (val) => {
     if (val === null || val === undefined || val === '-' || val === '') return 0;
     const cleaned = String(val).replace(/[^0-9.-]/g, '');
