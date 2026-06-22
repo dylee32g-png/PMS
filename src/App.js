@@ -1407,6 +1407,30 @@ const TechTeamPMS = () => {
       return p.progressStatus || '';
   };
 
+  // C·4차: 신규 자동판정 — 최초 등록월(_firstMonth)이 현재 기준월이면 신규.
+  // _firstMonth 없는 과거 프로젝트는 월별기록(monthlyData)의 가장 빠른 달로 추정.
+  const getRegMonth = (p) => {
+      if (p?._firstMonth) return p._firstMonth;
+      const dates = (p?.monthlyData || []).map(m => m.date).filter(Boolean);
+      return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : '';
+  };
+  const isNewThisMonth = (p) => { const rm = getRegMonth(p); return !!rm && rm === targetMonths.currMonthStr; };
+
+  // C·4차: 금월완료 자동판정 — 이번 달 작업현황이 완료/보고완료 AND 직전 달까지는 완료 아님 (이번 달에 '완료 전환').
+  // 작업현황(workStatus) 없으면 progressStatus를 mapLegacyStatus로 파생. 이월로 완료가 복사돼도 직전 달도 완료면 제외.
+  const isCompletedThisMonth = (p) => {
+      const md = p?.monthlyData || [];
+      const curr = targetMonths.currMonthStr;
+      const isDone = (s) => s === '완료' || s === '보고완료';
+      const wsOf = (m) => m ? (m.workStatus || mapLegacyStatus(m.progressStatus).workStatus) : '';
+      const currEntry = md.find(m => m.date === curr);
+      if (!isDone(wsOf(currEntry))) return false;
+      const earlier = md.filter(m => m.date < curr);
+      if (earlier.length === 0) return true;
+      const prev = earlier.reduce((a, b) => (a.date > b.date ? a : b));
+      return !isDone(wsOf(prev));
+  };
+
   const buildMonthlyPointsFromLegacy = (p) => {
       if (p.monthlyPoints && p.monthlyPoints.length > 0) {
           return [...p.monthlyPoints].sort((a, b) => b.date.localeCompare(a.date));
@@ -2973,9 +2997,14 @@ const TechTeamPMS = () => {
                   seed = rest;
               }
           }
+          // C·2차 마무리: 상태(progressStatus) 인라인 변경 시 → 계약현황·작업현황 두 칸도 자동 파생
+          // (수정팝업 handleSubmit과 동일 규칙. 인라인엔 수동 입력칸이 없으므로 매핑값으로 갱신)
+          const _extra = field === 'progressStatus'
+              ? (_ms => ({ contractStatus: _ms.contractStatus, workStatus: _ms.workStatus }))(mapLegacyStatus(parsedValue))
+              : {};
           const updatedMd = existing
-              ? baseMd.map(m => m.date === monthDate ? { ...m, [dataKey]: parsedValue } : m)
-              : [...baseMd, { ...seed, date: monthDate, [dataKey]: parsedValue }];
+              ? baseMd.map(m => m.date === monthDate ? { ...m, [dataKey]: parsedValue, ..._extra } : m)
+              : [...baseMd, { ...seed, date: monthDate, [dataKey]: parsedValue, ..._extra }];
           // monthlyData만 저장 — flat 필드를 업데이트하면 다른 달 폴백 시 오염됨
           updateData = { monthlyData: updatedMd };
       }
@@ -3068,6 +3097,7 @@ const TechTeamPMS = () => {
       // #7 프로젝트별 항목 on/off: progressItems를 프로젝트에 함께 저장 (이전엔 delete로 제외했음)
       const payload = { ...formDataClean, id: projectId, team: currentTeam, monthlyData: updatedMd2 };
       if (!payload.pid) payload.pid = generatePid(); // A-4a: 고유 ID 자동 발급 (불변)
+      if (!editingProject && !payload._firstMonth) payload._firstMonth = targetMonths.currMonthStr; // C·4차: 최초 등록월 (새 프로젝트만, 불변 — 신규 자동판정용)
 
       if (localUnsavedProjects.find(p => p.id === projectId)) {
           setLocalUnsavedProjects(prev => prev.map(p => p.id === projectId ? { ...payload, isUnsaved: true } : p));
@@ -4240,7 +4270,7 @@ const TechTeamPMS = () => {
                                                   content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt}</span>;
                                               }
                                               else if (col.key === 'totalCommissioningPoints') content = safeNumber(dp[col.key]).toLocaleString();
-                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; content = <span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt) === 'sub' ? '하위' : safeRender(effSt)}</span>; }
+                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; const _m2 = mapLegacyStatus(effSt); content = (<div style={{display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2}}><span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt) === 'sub' ? '하위' : safeRender(effSt)}</span>{(_m2.contractStatus || _m2.workStatus) ? (<span style={{fontSize:10, whiteSpace:'nowrap', lineHeight:1.2}} title="자동 2단계 — 계약현황 · 작업현황"><span style={{color:'#fbbf24'}}>{_m2.contractStatus || '–'}</span><span style={{color:'#64748b'}}> · </span><span style={{color:'#60a5fa'}}>{_m2.workStatus || '–'}</span></span>) : null}</div>); }
                                               else content = safeRender(dp[col.key]);
 
                                               if (col.key === 'project') {
@@ -4250,6 +4280,8 @@ const TechTeamPMS = () => {
                                                           <span className={!p.isSub && hasSubs ? 'text-cyan-300 font-extrabold' : isActivePanel ? 'text-indigo-200 font-bold' : ''}>{safeRender(dp.project)}</span>
                                                           {isActivePanel && <span className="px-1.5 py-0.5 bg-indigo-500/30 text-indigo-300 text-[10px] rounded font-bold border border-indigo-400/50 ml-1 shrink-0">주간보고 열람중</span>}
                                                           {p.isUnsaved && <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded font-bold border border-amber-500/30 ml-2">임시</span>}
+                                                          {!dp.isSub && isNewThisMonth(dp) && <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded font-bold border border-blue-500/30 ml-2">신규</span>}
+                                                          {!dp.isSub && isCompletedThisMonth(dp) && <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] rounded font-bold border border-emerald-500/30 ml-2">금월완료</span>}
                                                       </div>
                                                   );
                                               }
