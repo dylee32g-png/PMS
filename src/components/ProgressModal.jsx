@@ -10,7 +10,7 @@ const SIMPLE_ITEMS = [
     { key: 'baseinfo', label: '기준정보생성', color: '#f59e0b' },
 ];
 const SECONDARY_ITEMS = [
-    { key: 'plc',  label: 'PLC',  color: '#6366f1' },
+    { key: 'plc',  label: 'PLC',  color: 'var(--brand)' },
     { key: 'etos', label: 'ETOS', color: '#0891b2' },
     { key: 'hmi',  label: 'HMI',  color: '#7c3aed' },
 ];
@@ -677,21 +677,21 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
                             <input type="number" min="0" inputMode="numeric" value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
-                                    border:'none', outline:'none', color: hasVal?'#1d4ed8':'#94a3b8',
-                                    fontSize:15, fontWeight: hasVal?700:400,
+                                    border:'none', outline:'none', color: hasVal?'var(--brand)':'#94a3b8',
+                                    fontSize:14, fontWeight: hasVal?700:400,
                                     textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
-                                onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
+                                onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(30,122,200,0.08)'; e.target.style.boxShadow='inset 0 0 0 2px var(--brand)'; e.target.style.color='#1e293b'; }}
                                 onBlur={e => {
                                     const v = weeklyData[itemKey]?.[wKey];
                                     const hv = v !== undefined && v !== '';
                                     e.target.style.background = hv?'rgba(37,99,235,0.07)':'transparent';
                                     e.target.style.boxShadow = 'none';
-                                    e.target.style.color = hv?'#1d4ed8':'#94a3b8';
+                                    e.target.style.color = hv?'var(--brand)':'#94a3b8';
                                 }}/>
                         </td>
                     );
                 })}
-                <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:15, color: total>0?color:'#cbd5e1', background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
+                <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color: total>0?color:'var(--line)', background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                     {total > 0 ? (useMax ? `${total}%` : total) : (useMax ? '' : 0)}
                 </td>
             </tr>
@@ -718,7 +718,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             border:'none', outline:'none', color: hasVal?valColor:'#94a3b8',
                             fontSize:14, fontWeight: hasVal?700:400,
                             textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
-                        onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(99,102,241,0.1)'; e.target.style.boxShadow='inset 0 0 0 2px #6366f1'; e.target.style.color='#1e293b'; }}
+                        onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(30,122,200,0.08)'; e.target.style.boxShadow='inset 0 0 0 2px var(--brand)'; e.target.style.color='#1e293b'; }}
                         onBlur={e => {
                             const v = (weeklyData[itemKey]||{})[wKey];
                             const hv = v !== undefined && v !== '';
@@ -745,12 +745,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 {selfOn && (
                 <tr>
                     {nameCell}
-                    <td style={{ ...TD, padding:'0 4px', fontWeight:800, color:'#059669',
+                    <td style={{ ...TD, padding:'0 4px', fontWeight:800, color:'var(--st-done)',
                         background:'#ecfdf5', position:'sticky', left:LABEL_COL_W, zIndex:1,
                         fontSize:11, height:34, borderRight: BORDER, textAlign:'center' }}>자체</td>
-                    {makeInput(selfD, selfKey, '#059669', '#f0fdf4')}
+                    {makeInput(selfD, selfKey, 'var(--st-done)', '#f0fdf4')}
                     <td style={{ ...TD, padding:'0 8px', fontWeight:800, fontSize:13,
-                        color: selfTotal>0?'#059669':'#cbd5e1', background:'#ecfdf5',
+                        color: selfTotal>0?'var(--st-done)':'var(--line)', background:'#ecfdf5',
                         textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                         {selfTotal > 0 ? selfTotal : ''}
                     </td>
@@ -764,7 +764,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         fontSize:11, height:34, borderRight: BORDER, textAlign:'center' }}>통합</td>
                     {makeInput(intD, intKey, '#be123c', '#fff1f2')}
                     <td style={{ ...TD, padding:'0 8px', fontWeight:800, fontSize:13,
-                        color: intTotal>0?'#be123c':'#cbd5e1', background:'#fff1f2',
+                        color: intTotal>0?'#be123c':'var(--line)', background:'#fff1f2',
                         textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                         {intTotal > 0 ? intTotal : ''}
                     </td>
@@ -776,7 +776,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     const renderCommTotal = (type) => {
         const isSelf  = type === 'self';
-        const color   = isSelf ? '#059669' : '#be123c';
+        const color   = isSelf ? 'var(--st-done)' : '#be123c';
         const bgHead  = isSelf ? '#d1fae5' : '#ffe4e6';
         const bgCell  = isSelf ? '#ecfdf5' : '#fff1f2';
         const label   = isSelf ? '자체시운전' : '통합시운전';
@@ -799,11 +799,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const isCur = isCurrentWeek(year, month, week);
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
                     return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:700, fontSize:12,
-                        color: weekSum>0?color:'#cbd5e1', background: isCur?'#fef9e7':bgCell }}>
+                        color: weekSum>0?color:'var(--line)', background: isCur?'#fef9e7':bgCell }}>
                         {weekSum > 0 ? weekSum : ''}
                     </td>;
                 })}
-                <td style={{ ...TD, padding:'0 8px', fontWeight:800, fontSize:14, color: grandTotal>0?color:'#cbd5e1',
+                <td style={{ ...TD, padding:'0 8px', fontWeight:800, fontSize:14, color: grandTotal>0?color:'var(--line)',
                     background: bgHead, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                     {grandTotal > 0 ? grandTotal : ''}
                 </td>
@@ -813,7 +813,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     const progressColor = (pct) => {
         if (pct === null || pct === undefined) return '#666666';
-        if (pct >= 90) return '#059669';
+        if (pct >= 90) return 'var(--st-done)';
         if (pct >= 70) return '#1d6ea0';
         if (pct >= 40) return '#b45309';
         return '#dc2626';
@@ -868,7 +868,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                 실적에 적용
                             </button>
                             <button onClick={() => setWSummary(null)}
-                                style={{ background:'#f1f5f9', border:'1px solid #c0c8d4', color:'#444',
+                                style={{ background:'#f1f5f9', border:'1px solid var(--line)', color:'#444',
                                     fontSize:11, fontWeight:700, padding:'4px 10px', cursor:'pointer', borderRadius:4 }}>
                                 닫기
                             </button>
@@ -890,7 +890,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                             <span style={{ color:'#1e4f8c', fontSize:11, fontWeight:'bold' }}>{s.sheetName}</span>
                             <button onClick={toggleAll}
-                                style={{ background:'#edf1f7', border:'1px solid #c0c8d4', borderRadius:4,
+                                style={{ background:'#edf1f7', border:'1px solid var(--line)', borderRadius:4,
                                     color:'#444', fontSize:9, padding:'2px 7px', cursor:'pointer',
                                     display:'flex', alignItems:'center', gap:3 }}>
                                 {allCollapsed ? '▶ 전체 펴기' : '▼ 전체 접기'}
@@ -903,18 +903,18 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
                     <table style={{ borderCollapse:'collapse', fontSize:10, tableLayout:'fixed',
                         width: HDR_W + (normalRows.length + totalRows.length) * COL_W,
-                        border:'1px solid #c8d0dc' }}>
+                        border:'1px solid var(--line)' }}>
                         <colgroup>
                             <col style={{ width: HDR_W }}/>
                             {normalRows.map((_, i) => <col key={i} style={{ width: COL_W }}/>)}
-                            {totalRows.map((_, i) => <col key={'t'+i} style={{ width: COL_W }}/>)}
+                            {totalRows.map((_, i) => <col key={'t'+i} style={{ width: TOTAL_COL_W }}/>)}
                         </colgroup>
                         <thead>
                             <tr>
                                 <th style={{ ...thSt, textAlign:'left', position:'sticky', left:0, zIndex:2, padding:'4px 6px' }}>구분</th>
                                 {normalRows.map((row, ri) => (
                                     <th key={ri} style={{ ...thSt, textAlign:'center', color:'#1e4f8c', fontSize:10,
-                                        borderLeft:'1px solid #c8d0dc', padding:'4px 3px',
+                                        borderLeft:'1px solid var(--line)', padding:'4px 3px',
                                         overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
                                         title={row.name}>
                                         {row.name}
@@ -973,7 +973,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                     color: isKey ? '#1a1a1a' : '#444',
                                                     fontWeight: isKey ? 'bold' : 'normal',
                                                     fontSize:10, paddingLeft:10, position:'sticky', left:0,
-                                                    borderTop:'1px solid #d4dce8',
+                                                    borderTop:'1px solid var(--line)',
                                                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                                                     └ {sub.sub}
                                                 </td>
@@ -984,8 +984,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                             background:'#ffffff', textAlign:'right',
                                                             fontWeight: isKey ? 'bold' : 'normal',
                                                             color: progressColor(v.pct),
-                                                            borderLeft:'1px solid #d4dce8',
-                                                            borderTop:'1px solid #d4dce8',
+                                                            borderLeft:'1px solid var(--line)',
+                                                            borderTop:'1px solid var(--line)',
                                                             fontSize: isKey ? 12 : 10 }}>
                                                             {v.display}
                                                         </td>
@@ -999,7 +999,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                             fontWeight:'bold',
                                                             color: progressColor(v.pct),
                                                             borderLeft:'2px solid #e8d8b0',
-                                                            borderTop:'1px solid #d4dce8',
+                                                            borderTop:'1px solid var(--line)',
                                                             fontSize:12 }}>
                                                             {v.display}
                                                         </td>
@@ -1021,8 +1021,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     return (
         <div style={{ position:'fixed', left:pos.x, top:pos.y, width:modalW, zIndex:9500,
-            background:'#ffffff', border:'1px solid #cbd5e1', borderRadius:14,
-            boxShadow:'0 20px 60px rgba(0,0,0,0.18)',
+            background:'#ffffff', border:'1px solid var(--line)', borderRadius:14,
+            boxShadow:'0 20px 60px rgba(0,0,0,0.1)',
             display:'flex', flexDirection:'column', maxHeight:'88vh' }}>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .progress-modal-table td:last-child { box-shadow: -6px 0 8px -7px rgba(15,23,42,0.18); }
@@ -1044,7 +1044,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     <button
                         onClick={() => setShowWPanel(p => !p)}
                         style={{ background: showWPanel ? '#dbeafe' : '#f1f5f9', border:'1px solid #c7d2fe',
-                            color: showWPanel ? '#1d4ed8' : '#475569', fontSize:11, fontWeight:700,
+                            color: showWPanel ? 'var(--brand)' : '#475569', fontSize:11, fontWeight:700,
                             padding:'3px 10px', cursor:'pointer', display:'flex', alignItems:'center', gap:4, borderRadius:4 }}
                         title="주간보고 Excel에서 실적 가져오기">
                         주간보고 적용
@@ -1058,7 +1058,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             {showWPanel && (
                 <div style={{ flexShrink:0, background:'#eff6ff', borderBottom:'2px solid #bfdbfe',
                     padding:'8px 18px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                    <span style={{ fontSize:11, fontWeight:800, color:'#1d4ed8' }}>기간</span>
+                    <span style={{ fontSize:11, fontWeight:800, color:'var(--brand)' }}>기간</span>
                     {[['이전주', 'd1'], ['전주', 'd2'], ['금주', 'd3']].map(([label, key]) => (
                         <div key={key} style={{ display:'flex', alignItems:'center', gap:3 }}>
                             <span style={{ fontSize:10, color:'#64748b' }}>{label}</span>
@@ -1070,21 +1070,21 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     <div style={{ display:'flex', gap:6, alignItems:'center', marginLeft:'auto' }}>
                         {weeklyLinks?.[execNoVal || docKey] && (
                             <button onClick={handleWeeklyLinked} disabled={wApplying}
-                                style={{ background: wApplying ? '#93c5fd' : '#1d4ed8', border:'none', color:'#fff',
+                                style={{ background: wApplying ? '#93c5fd' : 'var(--brand)', border:'none', color:'#fff',
                                     fontSize:11, fontWeight:800, padding:'4px 14px',
                                     cursor: wApplying ? 'default' : 'pointer', borderRadius:4 }}>
                                 {wApplying ? '분석 중...' : '연결파일 불러오기'}
                             </button>
                         )}
                         <button onClick={() => weeklyFileRef.current?.click()} disabled={wApplying}
-                            style={{ background:'#ffffff', border:'1px solid #93c5fd', color:'#1d4ed8',
+                            style={{ background:'#ffffff', border:'1px solid #93c5fd', color:'var(--brand)',
                                 fontSize:11, fontWeight:700, padding:'4px 12px', cursor:'pointer', borderRadius:4 }}>
                             {wApplying ? '분석 중...' : '파일 선택'}
                         </button>
                     </div>
                     {wApplyMsg && (
                         <span style={{ width:'100%', fontSize:11, fontWeight:700,
-                            color: wApplyMsg.startsWith('✓') ? '#059669' : wApplyMsg.startsWith('분석') ? '#1d4ed8' : '#dc2626' }}>
+                            color: wApplyMsg.startsWith('✓') ? 'var(--st-done)' : wApplyMsg.startsWith('분석') ? 'var(--brand)' : '#dc2626' }}>
                             {wApplyMsg}
                         </span>
                     )}
@@ -1098,7 +1098,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         {/* POINT 정보 */}
                         {pmsData && (
                             <div style={{ flexShrink:0, padding:'7px 18px', background:'#f0fdf4', borderBottom:BORDER, display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-                                <span style={{ fontSize:10, fontWeight:800, color:'#059669', letterSpacing:'0.08em' }}>POINT</span>
+                                <span style={{ fontSize:10, fontWeight:800, color:'var(--st-done)', letterSpacing:'0.08em' }}>POINT</span>
                                 {[
                                     { label:'합',   value: pmsData.point,      color:'#374151' },
                                     { label:'실적', value: pmsData.accPoints,  color:'#3b82f6' },
@@ -1128,7 +1128,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         <div style={{ width:1, height:16, background:'#bbf7d0', flexShrink:0 }}/>
                                         <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
                                             <span style={{ fontSize:10, color:'#94a3b8' }}>실행번호</span>
-                                            <span style={{ fontSize:13, fontWeight:800, color:'#1d4ed8', fontFamily:'monospace' }}>{execNoVal}</span>
+                                            <span style={{ fontSize:13, fontWeight:800, color:'var(--brand)', fontFamily:'monospace' }}>{execNoVal}</span>
                                         </div>
                                     </>
                                 )}
@@ -1138,7 +1138,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         {/* 네비게이션 버튼 — flex 고정 영역 */}
                         <div style={{ flexShrink:0, padding:'8px 18px 4px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                             <div style={{ fontSize:10, fontWeight:800, color:'#94a3b8', letterSpacing:'0.1em', textTransform:'uppercase' }}>
-                                진행실적 <span style={{ fontWeight:400, color:'#cbd5e1' }}>· 셀 클릭으로 직접 입력</span>
+                                진행실적 <span style={{ fontWeight:400, color:'var(--line)' }}>· 셀 클릭으로 직접 입력</span>
                             </div>
                             <div style={{ display:'flex', gap:6 }}>
                                 <button onClick={() => scrollMonths(-1)}
@@ -1159,7 +1159,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                     다음 <ChevronRight size={13}/>
                                 </button>
                                 <button onClick={() => setShowAllMonths(v => !v)}
-                                    style={{ background: showAllMonths ? '#dbeafe' : '#f1f5f9', border: showAllMonths ? '1px solid #93c5fd' : BORDER, borderRadius:6, color: showAllMonths ? '#1d4ed8' : '#64748b', cursor:'pointer', padding:'4px 10px', fontSize:12, fontWeight:700 }}>
+                                    style={{ background: showAllMonths ? '#dbeafe' : '#f1f5f9', border: showAllMonths ? '1px solid #93c5fd' : BORDER, borderRadius:6, color: showAllMonths ? 'var(--brand)' : '#64748b', cursor:'pointer', padding:'4px 10px', fontSize:12, fontWeight:700 }}>
                                     {showAllMonths ? '이번 기간만' : '전체 기간 보기'}
                                 </button>
                             </div>
@@ -1181,9 +1181,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         <th colSpan={2} style={{ ...TH, position:'sticky', left:0, zIndex:3 }} rowSpan={3}>항목</th>
                                         {yearGroups.map(([year, mArr]) => {
                                             const span = mArr.reduce((s,m) => s + weeksInMonth(Number(year),m).length, 0);
-                                            return <th key={year} colSpan={span} style={{ ...TH, color:'#1d4ed8' }}>{year}년</th>;
+                                            return <th key={year} colSpan={span} style={{ ...TH, color:'var(--brand)' }}>{year}년</th>;
                                         })}
-                                        <th style={{ ...TH, color:'#059669', position:'sticky', right:0, zIndex:3 }} rowSpan={3}>합계</th>
+                                        <th style={{ ...TH, color:'var(--st-done)', position:'sticky', right:0, zIndex:3 }} rowSpan={3}>합계</th>
                                     </tr>
                                     <tr>
                                         {DISP_MONTHS.map(({ year, month }) => (
@@ -1214,13 +1214,13 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                     {subRows.length > 0 ? (<>
                                         <tr>
                                             <td colSpan={DISP_WEEKS.length + 3} style={{ padding:'1px 12px', background:'#f1f5f9',
-                                                height:10, borderBottom:'1px solid #cbd5e1', borderTop:'none' }}>
+                                                height:10, borderBottom:'1px solid var(--line)', borderTop:'none' }}>
                                                 <span style={{ fontSize:10, fontWeight:800, color:'#334155', letterSpacing:'0.05em' }}>시운전</span>
                                             </td>
                                         </tr>
                                         {subRows.map((sub, i) => renderSubRow(i, sub.name))}
                                         <tr>
-                                            <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'#cbd5e1', height:2, border:'none' }}/>
+                                            <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'var(--line)', height:2, border:'none' }}/>
                                         </tr>
                                         {selfOn && renderCommTotal('self')}
                                         {intOn  && renderCommTotal('int')}
@@ -1248,7 +1248,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                 {hasData && pct > 0 ? `${pct}%` : ''}
                                             </td>;
                                         })}
-                                        <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:15, color:'#0ea5e9', background:'#e0f2fe', textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
+                                        <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color:'#0ea5e9', background:'#e0f2fe', textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                                             {overallPct > 0 ? `${overallPct}%` : ''}
                                         </td>
                                     </tr>
@@ -1257,7 +1257,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         </div>
 
                         {/* 주석 — flex 고정 영역 */}
-                        <div style={{ flexShrink:0, padding:'3px 18px 6px', fontSize:10, color:'#cbd5e1' }}>
+                        <div style={{ flexShrink:0, padding:'3px 18px 6px', fontSize:10, color:'var(--line)' }}>
                             * 1주: 1~7일, 2주: 8~14일, 3주: 15~21일, 4주: 22~28일, 5주: 29일~) · 배경= 현재주 · 주황= 시작주 · 녹색테두리= 완료주
                         </div>
                     </div>
@@ -1300,10 +1300,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             {/* 푸터 */}
             <div style={{ flexShrink:0, padding:'10px 18px', borderTop:BORDER, background:'#f8fafc', borderRadius:'0 0 14px 14px', display:'flex', alignItems:'center', gap:8 }}>
                 {applyMsg
-                    ? <span style={{ fontSize:11, fontWeight:700, color: applyMsg.startsWith('✓') ? '#059669' : '#dc2626', marginRight:'auto' }}>{applyMsg}</span>
+                    ? <span style={{ fontSize:11, fontWeight:700, color: applyMsg.startsWith('✓') ? 'var(--st-done)' : '#dc2626', marginRight:'auto' }}>{applyMsg}</span>
                     : dirty
                         ? <span style={{ fontSize:11, color:'#f59e0b', marginRight:'auto', fontWeight:700 }}>저장하지 않은 변경사항</span>
-                        : <span style={{ fontSize:11, color:'#cbd5e1', marginRight:'auto' }}>변경사항 없음</span>
+                        : <span style={{ fontSize:11, color:'var(--line)', marginRight:'auto' }}>변경사항 없음</span>
                 }
                 <button onClick={handleReload} disabled={saving || reloading}
                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:7, color:'#374151', fontSize:12, fontWeight:700, padding:'6px 10px', cursor: reloading ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:4 }}

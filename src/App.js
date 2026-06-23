@@ -167,15 +167,15 @@ const excelPreviewColDefs = [
     { key: 'factory', label: '공장구분', color: 'text-cyan-400', width: 80 },
     { key: 'project', label: '프로젝트명', color: 'text-cyan-400', width: 250 },
     { key: 'content', label: '프로젝트 내용', width: 220 },
-    { key: 'point', label: 'Point', color: 'text-emerald-400', align: 'center', width: 70 },
-    { key: 'plc', label: 'PLC', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'etos', label: 'ETOS', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'hmi', label: 'HMI', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'internalTest', label: '자체시운전', align: 'center', group: '진행현황(%)', width: 80 },
-    { key: 'integratedTest', label: '통합시운전', align: 'center', group: '진행현황(%)', width: 80 },
+    { key: 'point', label: 'Point', color: 'text-emerald-400', align: 'right', width: 70 },
+    { key: 'plc', label: 'PLC', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'etos', label: 'ETOS', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'hmi', label: 'HMI', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'internalTest', label: '자체시운전', align: 'right', group: '진행현황(%)', width: 80 },
+    { key: 'integratedTest', label: '통합시운전', align: 'right', group: '진행현황(%)', width: 80 },
     { key: 'startDate', label: '시작일', width: 90 },
     { key: 'endDate', label: '종료일', width: 90 },
-    { key: 'progress', label: '공정률(%)', align: 'left', color: 'text-cyan-400', width: 80 },
+    { key: 'progress', label: '공정률(%)', align: 'right', color: 'text-cyan-400', width: 80 },
     { key: 'material', label: '자재(%)', width: 80 },
     { key: 'l1', label: 'L1', align: 'center', group: '작업범위', width: 60 },
     { key: 'l2', label: 'L2', align: 'center', group: '작업범위', width: 60 },
@@ -197,7 +197,7 @@ const mainBaseColDefs = [
     { key: 'progressStatus', label: '진행현황', color: 'text-amber-400', width: 90 },
     { key: 'project', label: '프로젝트명', color: 'text-cyan-400', width: 250 },
     { key: 'content', label: '프로젝트 내용', width: 220 },
-    { key: 'point', label: 'Point', color: 'text-emerald-400', align: 'center', width: 70 },
+    { key: 'point', label: 'Point', color: 'text-emerald-400', align: 'right', width: 70 },
     
     { key: 'accPoints', label: '누적', align: 'right', group: '시운전(포인트)', color: 'text-indigo-400', bg: 'bg-cyan-500/10', width: 80 },
     { key: 'prevPoints', label: '전월', align: 'right', group: '시운전(포인트)', bg: 'bg-cyan-500/10', width: 80 },
@@ -205,14 +205,14 @@ const mainBaseColDefs = [
     { key: 'prevProgress', label: '전월', align: 'right', group: '공정률(%)', bg: 'bg-slate-800/40', width: 70 },
     { key: 'currProgress', label: '금월', align: 'right', group: '공정률(%)', color: 'text-emerald-400', bg: 'bg-slate-800/40', width: 70, rightBorder: true },
 
-    { key: 'plc', label: 'PLC', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'etos', label: 'ETOS', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'hmi', label: 'HMI', align: 'center', group: '진행현황(%)', width: 60 },
-    { key: 'internalTest', label: '자체시운전', align: 'center', group: '진행현황(%)', width: 80 },
-    { key: 'integratedTest', label: '통합시운전', align: 'center', group: '진행현황(%)', width: 80, rightBorder: true },
+    { key: 'plc', label: 'PLC', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'etos', label: 'ETOS', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'hmi', label: 'HMI', align: 'right', group: '진행현황(%)', width: 60 },
+    { key: 'internalTest', label: '자체시운전', align: 'right', group: '진행현황(%)', width: 80 },
+    { key: 'integratedTest', label: '통합시운전', align: 'right', group: '진행현황(%)', width: 80, rightBorder: true },
     { key: 'startDate', label: '시작일', width: 90 },
     { key: 'endDate', label: '종료일', width: 90 },
-    { key: 'progress', label: '공정률(%)', align: 'left', color: 'text-cyan-400', width: 80 },
+    { key: 'progress', label: '공정률(%)', align: 'right', color: 'text-cyan-400', width: 80 },
     { key: 'material', label: '자재(%)', width: 80 },
     { key: 'l1', label: 'L1', align: 'center', group: '작업범위', width: 60 },
     { key: 'l2', label: 'L2', align: 'center', group: '작업범위', width: 60 },
@@ -263,9 +263,9 @@ const GlobalStyles = () => (
 
         /* ── sticky 고정 컬럼 ── */
         .sticky-col { position: sticky; z-index: 10; background-color: #edf1f7 !important; }
-        th.sticky-col { z-index: 40; background-color: #d4dde8 !important; }
+        th.sticky-col { z-index: 40; background-color: #e9eef4 !important; }
         tr:hover td.sticky-col { background-color: #d8e8fa !important; }
-        .sticky-last { border-right: 2px solid #1e7ac8 !important; box-shadow: 4px 0 6px -2px rgba(0,0,0,0.08) !important; }
+        .sticky-last { box-shadow: 4px 0 6px -2px rgba(0,0,0,0.08) !important; }
 
         /* ── 상태 배지 배경 ── */
         .bg-cyan-500\/10  { background-color: rgba(30,122,200,0.08) !important; }
@@ -274,10 +274,10 @@ const GlobalStyles = () => (
         .bg-slate-800\/30 { background-color: rgba(200,210,220,0.25) !important; }
 
         /* ── 그룹헤더 컬럼 ── */
-        th[colspan] { background-color: #d4dde8 !important; border-bottom: 2px solid #9aa8b8 !important; text-align: center !important; }
+        th[colspan] { background-color: #e9eef4 !important; border-bottom: 2px solid var(--line) !important; text-align: center !important; }
 
         /* ── 그룹 구분선 헤더 셀 ── */
-        th.th-group-sep { border-right: 1px solid #1e293b !important; }
+        th.th-group-sep { border-right: 1px solid var(--line) !important; }
 
         /* ── 우클릭 컨텍스트 메뉴 ── */
         .bg-slate-800.border-slate-600 { background-color: #ffffff !important; border-color: #c0c0c0 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; }
@@ -286,24 +286,25 @@ const GlobalStyles = () => (
         @keyframes _wrsSpin { to { transform: rotate(360deg); } }
 
         /* ── 모든 rounded 제거 (Excel 직각) ── */
-        [class*="rounded"] { border-radius: 0 !important; }
+        /* (엑셀 직각 해제 - A안 둥근 모서리) */
         .animate-spin { border-radius: 9999px !important; }
 
         /* ── 테이블 완전 그리드선 (Chrome sticky+collapse 버그 우회: separate 사용) ── */
         table { border-collapse: separate !important; border-spacing: 0 !important; }
-        thead th, thead td { border-right: 1px solid #c4ccd8 !important; border-top: 1px solid #c4ccd8 !important; border-bottom: 1px solid #c4ccd8 !important; border-left: none !important; background-color: #dce3ec !important; }
-        thead th:first-child, thead td:first-child { border-left: 1px solid #8aa0b8 !important; }
-        thead tr:last-child th, thead tr:last-child td { border-bottom: 1px solid #c4ccd8 !important; }
-        tbody td { border-right: 1px solid #c4ccd8 !important; border-bottom: 1px solid #c4ccd8 !important; border-top: none !important; border-left: none !important; }
-        tbody td:first-child { border-left: 1px solid #c4ccd8 !important; }
+        thead th, thead td { border-bottom: 1px solid var(--line) !important; border-left: none !important; background-color: #f3f6fa !important; }
+        thead th:first-child, thead td:first-child { }
+        thead tr:last-child th, thead tr:last-child td { border-bottom: 1px solid var(--line) !important; }
+        tbody td { border-bottom: 1px solid var(--line) !important; border-top: none !important; border-left: none !important; }
+        tbody td:first-child { }
+        tbody tr:nth-child(even) td { background-color: #f6f8fb !important; }
         tbody tr:hover td { background-color: #e8f0fe !important; }
         tbody tr.tr-highlighted td { background-color: rgba(251,191,36,0.22) !important; }
         tbody tr.tr-highlighted td.sticky-col { background-color: rgba(251,191,36,0.28) !important; }
 
         /* ── 버튼/입력창 직각 ── */
-        button { border-radius: 0 !important; }
+        /* (버튼 직각 해제 - A안) */
         input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-        textarea, select { border-radius: 0 !important; }
+        /* (입력 직각 해제 - A안) */
     `}</style>
 );
 
@@ -4009,27 +4010,27 @@ const TechTeamPMS = () => {
 
       const tableMinW = compactMode === 0 ? '2800px' : compactMode === 1 ? '2000px' : '1400px';
       return (
-          <div className="overflow-auto flex-1 custom-scrollbar bg-slate-950/50 relative">
+          <div className="overflow-auto flex-1 custom-scrollbar bg-gray-50 relative">
               <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: tableMinW }}>
                   <colgroup>
                       {columnsDef.map(col => <col key={col.key} style={{ width: Math.round((previewColWidths[col.key] || 100) * colScale) }} />)}
                       <col style={{ width: Math.round(100 * colScale) }} />
                   </colgroup>
-                  <thead className="sticky top-0 bg-slate-900 shadow-md z-40">
-                      <tr className={`text-slate-500 ${compactMode === 0 ? 'text-[11px]' : compactMode === 1 ? 'text-[10px]' : 'text-[9px]'} font-bold uppercase tracking-widest border-b border-slate-800 whitespace-nowrap`}>
+                  <thead className="sticky top-0 bg-white shadow-md z-40">
+                      <tr className={`text-gray-400 ${compactMode === 0 ? 'text-[13px]' : compactMode === 1 ? 'text-[12px]' : 'text-[11px]'} font-bold uppercase tracking-widest border-b border-gray-200 whitespace-nowrap`}>
                           {h1.map((col) => {
                               const isSticky = frozenPreviewIdx >= col.flatIdx;
                               const BOLD_GROUPS = ['시운전(포인트)', '공정률(%)', '진행현황(%)', '진행현황'];
                               const isBoldGroup = col.isGroup && BOLD_GROUPS.includes(col.label);
                               const groupAlign = col.isGroup && col.label === '공정률(%)' ? 'text-left' : 'text-center';
-                              const alignClass = col.isGroup ? `${groupAlign} text-[11px] bg-slate-800/40 ${isBoldGroup ? '' : 'opacity-70'}` : col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left';
-                              const draggedClass = draggedColKey === col.key ? 'opacity-30 bg-slate-800 border-dashed border-cyan-500' : '';
+                              const alignClass = col.isGroup ? `${groupAlign} text-[13px] bg-gray-100 ${isBoldGroup ? '' : 'opacity-70'}` : 'text-center';
+                              const draggedClass = draggedColKey === col.key ? 'opacity-30 bg-gray-100 border-dashed border-[#1e7ac8]' : '';
 
                               const thProps = {
                                   key: col.key,
                                   colSpan: col.colSpan || 1,
                                   rowSpan: col.rowSpan || 1,
-                                  className: `group/th ${compactMode === 0 ? 'px-4 py-3' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-slate-800 transition-colors ${alignClass} ${col.color || (isBoldGroup ? '' : 'text-slate-500')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroup ? 'th-bold' : ''} ${col.rightBorder ? 'th-group-sep' : ''}`,
+                                  className: `group/th ${compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-gray-200 transition-colors ${alignClass} ${col.color || (isBoldGroup ? '' : 'text-gray-400')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroup ? 'th-bold' : ''} ${col.rightBorder ? 'th-group-sep' : ''}`,
                                   style: isSticky ? { left: getStickyLeft(col.flatIdx) } : {}
                               };
 
@@ -4074,19 +4075,19 @@ const TechTeamPMS = () => {
                               return (
                                   <th {...thProps}>
                                       <div className={`flex items-center ${col.isGroup ? 'justify-center' : 'justify-between'} w-full h-full relative group/inner`}>
-                                          <div className={`truncate ${!col.isGroup ? `cursor-pointer hover:text-cyan-400 flex-1 pr-2 ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'}` : 'text-center'}`} onClick={() => !col.isGroup && requestSort(col.key)}>
+                                          <div className={`truncate ${!col.isGroup ? `cursor-pointer hover:text-[#1e7ac8] flex-1 pr-2 ${'text-center'}` : 'text-center'}`} onClick={() => !col.isGroup && requestSort(col.key)}>
                                               {col.label} {sortConfig.key === col.key && !col.isGroup && <ArrowUpDown size={10} className="inline ml-1 opacity-50"/>}
                                           </div>
                                           {!col.isGroup && (col.key === 'progressStatus' || col.key === 'factory') && (
                                               <div className="relative flex-shrink-0 ml-1 mr-4">
-                                                  <button onClick={(e) => { e.stopPropagation(); setActiveHeaderFilter(activeHeaderFilter === col.key ? null : col.key); }} className={`p-1 rounded transition-colors ${(col.key === 'factory' ? activeFilterFactories.size > 0 : activeFilterStatuses.size > 0) ? 'text-cyan-400 bg-slate-800' : 'text-slate-500 hover:text-cyan-400 hover:bg-slate-800'}`}>
+                                                  <button onClick={(e) => { e.stopPropagation(); setActiveHeaderFilter(activeHeaderFilter === col.key ? null : col.key); }} className={`p-1 rounded transition-colors ${(col.key === 'factory' ? activeFilterFactories.size > 0 : activeFilterStatuses.size > 0) ? 'text-[#1e7ac8] bg-gray-100' : 'text-gray-400 hover:text-[#1e7ac8] hover:bg-gray-100'}`}>
                                                       <Filter size={12} />
                                                   </button>
                                                   {activeHeaderFilter === col.key && (
                                                       <>
                                                           <div className="fixed inset-0 z-[65]" onClick={(e) => { e.stopPropagation(); setActiveHeaderFilter(null); }}></div>
-                                                          <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 z-[70] min-w-[200px] text-left cursor-default" onClick={e => e.stopPropagation()}>
-                                                              <div className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-widest border-b border-slate-800 pb-2">{col.label} 표시 항목</div>
+                                                          <div className="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 z-[70] min-w-[200px] text-left cursor-default" onClick={e => e.stopPropagation()}>
+                                                              <div className="text-xs font-bold text-gray-500 mb-3 uppercase tracking-widest border-b border-gray-200 pb-2">{col.label} 표시 항목</div>
                                                               <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                                                                   {(col.key === 'factory' ? displayFactories : filterStatusOptions).map(opt => {
                                                                       const count = col.key === 'factory' ? (factorySummary[opt] || 0) : (statusSummaryItems.find(s => s && s.label === opt)?.count || 0);
@@ -4096,15 +4097,15 @@ const TechTeamPMS = () => {
                                                                               <input type="checkbox" checked={isChecked} onChange={() => {
                                                                                   if (col.key === 'factory') { setActiveFilterFactories(prev => { const next = new Set(prev); if (next.has(opt)) next.delete(opt); else next.add(opt); return next; }); }
                                                                                   else { setActiveFilterStatuses(prev => { const next = new Set(prev); if (next.has(opt)) next.delete(opt); else next.add(opt); return next; }); }
-                                                                              }} className="w-4 h-4 accent-cyan-500 rounded bg-slate-800 border-slate-700 cursor-pointer" />
-                                                                              <span className={`text-sm font-medium flex-1 ${isChecked ? 'text-cyan-400' : 'text-slate-500 group-hover:text-slate-300'}`}>{opt}</span>
-                                                                              <span className="text-xs font-mono text-slate-500">{count}</span>
+                                                                              }} className="w-4 h-4 accent-[#1e7ac8] rounded bg-gray-100 border-gray-200 cursor-pointer" />
+                                                                              <span className={`text-sm font-medium flex-1 ${isChecked ? 'text-[#1e7ac8]' : 'text-gray-400 group-hover:text-gray-600'}`}>{opt}</span>
+                                                                              <span className="text-xs font-mono text-gray-400">{count}</span>
                                                                           </label>
                                                                       );
                                                                   })}
                                                               </div>
                                                               <div className="mt-4 flex gap-2">
-                                                                  <button onClick={() => setActiveHeaderFilter(null)} className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-500 text-xs font-bold text-white rounded-lg transition-colors">닫기</button>
+                                                                  <button onClick={() => setActiveHeaderFilter(null)} className="flex-1 py-2 bg-[#1e7ac8] hover:bg-[#1e7ac8] text-xs font-bold text-white rounded-lg transition-colors">닫기</button>
                                                               </div>
                                                           </div>
                                                       </>
@@ -4113,25 +4114,25 @@ const TechTeamPMS = () => {
                                           )}
                                       </div>
                                       {!col.isGroup && (
-                                          <div className={`absolute -right-[5px] top-0 bottom-0 w-[10px] cursor-col-resize z-[55] transition-colors touch-none ${resizingCol === col.key ? 'bg-cyan-500' : 'hover:bg-cyan-500/50'} before:content-[''] before:absolute before:left-[4px] before:top-0 before:bottom-0 before:w-[2px] before:bg-slate-700/30 group-hover:before:bg-cyan-500/30`}
+                                          <div className={`absolute -right-[5px] top-0 bottom-0 w-[10px] cursor-col-resize z-[55] transition-colors touch-none ${resizingCol === col.key ? 'bg-[#1e7ac8]' : 'hover:bg-blue-50'} before:content-[''] before:absolute before:left-[4px] before:top-0 before:bottom-0 before:w-[2px] before:bg-gray-200 group-hover:before:bg-[#1e7ac8]/30`}
                                                onMouseDown={(e) => handleMouseDown(e, col.key)} onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClickResize(col.key, col.label); }} />
                                       )}
                                   </th>
                               );
                           })}
-                          <th className={`${compactMode === 0 ? 'px-4 py-3' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} text-center sticky right-0 bg-slate-900 shadow-[-5px_0_15px_rgba(0,0,0,0.4)]`} rowSpan={h2.length > 0 ? 2 : 1}>관리</th>
+                          <th className={`${compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} text-center sticky right-0 bg-white shadow-[-2px_0_6px_rgba(0,0,0,0.05)]`} rowSpan={h2.length > 0 ? 2 : 1}>관리</th>
                       </tr>
                       {h2.length > 0 && (
-                          <tr className={`text-slate-500 ${compactMode === 0 ? 'text-[11px]' : compactMode === 1 ? 'text-[10px]' : 'text-[9px]'} font-bold uppercase tracking-widest border-b border-slate-800 whitespace-nowrap`}>
+                          <tr className={`text-gray-400 ${compactMode === 0 ? 'text-[13px]' : compactMode === 1 ? 'text-[12px]' : 'text-[11px]'} font-bold uppercase tracking-widest border-b border-gray-200 whitespace-nowrap`}>
                               {h2.map((col) => {
                                   const isSticky = frozenPreviewIdx >= col.flatIdx;
                                   const alignClass = col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left';
-                                  const draggedClass = draggedColKey === col.key ? 'opacity-30 bg-slate-800 border-dashed border-cyan-500' : '';
+                                  const draggedClass = draggedColKey === col.key ? 'opacity-30 bg-gray-100 border-dashed border-[#1e7ac8]' : '';
                                   const isBoldGroupSub = ['시운전(포인트)', '공정률(%)', '진행현황(%)', '진행현황'].includes(col.group);
 
                                   const thProps = {
                                       key: col.key,
-                                      className: `group/th ${compactMode === 0 ? 'px-4 py-3' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-slate-800 transition-colors ${alignClass} ${col.color || (isBoldGroupSub ? '' : 'text-slate-500')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroupSub ? 'th-bold' : ''} ${col.rightBorder ? 'th-group-sep' : ''}`,
+                                      className: `group/th ${compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-gray-200 transition-colors ${alignClass} ${col.color || (isBoldGroupSub ? '' : 'text-gray-400')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroupSub ? 'th-bold' : ''} ${col.rightBorder ? 'th-group-sep' : ''}`,
                                       style: isSticky ? { left: getStickyLeft(col.flatIdx) } : {},
                                       draggable: true,
                                       onDragStart: (e) => { setDraggedColKey(col.key); e.dataTransfer.effectAllowed = 'move'; },
@@ -4171,19 +4172,19 @@ const TechTeamPMS = () => {
                                   return (
                                       <th {...thProps}>
                                           <div className="flex items-center justify-between w-full h-full relative">
-                                              <div className={`truncate pr-4 cursor-pointer hover:text-cyan-400 flex-1 ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => requestSort(col.key)}>{col.label} {sortConfig.key === col.key && <ArrowUpDown size={10} className="inline ml-1 opacity-50"/>}</div>
+                                              <div className={`truncate pr-4 cursor-pointer hover:text-[#1e7ac8] flex-1 ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => requestSort(col.key)}>{col.label} {sortConfig.key === col.key && <ArrowUpDown size={10} className="inline ml-1 opacity-50"/>}</div>
                                           </div>
-                                          <div className={`absolute -right-[5px] top-0 bottom-0 w-[10px] cursor-col-resize z-[55] transition-colors touch-none ${resizingCol === col.key ? 'bg-cyan-500' : 'hover:bg-cyan-500/50'} before:content-[''] before:absolute before:left-[4px] before:top-0 before:bottom-0 before:w-[2px] before:bg-slate-700/30 group-hover:before:bg-cyan-500/30`} onMouseDown={(e) => handleMouseDown(e, col.key)} onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClickResize(col.key, col.label); }} />
+                                          <div className={`absolute -right-[5px] top-0 bottom-0 w-[10px] cursor-col-resize z-[55] transition-colors touch-none ${resizingCol === col.key ? 'bg-[#1e7ac8]' : 'hover:bg-blue-50'} before:content-[''] before:absolute before:left-[4px] before:top-0 before:bottom-0 before:w-[2px] before:bg-gray-200 group-hover:before:bg-[#1e7ac8]/30`} onMouseDown={(e) => handleMouseDown(e, col.key)} onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClickResize(col.key, col.label); }} />
                                       </th>
                                   );
                               })}
                           </tr>
                       )}
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50">
+                  <tbody className="divide-y divide-gray-200/50">
                       {dataSource.length === 0 ? (
                           <tr>
-                              <td colSpan={columnsDef.length + 1} className="px-6 py-16 text-center text-slate-500 font-bold">
+                              <td colSpan={columnsDef.length + 1} className="px-6 py-16 text-center text-gray-400 font-bold">
                                   {isPreviewMode ? "조건에 맞는 데이터가 없습니다." : "상단의 현황(Status) 버튼을 눌러 데이터를 불러오거나, 새로운 엑셀을 업로드해 주세요."}
                               </td>
                           </tr>
@@ -4204,13 +4205,13 @@ const TechTeamPMS = () => {
                                   const isApplied = (k) => appliedKeys.includes(k);
                                   const style = getStatusStyle(safeRender(getEffectiveStatus(dp)));
                                   const isActivePanel = weeklyPanel?.projectId === rId;
-                                  const rowStyle = hasSubs ? 'bg-slate-800/20 font-extrabold text-white shadow-sm' : 'hover:bg-white/5 text-slate-300 font-medium';
+                                  const rowStyle = hasSubs ? 'bg-gray-100 font-extrabold text-gray-800 shadow-sm' : 'hover:bg-white/5 text-gray-600 font-medium';
 
                                   const isHighlighted = !isPreviewMode && !!highlightExecNoInReport && !!p.execNo && String(p.execNo) === String(highlightExecNoInReport);
                                   const trProps = {
                                       key: rId,
                                       'data-highlight-row': isHighlighted ? '1' : undefined,
-                                      className: `group transition-all ${compactMode === 0 ? 'text-sm' : compactMode === 1 ? 'text-xs' : 'text-[11px]'} whitespace-nowrap ${isHighlighted ? 'tr-highlighted border-l-[3px] border-l-amber-400' : p.isUnsaved ? 'bg-amber-900/10 hover:bg-amber-900/20 border-l-[3px] border-l-amber-500' : hasPending ? 'bg-blue-900/5 hover:bg-blue-900/10 border-l-[3px] border-l-blue-400' : isActivePanel ? 'bg-indigo-950 hover:bg-indigo-900/80 text-indigo-100 font-semibold border-l-[3px] border-l-indigo-400' : rowStyle} ${(!p.isSub && hasSubs) || !isPreviewMode ? 'cursor-pointer' : ''}`,
+                                      className: `group transition-all ${compactMode === 0 ? 'text-sm' : compactMode === 1 ? 'text-xs' : 'text-[11px]'} whitespace-nowrap ${isHighlighted ? 'tr-highlighted border-l-[3px] border-l-amber-400' : p.isUnsaved ? 'bg-amber-900/10 hover:bg-amber-900/20 border-l-[3px] border-l-amber-500' : hasPending ? 'bg-blue-900/5 hover:bg-blue-900/10 border-l-[3px] border-l-blue-400' : isActivePanel ? 'bg-blue-50 hover:bg-blue-50 text-[#1e7ac8] font-semibold border-l-[3px] border-l-[#1e7ac8]' : rowStyle} ${(!p.isSub && hasSubs) || !isPreviewMode ? 'cursor-pointer' : ''}`,
                                       onDoubleClick: (!p.isSub && hasSubs) ? () => { setCollapsedProjects(prev => { const next = new Set(prev); if (next.has(rId)) next.delete(rId); else next.add(rId); return next; }); } : (isPreviewMode ? undefined : () => handleOpenModal(p)),
                                       onContextMenu: !isPreviewMode ? (e) => {
                                           e.preventDefault();
@@ -4238,7 +4239,7 @@ const TechTeamPMS = () => {
                                                                   return next; 
                                                               }); 
                                                           }} 
-                                                          className={`inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 border rounded cursor-pointer font-extrabold shadow-sm transition-colors ${isCollapsed ? 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700' : 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/30'}`}
+                                                          className={`inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 border rounded cursor-pointer font-extrabold shadow-sm transition-colors ${isCollapsed ? 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200' : 'bg-blue-50 border-[#1e7ac8] text-[#1e7ac8] hover:bg-[#1e7ac8]/30'}`}
                                                           title="하위 항목 열기/접기"
                                                       >
                                                           {isCollapsed ? <Plus size={10} className="mr-0.5" /> : <Minus size={10} className="mr-0.5" />}
@@ -4247,7 +4248,8 @@ const TechTeamPMS = () => {
                                                   ) : p.displayNo;
                                               }
                                               else if (col.key === 'execNo' && p.isSub) content = <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {dp.execNo !== 's' && dp.execNo !== 'S' && dp.execNo !== '-' && dp.execNo !== '' ? dp.execNo : '하위'}</span>;
-                                              else if (col.key === 'progress' || col.key === 'currProgress') content = `${avgProgress}%`;
+                                              else if (col.key === 'currProgress') content = `${avgProgress}%`;
+                                                  else if (col.key === 'progress') content = (<div style={{display:'flex',alignItems:'center',gap:6,justifyContent:'flex-end',width:'100%'}}><div style={{flex:1,maxWidth:54,height:5,background:'var(--line)',borderRadius:3,overflow:'hidden'}}><div style={{width:`${Math.min(safeNumber(avgProgress),100)}%`,height:'100%',background:'var(--brand)'}}/></div><span style={{minWidth:34,textAlign:'right'}}>{avgProgress}%</span></div>);
                                               else if (col.key === 'plc') content = isApplied('plc') ? `${currPlc}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
                                               else if (col.key === 'etos') content = isApplied('etos') ? `${currEtos}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
                                               else if (col.key === 'hmi') content = isApplied('hmi') ? `${currHmi}%` : <span style={{color:'#aaa',fontSize:10}}>N/A</span>;
@@ -4277,8 +4279,8 @@ const TechTeamPMS = () => {
                                                   content = (
                                                       <div className="flex items-center gap-2">
                                                           {p.isSub && <span className="flex items-center gap-1 text-amber-500/80 pl-2"><CornerDownRight size={12}/> {p.execNo !== 's' && p.execNo !== 'S' && p.execNo !== '-' && p.execNo !== '' ? p.execNo : '하위'}</span>}
-                                                          <span className={!p.isSub && hasSubs ? 'text-cyan-300 font-extrabold' : isActivePanel ? 'text-indigo-200 font-bold' : ''}>{safeRender(dp.project)}</span>
-                                                          {isActivePanel && <span className="px-1.5 py-0.5 bg-indigo-500/30 text-indigo-300 text-[10px] rounded font-bold border border-indigo-400/50 ml-1 shrink-0">주간보고 열람중</span>}
+                                                          <span className={!p.isSub && hasSubs ? 'text-[#1e7ac8] font-extrabold' : isActivePanel ? 'text-[#1e7ac8] font-bold' : ''}>{safeRender(dp.project)}</span>
+                                                          {isActivePanel && <span className="px-1.5 py-0.5 bg-blue-50 text-[#1e7ac8] text-[10px] rounded font-bold border border-[#1e7ac8] ml-1 shrink-0">주간보고 열람중</span>}
                                                           {p.isUnsaved && <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] rounded font-bold border border-amber-500/30 ml-2">임시</span>}
                                                           {!dp.isSub && isNewThisMonth(dp) && <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded font-bold border border-blue-500/30 ml-2">신규</span>}
                                                           {!dp.isSub && isCompletedThisMonth(dp) && <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[10px] rounded font-bold border border-emerald-500/30 ml-2">금월완료</span>}
@@ -4321,7 +4323,7 @@ const TechTeamPMS = () => {
                                                               navigateCell(rId, col.key, 0, e.key === 'ArrowRight' ? 1 : -1, editingInline.value);
                                                           }
                                                       },
-                                                      className: "w-full bg-slate-950 text-slate-200 px-2 py-1 rounded outline-none border border-cyan-500 text-xs focus:ring-1 focus:ring-cyan-500 shadow-lg",
+                                                      className: "w-full bg-gray-50 text-gray-700 px-2 py-1 rounded outline-none border border-[#1e7ac8] text-xs focus:ring-1 focus:ring-[#1e7ac8] shadow-lg",
                                                       onClick: (e) => e.stopPropagation(),
                                                       onDoubleClick: (e) => e.stopPropagation(),
                                                   };
@@ -4337,7 +4339,7 @@ const TechTeamPMS = () => {
                                               } else if (!isPreviewMode && isEditableField) {
                                                   content = (
                                                       <div 
-                                                          className="group/inline flex items-center justify-between w-full h-full cursor-pointer hover:bg-slate-800/80 rounded px-1 -mx-1 transition-colors min-h-[24px]"
+                                                          className={`group/inline flex items-center ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-between'} w-full h-full cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1 transition-colors min-h-[24px]`}
                                                           onClick={(e) => {
                                                               e.stopPropagation();
                                                               const initVal = col.key === 'prevPoints' ? pointsTriple.prev.self
@@ -4353,30 +4355,30 @@ const TechTeamPMS = () => {
                                                               setEditingInline({ id: rId, field: col.key, value: initVal });
                                                           }}
                                                       >
-                                                          <div className="flex-1 truncate flex items-center">{content}</div>
+                                                          <div className={`flex-1 truncate flex items-center ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>{content}</div>
                                                       </div>
                                                   );
                                               }
 
                                               const alignClass = col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left';
-                                              const rowPad = compactMode === 0 ? 'px-4 py-3' : compactMode === 1 ? 'px-3 py-1' : 'px-2 py-0.5';
-                                              let cellClass = `${rowPad} ${editingInline?.id === rId && editingInline?.field === col.key ? '' : 'truncate'} ${alignClass} ${col.bg || ''} ${getPreviewColClass(cIdx)} group-hover:bg-slate-800 transition-colors`;
-                                              if (col.rightBorder) cellClass += " !border-r !border-r-slate-300";
-                                              if (draggedColKey === col.key) cellClass += " opacity-20 bg-slate-900"; 
-                                              if (col.key === 'execNo' && !p.isSub) cellClass += " font-mono font-extrabold text-cyan-400";
-                                              if (col.key === 'estNo') cellClass += " font-mono text-slate-400";
+                                              const rowPad = compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1' : 'px-2 py-0.5';
+                                              let cellClass = `${rowPad} ${editingInline?.id === rId && editingInline?.field === col.key ? '' : 'truncate'} ${alignClass} ${col.bg || ''} ${getPreviewColClass(cIdx)} group-hover:bg-gray-100 transition-colors`;
+                                              if (col.rightBorder) cellClass += " !border-r !border-r-gray-300";
+                                              if (draggedColKey === col.key) cellClass += " opacity-20 bg-white"; 
+                                              if (col.key === 'execNo' && !p.isSub) cellClass += " font-mono font-extrabold text-[#1e7ac8]";
+                                              if (col.key === 'estNo') cellClass += " font-mono text-gray-500";
                                               if (col.key === 'factory') cellClass += " uppercase";
-                                              if (col.key === 'content' && editingInline?.id !== rId) cellClass += " text-slate-400";
+                                              if (col.key === 'content' && editingInline?.id !== rId) cellClass += " text-gray-500";
                                               if (col.key === 'point') cellClass += " font-mono text-emerald-400 font-bold";
-                                              if (col.key === 'progress') cellClass += " font-bold text-cyan-400 bg-cyan-500/10";
+                                              if (col.key === 'progress') cellClass += " font-bold text-[#1e7ac8] bg-blue-50";
                                               if (col.key === 'material' || col.key === 'workScope') cellClass += " max-w-[150px]";
-                                              if (col.key === 'startDate' || col.key === 'endDate') cellClass += " text-slate-400 text-xs font-mono";
+                                              if (col.key === 'startDate' || col.key === 'endDate') cellClass += " text-gray-500 text-xs font-mono";
 
                                               const cellTitle = typeof p[col.key] === 'string' || typeof p[col.key] === 'number' ? String(p[col.key]) : undefined;
 
                                               return <td key={col.key} className={cellClass} style={frozenPreviewIdx >= cIdx ? { left: getStickyLeft(cIdx) } : {}} title={cellTitle}>{content}</td>;
                                           })}
-                                          <td className={`${compactMode === 0 ? 'px-2 py-3' : compactMode === 1 ? 'px-1.5 py-1' : 'px-1 py-0.5'} text-center sticky right-0 bg-slate-900 group-hover:bg-slate-800 transition-all shadow-[-5px_0_15px_rgba(0,0,0,0.4)]`}>
+                                          <td className={`${compactMode === 0 ? 'px-2 py-3' : compactMode === 1 ? 'px-1.5 py-1' : 'px-1 py-0.5'} text-center sticky right-0 bg-white group-hover:bg-gray-100 transition-all shadow-[-2px_0_6px_rgba(0,0,0,0.05)]`}>
                                               <div className="flex justify-center items-center gap-0.5 opacity-40 group-hover:opacity-100">
                                                   {/* 주간보고 연결/열기 버튼 — execNo를 공통 키로 사용 */}
                                                   {(() => {
@@ -4387,32 +4389,32 @@ const TechTeamPMS = () => {
                                                           <>
                                                               <button
                                                                   onClick={(e) => { e.stopPropagation(); wActive ? setWeeklyPanel(null) : handleOpenWeeklyPanel(wKey); }}
-                                                                  className={`p-1.5 rounded transition-colors ${wActive ? 'bg-indigo-500/30 text-indigo-300 ring-1 ring-indigo-400/60' : 'hover:bg-indigo-500/20 text-indigo-400 hover:text-indigo-300'}`}
+                                                                  className={`p-1.5 rounded transition-colors ${wActive ? 'bg-blue-50 text-[#1e7ac8] ring-1 ring-blue-400' : 'hover:bg-blue-50 text-[#1e7ac8] hover:text-[#1e7ac8]'}`}
                                                                   title={wActive ? '주간보고 닫기' : `주간보고 열기: ${wLink.fileName}`}
                                                               ><PanelRight size={14}/></button>
                                                               <button
                                                                   onClick={(e) => { e.stopPropagation(); handleWeeklyDownload(wKey); }}
-                                                                  className="p-1.5 hover:bg-emerald-500/20 rounded text-slate-500 hover:text-emerald-400 transition-colors"
+                                                                  className="p-1.5 hover:bg-emerald-500/20 rounded text-gray-400 hover:text-emerald-400 transition-colors"
                                                                   title={`주간보고 다운로드: ${wLink.fileName}`}
                                                               ><Download size={13}/></button>
                                                               <button
                                                                   onClick={(e) => { e.stopPropagation(); handleWeeklyUnlink(wKey); }}
-                                                                  className="p-1.5 hover:bg-rose-500/10 rounded text-slate-500 hover:text-rose-400 transition-colors"
+                                                                  className="p-1.5 hover:bg-rose-500/10 rounded text-gray-400 hover:text-rose-400 transition-colors"
                                                                   title="주간보고 연결 해제"
                                                               ><Link2Off size={13}/></button>
                                                           </>
                                                       ) : (
                                                           <button
                                                               onClick={(e) => { e.stopPropagation(); refreshWeeklyReportList(); setWeeklyLinkModal({ projectId: wKey, projectName: p.project }); }}
-                                                              className="p-1.5 hover:bg-indigo-500/20 rounded text-slate-500 hover:text-indigo-400 transition-colors"
+                                                              className="p-1.5 hover:bg-blue-50 rounded text-gray-400 hover:text-[#1e7ac8] transition-colors"
                                                               title="주간보고 연결"
                                                           ><Link size={13}/></button>
                                                       );
                                                   })()}
                                                   {!isPreviewMode ? (
-                                                      <button onClick={(e) => { e.stopPropagation(); setConfirmRowSaveId(p.id); }} className={`p-1.5 rounded transition-colors ${hasPending ? 'text-blue-500 hover:bg-blue-500/20' : 'text-slate-400 hover:text-blue-500 hover:bg-blue-500/10'}`} title={hasPending ? '변경사항 저장' : '저장'}>{hasPending ? <Save size={14} strokeWidth={2.5}/> : <Save size={14}/>}</button>
+                                                      <button onClick={(e) => { e.stopPropagation(); setConfirmRowSaveId(p.id); }} className={`p-1.5 rounded transition-colors ${hasPending ? 'text-blue-500 hover:bg-blue-500/20' : 'text-gray-500 hover:text-blue-500 hover:bg-blue-500/10'}`} title={hasPending ? '변경사항 저장' : '저장'}>{hasPending ? <Save size={14} strokeWidth={2.5}/> : <Save size={14}/>}</button>
                                                   ) : (
-                                                      <button className="p-1.5 hover:bg-blue-500/10 rounded text-slate-400 hover:text-blue-500 transition-colors cursor-not-allowed opacity-50" title="미리보기에서는 저장할 수 없습니다"><Save size={14} /></button>
+                                                      <button className="p-1.5 hover:bg-blue-500/10 rounded text-gray-500 hover:text-blue-500 transition-colors cursor-not-allowed opacity-50" title="미리보기에서는 저장할 수 없습니다"><Save size={14} /></button>
                                                   )}
                                               </div>
                                           </td>
@@ -5333,22 +5335,22 @@ const TechTeamPMS = () => {
                   </div>
               </div>
           ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary') ? (
-              <div className="h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-3 relative overflow-hidden">
+              <div className="h-screen bg-gray-50 text-gray-800 flex flex-col items-center justify-center p-3 relative overflow-hidden">
 
                   {/* 팀 선택 화면 상단 우측 — 사용자 정보 + 관리 버튼 */}
                   <div style={{ position: 'absolute', top: 12, right: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {registeredUser?.role === 'admin' && (
                           <button onClick={() => setCurrentMode('userManagement')}
-                              className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 px-2.5 py-1.5 transition-all text-xs font-bold text-slate-300 hover:text-white">
+                              className="flex items-center gap-1 bg-white hover:bg-gray-100 border border-gray-200 px-2.5 py-1.5 transition-all text-xs font-bold text-gray-600 hover:text-white">
                               <Users size={13} /> 사용자 관리
                           </button>
                       )}
-                      <div className="flex items-center gap-1 border border-slate-700 bg-slate-900" style={{ height: 30 }}>
-                          <span className="px-2.5 text-xs font-semibold text-slate-400 max-w-[140px] truncate" title={user?.email || ''}>
+                      <div className="flex items-center gap-1 border border-gray-200 bg-white" style={{ height: 30 }}>
+                          <span className="px-2.5 text-xs font-semibold text-gray-500 max-w-[140px] truncate" title={user?.email || ''}>
                               {registeredUser?.displayName || user?.displayName || user?.email?.split('@')[0] || '사용자'}
                           </span>
                           <button onClick={() => setConfirmSignOutOpen(true)}
-                              className="flex items-center gap-1 px-2 border-l border-slate-700 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-all text-xs font-bold h-full"
+                              className="flex items-center gap-1 px-2 border-l border-gray-200 hover:bg-rose-900/30 text-gray-500 hover:text-rose-400 transition-all text-xs font-bold h-full"
                               title="로그아웃" style={{ height: '100%' }}>
                               <LogOut size={12} />
                           </button>
@@ -5358,28 +5360,28 @@ const TechTeamPMS = () => {
                   <div className="max-w-5xl w-full animate-in">
                       <div className="text-center mb-3">
                           <div className="inline-flex items-center justify-center gap-2 mb-1">
-                              <div className="p-2 bg-slate-900 rounded-xl border border-slate-800">
-                                  <LayoutGrid size={22} className="text-cyan-400" />
+                              <div className="p-2 bg-white rounded-xl border border-gray-200">
+                                  <LayoutGrid size={22} className="text-[#1e7ac8]" />
                               </div>
-                              <h1 className="text-2xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400">
+                              <h1 className="text-3xl font-extrabold tracking-tight text-gray-800">
                                   통합 프로젝트 관리 플랫폼
                               </h1>
-                              <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-mono font-bold">v1.0</span>
+                              
                           </div>
-                          <p className="text-slate-500 text-xs">접속하실 부서를 선택해 주세요.</p>
+                          <p className="text-gray-400 text-xs">접속하실 부서를 선택해 주세요.</p>
                       </div>
                       
                       {/* ── 패스워드 모달 ── */}
                       {showEstimateModal && (
                           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowEstimateModal(false); setEstimatePwInput(''); setEstimatePwError(false); }}>
-                              <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-8 w-full max-w-sm animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
+                              <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-8 w-full max-w-sm animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center gap-3 mb-6">
                                       <div className="p-2.5 bg-amber-500/20 rounded-xl border border-amber-500/30">
                                           <Target size={20} className="text-amber-400" />
                                       </div>
                                       <div>
-                                          <h3 className="text-white font-bold text-lg">견적 관리</h3>
-                                          <p className="text-slate-500 text-xs">접근 권한이 필요합니다</p>
+                                          <h3 className="text-gray-800 font-bold text-lg">견적 관리</h3>
+                                          <p className="text-gray-400 text-xs">접근 권한이 필요합니다</p>
                                       </div>
                                   </div>
                                   <input
@@ -5389,7 +5391,7 @@ const TechTeamPMS = () => {
                                       onChange={e => { setEstimatePwInput(e.target.value); setEstimatePwError(false); }}
                                       onKeyDown={e => { if (e.key === 'Enter') handleEstimateLogin(); }}
                                       autoFocus
-                                      className={`w-full bg-slate-800 border ${estimatePwError ? 'border-rose-500' : 'border-slate-700'} rounded-xl px-4 py-3 text-white outline-none focus:border-amber-500 transition-all text-sm font-mono tracking-widest mb-2`}
+                                      className={`w-full bg-gray-100 border ${estimatePwError ? 'border-rose-500' : 'border-gray-200'} rounded-xl px-4 py-3 text-gray-800 outline-none focus:border-amber-500 transition-all text-sm font-mono tracking-widest mb-2`}
                                   />
                                   {estimatePwError && <p className="text-rose-400 text-xs mb-1 font-bold">패스워드가 올바르지 않습니다.</p>}
                                   <label className="flex items-center gap-2 cursor-pointer mt-3 mb-1 select-none">
@@ -5399,10 +5401,10 @@ const TechTeamPMS = () => {
                                           onChange={e => setEstimateRememberPw(e.target.checked)}
                                           className="w-4 h-4 accent-amber-500 rounded"
                                       />
-                                      <span className="text-slate-400 text-xs font-medium">이 기기에서 비밀번호 기억</span>
+                                      <span className="text-gray-500 text-xs font-medium">이 기기에서 비밀번호 기억</span>
                                   </label>
                                   <div className="flex gap-2 mt-3">
-                                      <button onClick={() => { setShowEstimateModal(false); setEstimatePwInput(''); setEstimatePwError(false); }} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-sm font-bold hover:bg-slate-700 transition-all">취소</button>
+                                      <button onClick={() => { setShowEstimateModal(false); setEstimatePwInput(''); setEstimatePwError(false); }} className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-100 text-gray-600 text-sm font-bold hover:bg-gray-200 transition-all">취소</button>
                                       <button onClick={handleEstimateLogin} className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold transition-all">확인</button>
                                   </div>
                               </div>
@@ -5411,10 +5413,10 @@ const TechTeamPMS = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           {[
-                              { id: '기술1팀', title: '기술1팀', desc: '설비 유지보수 및 하드웨어 인프라 제어', icon: <Wrench className="w-6 h-6 text-indigo-400" /> },
-                              { id: '기술2팀', title: '기술2팀', desc: '자동제어 시스템 및 통합 시운전 관리', icon: <Cpu className="w-6 h-6 text-cyan-400" />, hasSubMenu: true },
-                              { id: '기술3팀', title: '기술3팀', desc: '네트워크 망 및 현장 모니터링 시스템', icon: <Monitor className="w-6 h-6 text-emerald-400" /> },
-                              { id: 'Software팀', title: 'Software팀', desc: '사내 포털 및 MES 데이터베이스 개발', icon: <TerminalSquare className="w-6 h-6 text-purple-400" /> }
+                              { id: '기술1팀', title: '기술1팀', desc: '설비 유지보수 및 하드웨어 인프라 제어', icon: <Wrench className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              { id: '기술2팀', title: '기술2팀', desc: '자동제어 시스템 및 통합 시운전 관리', icon: <Cpu className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              { id: '기술3팀', title: '기술3팀', desc: '네트워크 망 및 현장 모니터링 시스템', icon: <Monitor className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              { id: 'Software팀', title: 'Software팀', desc: '사내 포털 및 MES 데이터베이스 개발', icon: <TerminalSquare className="w-6 h-6 text-[#1e7ac8]" /> }
                           ].map(card => {
                               const handleCardClick = () => {
                                   if (!card.hasSubMenu) {
@@ -5429,20 +5431,20 @@ const TechTeamPMS = () => {
                               };
 
                               return (
-                                  <div key={card.id} className={`team-card flex flex-col text-left bg-slate-900/50 border ${card.hasSubMenu ? 'border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.1)]' : 'border-slate-800 hover:bg-slate-800 hover:-translate-y-0.5'} rounded-xl transition-all overflow-hidden relative group`}>
+                                  <div key={card.id} className={`team-card flex flex-col text-left bg-white border border-gray-200 ${card.hasSubMenu ? '' : 'hover:bg-gray-100 hover:-translate-y-0.5'} rounded-xl transition-all overflow-hidden relative group`}>
 
                                       {/* 상단 (헤더) 영역 */}
-                                      <div className={`px-4 py-3 relative z-10 flex items-center gap-3 ${!card.hasSubMenu ? 'cursor-pointer' : ''}`} onClick={handleCardClick}>
+                                      <div className={`mx-2 mt-2 px-4 py-3 bg-[#f3f6fa] rounded-lg relative z-10 flex items-center gap-3 ${!card.hasSubMenu ? 'cursor-pointer' : ''}`} onClick={handleCardClick}>
                                           {card.icon}
                                           <div>
-                                              <h2 className="text-base font-bold text-white group-hover:text-cyan-400 transition-colors leading-tight">{card.title}</h2>
-                                              <p className="text-slate-500 text-xs">{card.desc}</p>
+                                              <h2 className="text-base font-bold text-gray-800 group-hover:text-[#1e7ac8] transition-colors leading-tight">{card.title}</h2>
+                                              <p className="text-gray-400 text-xs">{card.desc}</p>
                                           </div>
                                       </div>
 
                                       {/* 하위 메뉴 영역 (hasSubMenu 카드는 항상 표시) */}
                                       {card.hasSubMenu && (
-                                          <div className="border-t border-cyan-500/30 bg-slate-900/80">
+                                          <div className="border-t border-gray-100 bg-white">
 
                                               {/* 1. 월간 업무 보고 */}
                                               <button onClick={() => {
@@ -5453,30 +5455,30 @@ const TechTeamPMS = () => {
                                                   setActiveFilterStatuses(new Set(saved));
                                                   setActiveFilterFactories(new Set(defaults?.defaultActiveFactories || []));
                                                   setSearchTerm('');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-800/80 border-b border-slate-800/50 transition-colors text-left group/btn">
-                                                  <div className="p-1.5 bg-slate-800 rounded-lg group-hover/btn:bg-cyan-500/20 transition-colors border border-slate-700 group-hover/btn:border-cyan-500/30">
-                                                      <FileText size={14} className="text-slate-400 group-hover/btn:text-cyan-400 transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 border-b border-gray-200/50 transition-colors text-left group/btn">
+                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-blue-50 transition-colors border border-gray-200 group-hover/btn:border-[#1e7ac8]">
+                                                      <FileText size={14} className="text-gray-500 group-hover/btn:text-[#1e7ac8] transition-colors" />
                                                   </div>
                                                   <div className="flex-1">
-                                                      <div className="text-white font-bold text-sm group-hover/btn:text-cyan-400 transition-colors">월간 업무 보고</div>
-                                                      <div className="text-slate-500 text-xs">시운전 실적 및 공정률 월간 현황 관리</div>
+                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
+                                                      <div className="text-gray-400 text-xs">시운전 실적 및 공정률 월간 현황 관리</div>
                                                   </div>
-                                                  <ChevronRight size={14} className="text-slate-600 group-hover/btn:text-cyan-400 transition-colors" />
+                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-[#1e7ac8] transition-colors" />
                                               </button>
 
                                               {/* 2. 프로젝트 List 관리 */}
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('projectList');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-800/80 transition-colors text-left group/btn">
-                                                  <div className="p-1.5 bg-slate-800 rounded-lg group-hover/btn:bg-emerald-500/20 transition-colors border border-slate-700 group-hover/btn:border-emerald-500/30">
-                                                      <ListChecks size={14} className="text-slate-400 group-hover/btn:text-emerald-400 transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 border-t border-gray-100 hover:bg-emerald-50 transition-colors text-left group/btn">
+                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-emerald-500/20 transition-colors border border-gray-200 group-hover/btn:border-emerald-500/30">
+                                                      <ListChecks size={14} className="text-gray-500 group-hover/btn:text-emerald-400 transition-colors" />
                                                   </div>
                                                   <div className="flex-1">
-                                                      <div className="text-white font-bold text-sm group-hover/btn:text-emerald-400 transition-colors">프로젝트 List 관리</div>
-                                                      <div className="text-slate-500 text-xs">팀 전체 프로젝트 목록 엑셀 기반 관리</div>
+                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-emerald-400 transition-colors">프로젝트 List 관리</div>
+                                                      <div className="text-gray-400 text-xs">팀 전체 프로젝트 목록 엑셀 기반 관리</div>
                                                   </div>
-                                                  <ChevronRight size={14} className="text-slate-600 group-hover/btn:text-emerald-400 transition-colors" />
+                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-emerald-400 transition-colors" />
                                               </button>
 
                                           </div>
@@ -5487,68 +5489,55 @@ const TechTeamPMS = () => {
                       </div>
 
                       {/* ── 하단 메뉴 (주간보고 3종 + 견적) ── */}
-                      <div className="mt-2 flex flex-col gap-1.5">
-                          <div
-                              onClick={() => setCurrentMode('weeklyReport')}
-                              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-900/50 border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-950/20 rounded-xl cursor-pointer transition-all group"
-                          >
-                              <div className="flex items-center gap-3">
-                                  <div className="p-1.5 bg-indigo-500/10 rounded-lg border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
-                                      <FileSpreadsheet size={15} className="text-indigo-400"/>
+                      <div className="mt-3 flex flex-col gap-3">
+                          <div className="grid grid-cols-3 gap-2.5">
+                              <div
+                                  onClick={() => setCurrentMode('weeklyReport')}
+                                  className="flex flex-col px-4 py-3.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-xl cursor-pointer transition-all group"
+                              >
+                                  <div className="p-1.5 bg-blue-50 rounded-lg border border-[#1e7ac8]/20 w-fit mb-2 group-hover:bg-blue-100 transition-colors">
+                                      <FileSpreadsheet size={15} className="text-[#1e7ac8]"/>
                                   </div>
-                                  <div>
-                                      <div className="text-white font-bold text-sm group-hover:text-indigo-300 transition-colors flex items-center gap-1.5">
-                                          주간 보고 뷰어
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 font-mono">XLSX</span>
-                                      </div>
-                                      <div className="text-slate-500 text-xs">업로드 → 저장 → 목록에서 선택해서 바로 열기</div>
+                                  <div className="text-gray-800 font-bold text-sm flex items-center gap-1.5 mb-0.5">
+                                      주간 보고 뷰어
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-[#1e7ac8] border border-[#1e7ac8]/20 font-mono rounded">XLSX</span>
                                   </div>
+                                  <div className="text-gray-400 text-xs leading-relaxed">업로드 → 저장 → 목록에서 바로 열기</div>
                               </div>
-                              <ChevronRight size={14} className="text-slate-600 group-hover:text-indigo-400 transition-colors"/>
-                          </div>
 
-                          <div
-                              onClick={() => setCurrentMode('weeklyInput')}
-                              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-900/50 border border-slate-800 hover:border-emerald-500/50 hover:bg-emerald-950/20 rounded-xl cursor-pointer transition-all group"
-                          >
-                              <div className="flex items-center gap-3">
-                                  <div className="p-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
-                                      <FileSpreadsheet size={15} className="text-emerald-400"/>
+                              <div
+                                  onClick={() => setCurrentMode('weeklyInput')}
+                                  className="flex flex-col px-4 py-3.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-xl cursor-pointer transition-all group"
+                              >
+                                  <div className="p-1.5 bg-blue-50 rounded-lg border border-[#1e7ac8]/20 w-fit mb-2 group-hover:bg-blue-100 transition-colors">
+                                      <FileSpreadsheet size={15} className="text-[#1e7ac8]"/>
                                   </div>
-                                  <div>
-                                      <div className="text-white font-bold text-sm group-hover:text-emerald-300 transition-colors flex items-center gap-1.5">
-                                          주간 보고 입력
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-mono">태그</span>
-                                      </div>
-                                      <div className="text-slate-500 text-xs">엑셀 템플릿 분석 → 웹에서 주차별 날짜 입력 → 공정율 자동 계산</div>
+                                  <div className="text-gray-800 font-bold text-sm flex items-center gap-1.5 mb-0.5">
+                                      주간 보고 입력
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-[#1e7ac8] border border-[#1e7ac8]/20 font-mono rounded">태그</span>
                                   </div>
+                                  <div className="text-gray-400 text-xs leading-relaxed">주차별 날짜 입력 → 공정율 자동 계산</div>
                               </div>
-                              <ChevronRight size={14} className="text-slate-600 group-hover:text-emerald-400 transition-colors"/>
-                          </div>
 
-                          <div
-                              onClick={() => setCurrentMode('weeklySummary')}
-                              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-900/50 border border-slate-800 hover:border-violet-500/50 hover:bg-violet-950/20 rounded-xl cursor-pointer transition-all group"
-                          >
-                              <div className="flex items-center gap-3">
-                                  <div className="p-1.5 bg-violet-500/10 rounded-lg border border-violet-500/20 group-hover:bg-violet-500/20 transition-colors">
-                                      <FileSpreadsheet size={15} className="text-violet-400"/>
+                              <div
+                                  onClick={() => setCurrentMode('weeklySummary')}
+                                  className="flex flex-col px-4 py-3.5 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 rounded-xl cursor-pointer transition-all group"
+                              >
+                                  <div className="p-1.5 bg-blue-50 rounded-lg border border-[#1e7ac8]/20 w-fit mb-2 group-hover:bg-blue-100 transition-colors">
+                                      <FileSpreadsheet size={15} className="text-[#1e7ac8]"/>
                                   </div>
-                                  <div>
-                                      <div className="text-white font-bold text-sm group-hover:text-violet-300 transition-colors flex items-center gap-1.5">
-                                          주간보고 요약
-                                          <span className="text-[10px] px-1.5 py-0.5 bg-violet-500/20 text-violet-400 border border-violet-500/20 font-mono">NEW</span>
-                                      </div>
-                                      <div className="text-slate-500 text-xs">프로젝트별 주차 실적·이슈·계획 입력 → 담당보고·임원보고 자동화</div>
+                                  <div className="text-gray-800 font-bold text-sm flex items-center gap-1.5 mb-0.5">
+                                      주간보고 요약
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-[#1e7ac8] border border-[#1e7ac8]/20 font-mono rounded">NEW</span>
                                   </div>
+                                  <div className="text-gray-400 text-xs leading-relaxed">주차 실적·이슈·계획 → 보고 자동화</div>
                               </div>
-                              <ChevronRight size={14} className="text-slate-600 group-hover:text-violet-400 transition-colors"/>
                           </div>
 
                           <div className="flex justify-center pt-1">
                               <button
                                   onClick={() => { setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
-                                  className="flex items-center gap-1.5 px-3 py-1 border border-slate-800 bg-slate-900/50 text-slate-600 hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/5 text-xs font-bold transition-all"
+                                  className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적
                               </button>
@@ -5710,23 +5699,23 @@ const TechTeamPMS = () => {
                   </div>
               </div>
           ) : (
-              <div className="h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-6 flex flex-col animate-in overflow-hidden relative" style={weeklyPanel ? {paddingRight:`calc(${panelWidth}vw + 16px)`} : {}}>
+              <div className="h-screen bg-gray-50 text-gray-800 font-sans p-4 md:p-6 flex flex-col animate-in overflow-hidden relative" style={weeklyPanel ? {paddingRight:`calc(${panelWidth}vw + 16px)`} : {}}>
 
                   {/* ★ 디버그 시스템 모니터 패널 (화면 하단) ★ */}
                   {showDebug && (
-                      <div className="absolute bottom-4 right-4 w-[450px] max-h-[350px] bg-slate-950/95 border border-slate-700/80 rounded-2xl shadow-2xl z-[99999] flex flex-col overflow-hidden backdrop-blur-md animate-in fade-in slide-in-from-bottom-10">
-                          <div className="flex justify-between items-center p-3 bg-slate-900 border-b border-slate-800 cursor-move">
+                      <div className="absolute bottom-4 right-4 w-[450px] max-h-[350px] bg-gray-50 border border-gray-200/80 rounded-2xl shadow-2xl z-[99999] flex flex-col overflow-hidden backdrop-blur-md animate-in fade-in slide-in-from-bottom-10">
+                          <div className="flex justify-between items-center p-3 bg-white border-b border-gray-200 cursor-move">
                               <span className="text-emerald-400 font-mono text-[11px] font-black flex items-center gap-2">
                                   <TerminalSquare size={14} /> SYSTEM DEBUG MONITOR
                               </span>
                               <div className="flex items-center gap-3">
-                                  <button onClick={() => setLogs([])} className="text-slate-500 hover:text-white text-[10px] font-bold tracking-widest uppercase transition-colors">Clear</button>
-                                  <button onClick={() => setShowDebug(false)} className="text-slate-500 hover:text-white transition-colors bg-slate-800 p-1 rounded-md"><X size={14}/></button>
+                                  <button onClick={() => setLogs([])} className="text-gray-400 hover:text-white text-[10px] font-bold tracking-widest uppercase transition-colors">Clear</button>
+                                  <button onClick={() => setShowDebug(false)} className="text-gray-400 hover:text-white transition-colors bg-gray-100 p-1 rounded-md"><X size={14}/></button>
                               </div>
                           </div>
-                          <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] text-slate-300 space-y-1.5 custom-scrollbar break-all">
+                          <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] text-gray-600 space-y-1.5 custom-scrollbar break-all">
                               {logs.length === 0 ? (
-                                  <span className="text-slate-600 italic">로그 기록 대기 중... 엑셀을 업로드해 보세요.</span>
+                                  <span className="text-gray-400 italic">로그 기록 대기 중... 엑셀을 업로드해 보세요.</span>
                               ) : (
                                   logs.map((l, i) => (
                                       <div key={i} className={l.includes('[위험]') || l.includes('오류') ? 'text-rose-400 font-bold' : l.includes('성공') || l.includes('완료') ? 'text-emerald-400 font-bold' : ''}>
@@ -5769,7 +5758,7 @@ const TechTeamPMS = () => {
 
                   {contextMenu && (
                       <div 
-                          className="fixed z-[9999] bg-slate-800 border border-slate-600 shadow-2xl rounded-2xl py-1.5 w-44 animate-in fade-in zoom-in duration-100 overflow-hidden"
+                          className="fixed z-[9999] bg-gray-100 border border-gray-300 shadow-2xl rounded-2xl py-1.5 w-44 animate-in fade-in zoom-in duration-100 overflow-hidden"
                           style={{
                               // 메뉴 실제 높이(~260px)만큼 화면 하단에서 띄워 '삭제하기'까지 항상 보이게
                               top: Math.min(contextMenu.y, window.innerHeight - 270),
@@ -5777,24 +5766,24 @@ const TechTeamPMS = () => {
                           }}
                           onClick={(e) => e.stopPropagation()} 
                       >
-                          <div className="px-3 py-1.5 border-b border-slate-700/50 mb-1">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider truncate">Project Actions</p>
+                          <div className="px-3 py-1.5 border-b border-gray-200/50 mb-1">
+                              <p className="text-[11px] font-black text-gray-500 uppercase tracking-wider truncate">Project Actions</p>
                           </div>
                           <button 
                               onClick={() => { setGraphProject(contextMenu.project); setContextMenu(null); }}
-                              className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-cyan-400 transition-colors"
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 flex items-center gap-3 text-sm font-bold text-[#1e7ac8] transition-colors"
                           >
                               <BarChart3 size={16} /> 실적 그래프 보기
                           </button>
                           <button
                               onClick={() => { handleOpenModal(contextMenu.project); setContextMenu(null); }}
-                              className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors"
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 flex items-center gap-3 text-sm font-bold text-gray-600 transition-colors"
                           >
                               <Edit2 size={16} className="text-emerald-400" /> 상세 수정하기
                           </button>
                           <button
                               onClick={() => { setPmsProgressRow(contextMenu.project); setContextMenu(null); }}
-                              className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors"
+                              className="w-full text-left px-4 py-2 hover:bg-gray-200 flex items-center gap-3 text-sm font-bold text-gray-600 transition-colors"
                           >
                               <TrendingUp size={16} className="text-emerald-400" /> 진행실적 등록
                           </button>
@@ -5805,12 +5794,12 @@ const TechTeamPMS = () => {
                                       setCurrentMode('projectList');
                                       setContextMenu(null);
                                   }}
-                                  className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-amber-400 transition-colors"
+                                  className="w-full text-left px-4 py-2 hover:bg-gray-200 flex items-center gap-3 text-sm font-bold text-amber-400 transition-colors"
                               >
                                   <ListChecks size={16} /> List관리 이동
                               </button>
                           )}
-                          <div className="border-t border-slate-700/50 my-1"></div>
+                          <div className="border-t border-gray-200/50 my-1"></div>
                           <button
                               onClick={() => { setConfirmDeleteId(contextMenu.project.id); setContextMenu(null); }}
                               className="w-full text-left px-4 py-2 hover:bg-rose-900/40 flex items-center gap-3 text-sm font-bold text-rose-400 transition-colors"
@@ -5824,27 +5813,27 @@ const TechTeamPMS = () => {
                       
                       <header className="flex flex-row justify-between items-center gap-2 shrink-0 relative z-50">
                           <div className="flex items-center gap-2 min-w-0 shrink-0">
-                              <div className="p-2 bg-cyan-500 rounded-xl shadow-lg shadow-cyan-500/20 text-white shrink-0">
+                              <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                                   {currentTeam === '기술1팀' && <Wrench size={20}/>}
                                   {currentTeam === '기술2팀' && <Cpu size={20}/>}
                                   {currentTeam === '기술3팀' && <Monitor size={20}/>}
                                   {currentTeam === 'Software팀' && <TerminalSquare size={20}/>}
                               </div>
                               <div className="flex items-center gap-2 min-w-0">
-                                  <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-1.5 whitespace-nowrap">
+                                  <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
                                       {currentTeam} 업무 현황
                                   </h1>
-                                  <div className="flex items-center bg-slate-800/80 rounded px-2 py-1 border border-slate-700 hover:border-cyan-500 transition-all cursor-pointer shrink-0">
-                                      <Calendar size={11} className="text-cyan-400 mr-1" />
-                                      <span className="text-[11px] font-bold text-slate-400 mr-1">기준월:</span>
-                                      <input type="month" value={baseDate} onChange={(e) => setBaseDate(e.target.value)} className="bg-transparent border-none text-cyan-400 text-[11px] font-black outline-none color-scheme-dark cursor-pointer" />
+                                  <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0">
+                                      <Calendar size={11} className="text-[#1e7ac8] mr-1" />
+                                      <span className="text-[11px] font-bold text-gray-500 mr-1">기준월:</span>
+                                      <input type="month" value={baseDate} onChange={(e) => setBaseDate(e.target.value)} className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer" />
                                   </div>
                               </div>
                           </div>
 
                           <div className="flex items-center justify-end gap-1 shrink-0">
                               {/* 이전화면 (팀 변경) */}
-                              <button onClick={() => setCurrentTeam(null)} title="팀 변경" className="flex items-center justify-center px-2.5 py-1.5 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                              <button onClick={() => setCurrentTeam(null)} title="팀 변경" className="flex items-center justify-center px-2.5 py-1.5 rounded border border-gray-300 bg-gray-100 hover:bg-gray-200 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
                                   이전화면
                               </button>
 
@@ -5853,9 +5842,9 @@ const TechTeamPMS = () => {
                                   onClick={() => setCompactMode(v => (v + 1) % 3)}
                                   title={['기본 보기 → 컴팩트', '컴팩트 → 초소형', '초소형 → 기본'][compactMode]}
                                   className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${
-                                      compactMode === 0 ? 'bg-slate-900 border-slate-700 hover:bg-slate-800'
-                                    : compactMode === 1 ? 'bg-cyan-500/20 border-cyan-500'
-                                    : 'bg-violet-500/20 border-violet-500'
+                                      compactMode === 0 ? 'bg-white border-gray-200 hover:bg-gray-100'
+                                    : compactMode === 1 ? 'bg-blue-50 border-[#1e7ac8]'
+                                    : 'bg-white border-gray-300'
                                   }`}
                               >
                                   <AlignJustify size={14} style={{ color: '#111827' }} />
@@ -5866,7 +5855,7 @@ const TechTeamPMS = () => {
                               <button
                                   onClick={() => { setShowTeamGraph(true); setTeamChartZoom(1); }}
                                   title="팀 전체 실적 그래프"
-                                  className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-indigo-500/60 bg-indigo-500/15 hover:bg-indigo-500 text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0"
+                                  className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-[#1e7ac8] bg-blue-50 hover:bg-[#1e7ac8] text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0"
                               >
                                   <BarChart3 size={14} /> 실적그래프
                               </button>
@@ -5874,7 +5863,7 @@ const TechTeamPMS = () => {
                               <button
                                   onClick={() => handleOpenModal(null)}
                                   title="새 프로젝트 등록"
-                                  className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-cyan-500/60 bg-cyan-500/15 hover:bg-cyan-500 text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0"
+                                  className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-[#1e7ac8] bg-blue-50 hover:bg-[#1e7ac8] text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0"
                               >
                                   <Plus size={14} /> 프로젝트 추가
                               </button>
@@ -5900,7 +5889,7 @@ const TechTeamPMS = () => {
                                               }
                                           }}
                                           style={{ borderColor: searchActive ? '#f59e0b' : undefined, borderRadius: 0 }}
-                                          className={`bg-slate-900 border border-slate-700 hover:border-slate-600 py-1.5 pl-7 pr-2 text-xs font-medium text-white transition-all outline-none shadow-sm cursor-text placeholder-slate-500 ${searchActive ? 'w-52' : 'w-36 focus:w-52'}`}
+                                          className={`bg-white border border-gray-200 hover:border-gray-300 py-1.5 pl-7 pr-2 text-xs font-medium text-gray-800 transition-all outline-none shadow-sm cursor-text placeholder-gray-400 ${searchActive ? 'w-52' : 'w-36 focus:w-52'}`}
                                       />
                                   </div>
                                   {/* 검색 초기화 버튼 */}
@@ -5925,93 +5914,93 @@ const TechTeamPMS = () => {
                                       <button
                                           onClick={handleMonthlySaveClick}
                                           title={hasSaved ? `${m}월 저장됨 — 클릭하면 갱신` : `${m}월 업무현황 저장`}
-                                          className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${hasSaved ? 'bg-amber-500/20 border-amber-500 text-amber-400 hover:bg-amber-500/30' : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                                          className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${hasSaved ? 'bg-amber-500/20 border-amber-500 text-amber-400 hover:bg-amber-500/30' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'}`}
                                       >
                                           <BookMarked size={14} />
                                           <span style={{ color: '#111827' }}>전체저장</span>
-                                          {hasSaved && <span className="text-[9px] font-mono">{m}월</span>}
+                                          {hasSaved && <span className="text-[11px] font-mono">{m}월</span>}
                                       </button>
                                   );
                               })()}
 
                               {/* 월간보고서 — 엑셀생성 */}
-                              <button onClick={executeMonthlyReport} title="월간보고서 엑셀 생성" className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-indigo-500/50 bg-indigo-600/20 hover:bg-indigo-600 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                              <button onClick={executeMonthlyReport} title="월간보고서 엑셀 생성" className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-[#1e7ac8] bg-blue-50 hover:bg-[#1e7ac8] text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
                                   <FileSpreadsheet size={14} /> 엑셀생성
                               </button>
 
                               {/* 프로젝트 List관리 이동 버튼 */}
-                              <button onClick={() => setCurrentMode('projectList')} title="프로젝트 List관리" className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-emerald-700 bg-emerald-900/30 hover:bg-emerald-700 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                              <button onClick={() => setCurrentMode('projectList')} title="프로젝트 List관리" className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
                                   <ListChecks size={13} /> List관리
                               </button>
 
 
                               {/* 도움말 버튼 */}
-                              <button onClick={() => setIsHelpOpen(true)} className="flex items-center justify-center gap-1 bg-slate-900 hover:bg-cyan-900/40 border border-slate-700 hover:border-cyan-500/50 px-2 py-1.5 rounded transition-all text-xs font-bold text-slate-400 hover:text-cyan-400 shrink-0" title="도움말">
+                              <button onClick={() => setIsHelpOpen(true)} className="flex items-center justify-center gap-1 bg-white hover:bg-blue-50 border border-gray-200 hover:border-[#1e7ac8] px-2 py-1.5 rounded transition-all text-xs font-bold text-gray-500 hover:text-[#1e7ac8] shrink-0" title="도움말">
                                   <HelpCircle size={13} /> 도움말
                               </button>
 
                               {/* 설정 드롭다운 — Debug·로컬→DB 포함 */}
                               <div className="relative shrink-0">
-                                  <button onClick={() => setIsSettingsMenuOpen(!isSettingsMenuOpen)} className="flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 px-2 py-1.5 rounded transition-all text-xs font-bold text-slate-300 hover:text-white">
+                                  <button onClick={() => setIsSettingsMenuOpen(!isSettingsMenuOpen)} className="flex items-center justify-center gap-1 bg-white hover:bg-blue-50 hover:border-[#1e7ac8] border border-gray-200 px-2 py-1.5 rounded transition-all text-xs font-bold text-gray-600 hover:text-[#1e7ac8]">
                                       <Settings size={13} /> 설정 <ChevronDown size={11} />
                                   </button>
                                   {isSettingsMenuOpen && (
                                       <>
                                           <div className="fixed inset-0 z-[55]" onClick={() => setIsSettingsMenuOpen(false)}></div>
-                                          <div className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-[60] py-2 animate-in fade-in zoom-in-95">
+                                          <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden z-[60] py-2 animate-in fade-in zoom-in-95">
                                               {/* Debug 토글 */}
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); setShowDebug(v => !v); }} className={`w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold flex items-center gap-2 transition-colors border-b border-slate-800 ${showDebug ? 'text-emerald-400' : 'text-slate-300'}`}>
-                                                  <TerminalSquare size={14} className={showDebug ? 'text-emerald-400' : 'text-slate-500'} />
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); setShowDebug(v => !v); }} className={`w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold flex items-center gap-2 transition-colors border-b border-gray-200 ${showDebug ? 'text-gray-500' : 'text-gray-600'}`}>
+                                                  <TerminalSquare size={14} className={showDebug ? 'text-gray-500' : 'text-gray-400'} />
                                                   디버그 모드
-                                                  <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug ? 'border-emerald-500 text-emerald-400' : 'border-slate-600 text-slate-500'}`}>{showDebug ? 'ON' : 'OFF'}</span>
+                                                  <span className={`ml-auto text-[11px] px-1.5 py-0.5 rounded border font-mono ${showDebug ? 'border-emerald-500 text-gray-500' : 'border-gray-300 text-gray-400'}`}>{showDebug ? 'ON' : 'OFF'}</span>
                                               </button>
                                               {/* A-4a-0: 데이터 백업 */}
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); handleBackupData(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-amber-300 flex items-center gap-2 transition-colors border-b border-slate-800">
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); handleBackupData(); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-amber-300 flex items-center gap-2 transition-colors border-b border-gray-200">
                                                   <Download size={14} className="text-amber-400" /> 데이터 백업 (JSON 저장)
                                               </button>
                                               {/* A-4a: pid 일괄 발급 */}
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); openPidMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-violet-300 flex items-center gap-2 transition-colors border-b border-slate-800">
-                                                  <ListChecks size={14} className="text-violet-400" /> 고유 ID 일괄 발급 (A-4a)
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); openPidMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-600 flex items-center gap-2 transition-colors border-b border-gray-200">
+                                                  <ListChecks size={14} className="text-gray-500" /> 고유 ID 일괄 발급 (A-4a)
                                               </button>
                                               {/* A-4b: 주간장부 pid 통일 병합 */}
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); openWkMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-cyan-300 flex items-center gap-2 transition-colors border-b border-slate-800">
-                                                  <TrendingUp size={14} className="text-cyan-400" /> 주간장부 통일 병합 (A-4b)
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); openWkMigration(); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-[#1e7ac8] flex items-center gap-2 transition-colors border-b border-gray-200">
+                                                  <TrendingUp size={14} className="text-[#1e7ac8]" /> 주간장부 통일 병합 (A-4b)
                                               </button>
                                               {/* 로컬→DB (조건부) */}
                                               {localSnapMonths.length > 0 && (
-                                                  <button onClick={() => { setIsSettingsMenuOpen(false); setMigrateProgress(null); setMigrateModal(true); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-violet-400 flex items-center gap-2 transition-colors border-b border-slate-800">
-                                                      <Upload size={14} className="text-violet-400" /> 로컬 → DB 이전
-                                                      <span className="ml-auto text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">{localSnapMonths.length}</span>
+                                                  <button onClick={() => { setIsSettingsMenuOpen(false); setMigrateProgress(null); setMigrateModal(true); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-500 flex items-center gap-2 transition-colors border-b border-gray-200">
+                                                      <Upload size={14} className="text-gray-500" /> 로컬 → DB 이전
+                                                      <span className="ml-auto text-[11px] bg-white text-gray-600 px-1.5 py-0.5 rounded">{localSnapMonths.length}</span>
                                                   </button>
                                               )}
-                                              <div className="border-t border-slate-800 my-1"></div>
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); if(fileInputRef.current) fileInputRef.current.value = ''; fileInputRef.current?.click(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-2 transition-colors">
-                                                  <Upload size={14} className="text-cyan-400" /> 엑셀 업로드
+                                              <div className="border-t border-gray-200 my-1"></div>
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); if(fileInputRef.current) fileInputRef.current.value = ''; fileInputRef.current?.click(); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-800 flex items-center gap-2 transition-colors">
+                                                  <Upload size={14} className="text-[#1e7ac8]" /> 엑셀 업로드
                                               </button>
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); handleOpenModal(null); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-2 transition-colors">
-                                                  <Plus size={14} className="text-cyan-400" /> 수동 신규 등록
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); handleOpenModal(null); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-800 flex items-center gap-2 transition-colors">
+                                                  <Plus size={14} className="text-[#1e7ac8]" /> 수동 신규 등록
                                               </button>
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); setIsSettingsOpen(true); setSettingsTab('defaults'); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2 transition-colors">
-                                                  <LayoutGrid size={14} className="text-indigo-400" /> 기본 필터(초기화면)
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); setIsSettingsOpen(true); setSettingsTab('defaults'); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-600 flex items-center gap-2 transition-colors">
+                                                  <LayoutGrid size={14} className="text-[#1e7ac8]" /> 기본 필터(초기화면)
                                               </button>
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); setIsSettingsOpen(true); setSettingsTab('status'); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2 transition-colors">
-                                                  <Edit2 size={14} className="text-emerald-400" /> 드롭다운 항목 편집
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); setIsSettingsOpen(true); setSettingsTab('status'); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-600 flex items-center gap-2 transition-colors">
+                                                  <Edit2 size={14} className="text-gray-500" /> 드롭다운 항목 편집
                                               </button>
-                                              <div className="border-t border-slate-800 my-1"></div>
+                                              <div className="border-t border-gray-200 my-1"></div>
                                               {/* 열 표시/숨기기 */}
-                                              <button onClick={() => setIsColumnDropdownOpen(v => !v)} className={`w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenColumns.size > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
-                                                  <Eye size={14} className={hiddenColumns.size > 0 ? 'text-rose-400' : 'text-slate-500'} />
+                                              <button onClick={() => setIsColumnDropdownOpen(v => !v)} className={`w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenColumns.size > 0 ? 'text-rose-400' : 'text-gray-600'}`}>
+                                                  <Eye size={14} className={hiddenColumns.size > 0 ? 'text-rose-400' : 'text-gray-400'} />
                                                   열 표시/숨기기
-                                                  {hiddenColumns.size > 0 && <span className="ml-auto text-[10px] bg-rose-500 text-white px-1.5 py-0.5 font-mono">{hiddenColumns.size}개 숨김</span>}
+                                                  {hiddenColumns.size > 0 && <span className="ml-auto text-[11px] bg-rose-500 text-white px-1.5 py-0.5 font-mono">{hiddenColumns.size}개 숨김</span>}
                                               </button>
                                               {isColumnDropdownOpen && (
                                                   <div className="px-3 pb-2">
                                                       <div className="flex justify-end mb-1.5">
-                                                          <button onClick={() => setHiddenColumns(new Set())} className="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold px-2 py-0.5 bg-cyan-500/10">모두 표시</button>
+                                                          <button onClick={() => setHiddenColumns(new Set())} className="text-[11px] text-[#1e7ac8] hover:text-[#1e7ac8] font-bold px-2 py-0.5 bg-blue-50">모두 표시</button>
                                                       </div>
                                                       <div className="space-y-0.5 max-h-48 overflow-y-auto custom-scrollbar">
                                                           {orderedColDefs.map(col => (
-                                                              <label key={col.key} className="flex items-center gap-2 cursor-pointer group py-1 px-2 hover:bg-slate-800/50 transition-colors">
+                                                              <label key={col.key} className="flex items-center gap-2 cursor-pointer group py-1 px-2 hover:bg-gray-100 transition-colors">
                                                                   <input type="checkbox" checked={!hiddenColumns.has(col.key)} onChange={() => {
                                                                       setHiddenColumns(prev => {
                                                                           const next = new Set(prev);
@@ -6019,8 +6008,8 @@ const TechTeamPMS = () => {
                                                                           else next.add(col.key);
                                                                           return next;
                                                                       });
-                                                                  }} className="w-3 h-3 accent-cyan-500 cursor-pointer" />
-                                                                  <span className={`text-[12px] font-medium ${hiddenColumns.has(col.key) ? 'text-slate-500' : 'text-slate-200 group-hover:text-white'}`}>{col.label}</span>
+                                                                  }} className="w-3 h-3 accent-[#1e7ac8] cursor-pointer" />
+                                                                  <span className={`text-xs font-medium ${hiddenColumns.has(col.key) ? 'text-gray-400' : 'text-gray-700 group-hover:text-white'}`}>{col.label}</span>
                                                               </label>
                                                           ))}
                                                       </div>
@@ -6029,12 +6018,12 @@ const TechTeamPMS = () => {
                                               {/* 엑셀 다운로드 */}
                                               <button onClick={() => { setIsSettingsMenuOpen(false); handleExcelDownloadClick(); }} className="w-full text-left px-4 py-2.5 hover:bg-emerald-900/30 text-xs font-bold text-emerald-400 flex items-center gap-2 transition-colors">
                                                   <Download size={14} className="text-emerald-400" /> 엑셀 다운로드
-                                                  {userPrefs[currentTeam]?.excelFormat && <span className="ml-auto text-[10px] bg-emerald-500 text-white px-1.5 py-0.5 font-mono">{userPrefs[currentTeam].excelFormat.toUpperCase()}</span>}
+                                                  {userPrefs[currentTeam]?.excelFormat && <span className="ml-auto text-[11px] bg-emerald-500 text-white px-1.5 py-0.5 font-mono">{userPrefs[currentTeam].excelFormat.toUpperCase()}</span>}
                                               </button>
-                                              <button onClick={() => { setIsSettingsMenuOpen(false); openExcelFormatModal(); }} className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-slate-300 flex items-center gap-2 transition-colors">
+                                              <button onClick={() => { setIsSettingsMenuOpen(false); openExcelFormatModal(); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-100 text-xs font-bold text-gray-600 flex items-center gap-2 transition-colors">
                                                   <FileSpreadsheet size={14} className="text-emerald-400" /> 엑셀 포맷 설정
                                               </button>
-                                              <div className="border-t border-slate-800 my-1"></div>
+                                              <div className="border-t border-gray-200 my-1"></div>
                                               <button onClick={() => { setIsSettingsMenuOpen(false); setIsDeleteAllModalOpen(true); }} className="w-full text-left px-4 py-2.5 hover:bg-rose-900/30 text-xs font-bold text-rose-400 flex items-center gap-2 transition-colors">
                                                   <Trash2 size={14} /> 데이터 초기화
                                               </button>
@@ -6044,18 +6033,18 @@ const TechTeamPMS = () => {
                               </div>
 
                               {/* 사용자 정보 + 로그아웃 */}
-                              <div className="flex items-center shrink-0 border border-slate-700 bg-slate-900" style={{ height: '100%' }}>
-                                  <span className="px-2 text-[11px] font-semibold text-slate-400 max-w-[90px] truncate" title={user?.email || ''}>
+                              <div className="flex items-center shrink-0 border border-gray-200 bg-white" style={{ height: '100%' }}>
+                                  <span className="px-2 text-[11px] font-semibold text-gray-500 max-w-[90px] truncate" title={user?.email || ''}>
                                       {user?.displayName || user?.email?.split('@')[0] || '사용자'}
                                   </span>
-                                  <button onClick={() => setConfirmSignOutOpen(true)} className="flex items-center px-1.5 py-1.5 border-l border-slate-700 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 transition-all h-full" title="로그아웃">
+                                  <button onClick={() => setConfirmSignOutOpen(true)} className="flex items-center px-1.5 py-1.5 border-l border-gray-200 hover:bg-rose-900/30 text-gray-500 hover:text-rose-400 transition-all h-full" title="로그아웃">
                                       <LogOut size={12} />
                                   </button>
                               </div>
                           </div>
                       </header>
 
-                      <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1 items-center bg-slate-900/30 p-1.5 rounded-xl border border-slate-800/50 shadow-inner shrink-0 relative z-30">
+                      <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1 items-center bg-white p-1.5 rounded-xl border border-gray-200/50 shadow-inner shrink-0 relative z-30">
                           
                           {isFilterModified && (
                               <button onClick={resetFilters} className="px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-all font-bold text-[11px] flex items-center justify-center gap-1 shrink-0 mr-1 shadow-sm">
@@ -6065,7 +6054,7 @@ const TechTeamPMS = () => {
                           
                           {/* ★ STATUS 라벨 클릭 시 전체 토글(선택/해제) 기능 ★ */}
                           <div 
-                              className="flex items-center px-2 py-1 bg-slate-900/80 rounded-md shadow-sm shrink-0 gap-1.5 border border-slate-700/50 cursor-pointer hover:bg-slate-800 transition-colors"
+                              className="flex items-center px-2 py-1 bg-white/80 rounded-md shadow-sm shrink-0 gap-1.5 border border-gray-200/50 cursor-pointer hover:bg-gray-100 transition-colors"
                               onClick={() => {
                                   const allLabels = statusSummaryItems.map(s => s && s.label).filter(Boolean);
                                   if (activeFilterStatuses.size === allLabels.length) {
@@ -6078,8 +6067,8 @@ const TechTeamPMS = () => {
                               }}
                               title="클릭 시 모든 진행현황을 선택하거나 해제합니다."
                           >
-                              <BarChart3 size={12} className="text-cyan-400" />
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Status <span className="text-white ml-0.5">({totalProjectsCount})</span></span>
+                              <BarChart3 size={12} className="text-[#1e7ac8]" />
+                              <span className="text-[11px] font-black text-gray-500 uppercase tracking-wider">Status <span className="text-gray-800 ml-0.5">({totalProjectsCount})</span></span>
                           </div>
                           
                           {statusSummaryItems.map((opt) => {
@@ -6101,11 +6090,11 @@ const TechTeamPMS = () => {
                                            title={allCollapsed ? '서브항목 모두 펼치기' : '서브항목 모두 접기'}
                                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md shadow-sm shrink-0 cursor-pointer select-none transition-all
                                                ${!allCollapsed && subParentCount > 0
-                                                   ? 'border-[1.5px] border-orange-500 bg-slate-800 scale-105'
-                                                   : 'border border-transparent opacity-50 hover:opacity-80 hover:bg-slate-800/50'}
+                                                   ? 'border-[1.5px] border-orange-500 bg-gray-100 scale-105'
+                                                   : 'border border-transparent opacity-50 hover:opacity-80 hover:bg-gray-100'}
                                            `}>
                                           <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-                                          <span className="text-[11px] font-bold text-slate-300">하위</span>
+                                          <span className="text-[11px] font-bold text-gray-600">하위</span>
                                           <span className="text-[11px] font-black text-orange-400">{subParentCount}</span>
                                           {subParentCount > 0 && (allCollapsed
                                               ? <ChevronDown size={10} className="text-orange-400" />
@@ -6181,21 +6170,21 @@ const TechTeamPMS = () => {
                                        }}
                                        title="클릭하여 데이터 노출/숨김 (꾹 눌러서 이동)"
                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md shadow-sm shrink-0 cursor-pointer select-none transition-all
-                                           ${isActive ? `border-[1.5px] ${opt.borderColor.replace('/20','')} bg-slate-800 scale-105` : 'border border-transparent opacity-50 grayscale hover:opacity-80 hover:bg-slate-800/50'}
-                                           ${draggedStatusKey === opt.label ? 'opacity-40 border-dashed border-cyan-500 bg-slate-900 scale-95' : ''}
+                                           ${isActive ? `border-[1.5px] ${opt.borderColor.replace('/20','')} bg-gray-100 scale-105` : 'border border-transparent opacity-50 grayscale hover:opacity-80 hover:bg-gray-100'}
+                                           ${draggedStatusKey === opt.label ? 'opacity-40 border-dashed border-[#1e7ac8] bg-white scale-95' : ''}
                                        `}>
                                       <div className={`w-1.5 h-1.5 rounded-full ${opt.color}`}></div>
-                                      <span className="text-[11px] font-bold text-slate-300">{opt.label}</span>
+                                      <span className="text-[11px] font-bold text-gray-600">{opt.label}</span>
                                       <span className={`text-[11px] font-black ${opt.textColor}`}>{opt.count}</span>
                                   </div>
                               )
                           })}
 
-                          <div className="w-px h-4 bg-slate-700/60 shrink-0 mx-1"></div>
+                          <div className="w-px h-4 bg-gray-200/60 shrink-0 mx-1"></div>
 
-                          <div className="flex items-center px-2 py-1 bg-slate-900/80 rounded-md shadow-sm shrink-0 gap-1.5 border border-slate-700/50">
-                              <LayoutGrid size={12} className="text-indigo-400" />
-                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Factory</span>
+                          <div className="flex items-center px-2 py-1 bg-white/80 rounded-md shadow-sm shrink-0 gap-1.5 border border-gray-200/50">
+                              <LayoutGrid size={12} className="text-[#1e7ac8]" />
+                              <span className="text-[11px] font-black text-gray-500 uppercase tracking-wider">Factory</span>
                           </div>
                           
                           {displayFactories.map((opt) => {
@@ -6248,12 +6237,12 @@ const TechTeamPMS = () => {
                                        }}
                                        title="클릭하여 데이터 노출/숨김 (꾹 눌러서 이동)"
                                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md shadow-sm shrink-0 cursor-pointer select-none transition-all
-                                           ${isActive ? `border-[1.5px] border-indigo-500 bg-slate-800 scale-105` : 'border border-transparent opacity-50 grayscale hover:opacity-80 hover:bg-slate-800/50'}
-                                           ${draggedFactoryKey === opt ? 'opacity-40 border-dashed border-indigo-500 bg-slate-900 scale-95' : ''}
+                                           ${isActive ? `border-[1.5px] border-[#1e7ac8] bg-gray-100 scale-105` : 'border border-transparent opacity-50 grayscale hover:opacity-80 hover:bg-gray-100'}
+                                           ${draggedFactoryKey === opt ? 'opacity-40 border-dashed border-[#1e7ac8] bg-white scale-95' : ''}
                                        `}>
-                                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
-                                      <span className="text-[11px] font-bold text-slate-300">{opt}</span>
-                                      <span className="text-[11px] font-black text-indigo-400">{count}</span>
+                                      <div className="w-1.5 h-1.5 rounded-full bg-[#1e7ac8]"></div>
+                                      <span className="text-[11px] font-bold text-gray-600">{opt}</span>
+                                      <span className="text-[11px] font-black text-[#1e7ac8]">{count}</span>
                                   </div>
                               );
                           })}
@@ -6274,7 +6263,7 @@ const TechTeamPMS = () => {
                                       </p>
                                   </div>
                               </div>
-                              <button onClick={handleDeletePmsLocal} className="flex-none px-3 py-2 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 rounded-xl text-xs font-bold transition-all border border-slate-700">
+                              <button onClick={handleDeletePmsLocal} className="flex-none px-3 py-2 bg-gray-100 hover:bg-rose-900/40 text-gray-500 hover:text-rose-400 rounded-xl text-xs font-bold transition-all border border-gray-200">
                                   로컬 데이터 삭제
                               </button>
                           </div>
@@ -6292,7 +6281,7 @@ const TechTeamPMS = () => {
                                   </div>
                               </div>
                               <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
-                                  <button onClick={() => { setLocalUnsavedProjects([]); setPmsLocalInfo(null); }} className="flex-1 md:flex-none px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-sm transition-colors border border-slate-700">전체 취소</button>
+                                  <button onClick={() => { setLocalUnsavedProjects([]); setPmsLocalInfo(null); }} className="flex-1 md:flex-none px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-sm transition-colors border border-gray-200">전체 취소</button>
                                   <button onClick={handleSavePmsToLocal} className="flex-1 md:flex-none px-4 py-2 bg-violet-700 hover:bg-violet-600 text-white rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-1.5 border border-violet-500/50">
                                       <HardDrive size={14}/> 로컬에 저장하기
                                   </button>
@@ -6321,15 +6310,15 @@ const TechTeamPMS = () => {
 
                       {/* ★ 메인 화면 빈 상태 처리 로직 ★ */}
                       {filteredAndSortedProjects.length === 0 ? (
-                          <div className="flex-1 flex flex-col items-center justify-center bg-slate-900/30 border-2 border-dashed border-slate-700/50 rounded-3xl m-2 animate-in min-h-[400px]">
-                              <Database className="w-24 h-24 text-slate-700 mb-6 opacity-70" />
-                              <h2 className="text-3xl font-extrabold text-slate-300 mb-3 tracking-tight">데이터가 없습니다.</h2>
-                              <p className="text-slate-500 text-base font-medium">
+                          <div className="flex-1 flex flex-col items-center justify-center bg-white border-2 border-dashed border-gray-200/50 rounded-3xl m-2 animate-in min-h-[400px]">
+                              <Database className="w-24 h-24 text-gray-300 mb-6 opacity-70" />
+                              <h2 className="text-3xl font-extrabold text-gray-600 mb-3 tracking-tight">데이터가 없습니다.</h2>
+                              <p className="text-gray-400 text-base font-medium">
                                   {baseOrderedProjects.length === 0 ? "엑셀 파일을 업로드하거나 새로운 프로젝트를 수동으로 등록해 주세요." : "상단의 현황(Status) 버튼을 클릭하여 데이터를 확인해 주세요."}
                               </p>
                           </div>
                       ) : (
-                          <div className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-sm shadow-xl flex-1 flex flex-col z-0 relative min-h-0 animate-in">
+                          <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden flex-1 flex flex-col z-0 relative min-h-0 animate-in">
                               {renderTable(visibleProjects, orderedColDefs.filter(col => !hiddenColumns.has(col.key)), false)}
                           </div>
                       )}
@@ -6339,63 +6328,63 @@ const TechTeamPMS = () => {
 
           {/* ★ 엑셀 다운로드 포맷 설정 모달 추가 ★ */}
           {isExcelFormatModalOpen && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
-                      <div className="p-6 border-b border-slate-800 bg-slate-900/50 flex items-center gap-3 shrink-0">
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-gray-200 rounded-3xl max-w-lg w-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
+                      <div className="p-6 border-b border-gray-200 bg-white flex items-center gap-3 shrink-0">
                           <FileSpreadsheet className="text-emerald-400" size={24} />
-                          <h3 className="text-xl font-bold text-white">[{currentTeam}] 엑셀 다운로드 포맷 설정</h3>
+                          <h3 className="text-xl font-bold text-gray-800">[{currentTeam}] 엑셀 다운로드 포맷 설정</h3>
                       </div>
                       
                       <div className="p-6 space-y-4 text-left flex-1 overflow-y-auto custom-scrollbar">
-                          <p className="text-slate-400 text-sm mb-2">출력할 엑셀 파일의 양식을 선택해주세요.</p>
+                          <p className="text-gray-500 text-sm mb-2">출력할 엑셀 파일의 양식을 선택해주세요.</p>
                           
-                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'ui' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'ui' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-gray-50 border-gray-200 hover:border-gray-200'}`}>
                               <div className="flex items-center gap-3 mb-1">
                                   <input type="radio" name="excelFormat" value="ui" checked={tempExcelFormat === 'ui'} onChange={() => setTempExcelFormat('ui')} className="w-4 h-4 accent-emerald-500" />
-                                  <span className={`font-bold ${tempExcelFormat === 'ui' ? 'text-emerald-400' : 'text-slate-300'}`}>현재 화면 그대로 (UI 포맷)</span>
+                                  <span className={`font-bold ${tempExcelFormat === 'ui' ? 'text-emerald-400' : 'text-gray-600'}`}>현재 화면 그대로 (UI 포맷)</span>
                               </div>
-                              <p className="text-xs text-slate-500 ml-7">상단 메뉴에서 임의로 숨김 처리한 열(Column)은 제외하고, 현재 눈에 보이는 순서와 항목 그대로 엑셀을 만듭니다.</p>
+                              <p className="text-xs text-gray-400 ml-7">상단 메뉴에서 임의로 숨김 처리한 열(Column)은 제외하고, 현재 눈에 보이는 순서와 항목 그대로 엑셀을 만듭니다.</p>
                           </label>
 
-                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'all' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'all' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-gray-50 border-gray-200 hover:border-gray-200'}`}>
                               <div className="flex items-center gap-3 mb-1">
                                   <input type="radio" name="excelFormat" value="all" checked={tempExcelFormat === 'all'} onChange={() => setTempExcelFormat('all')} className="w-4 h-4 accent-emerald-500" />
-                                  <span className={`font-bold ${tempExcelFormat === 'all' ? 'text-emerald-400' : 'text-slate-300'}`}>전체 항목 출력 (All 포맷)</span>
+                                  <span className={`font-bold ${tempExcelFormat === 'all' ? 'text-emerald-400' : 'text-gray-600'}`}>전체 항목 출력 (All 포맷)</span>
                               </div>
-                              <p className="text-xs text-slate-500 ml-7">화면에서 숨겨진 데이터를 포함해, 시스템에 등록된 모든 상세 데이터를 엑셀로 출력합니다.</p>
+                              <p className="text-xs text-gray-400 ml-7">화면에서 숨겨진 데이터를 포함해, 시스템에 등록된 모든 상세 데이터를 엑셀로 출력합니다.</p>
                           </label>
 
-                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'summary' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'summary' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-gray-50 border-gray-200 hover:border-gray-200'}`}>
                               <div className="flex items-center gap-3 mb-1">
                                   <input type="radio" name="excelFormat" value="summary" checked={tempExcelFormat === 'summary'} onChange={() => setTempExcelFormat('summary')} className="w-4 h-4 accent-emerald-500" />
-                                  <span className={`font-bold ${tempExcelFormat === 'summary' ? 'text-emerald-400' : 'text-slate-300'}`}>주간/월간 요약 보고서 (Summary)</span>
+                                  <span className={`font-bold ${tempExcelFormat === 'summary' ? 'text-emerald-400' : 'text-gray-600'}`}>주간/월간 요약 보고서 (Summary)</span>
                               </div>
-                              <p className="text-xs text-slate-500 ml-7">NO, 프로젝트명, 발주처, 상태, 공정률, 담당자, 기간 등 보고용 핵심 정보만 추려서 출력합니다.</p>
+                              <p className="text-xs text-gray-400 ml-7">NO, 프로젝트명, 발주처, 상태, 공정률, 담당자, 기간 등 보고용 핵심 정보만 추려서 출력합니다.</p>
                           </label>
 
-                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'commissioning' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'commissioning' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-gray-50 border-gray-200 hover:border-gray-200'}`}>
                               <div className="flex items-center gap-3 mb-1">
                                   <input type="radio" name="excelFormat" value="commissioning" checked={tempExcelFormat === 'commissioning'} onChange={() => setTempExcelFormat('commissioning')} className="w-4 h-4 accent-emerald-500" />
-                                  <span className={`font-bold ${tempExcelFormat === 'commissioning' ? 'text-emerald-400' : 'text-slate-300'}`}>시운전 실적 정산 (Points)</span>
+                                  <span className={`font-bold ${tempExcelFormat === 'commissioning' ? 'text-emerald-400' : 'text-gray-600'}`}>시운전 실적 정산 (Points)</span>
                               </div>
-                              <p className="text-xs text-slate-500 ml-7">포인트, 금월/전월 등 비용 정산에 필요한 시운전 실적 통계 위주로 출력합니다.</p>
+                              <p className="text-xs text-gray-400 ml-7">포인트, 금월/전월 등 비용 정산에 필요한 시운전 실적 통계 위주로 출력합니다.</p>
                           </label>
 
-                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'custom' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-slate-950 border-slate-800 hover:border-slate-700'}`}>
+                          <label className={`flex flex-col p-4 border rounded-xl cursor-pointer transition-all ${tempExcelFormat === 'custom' ? 'bg-emerald-600/10 border-emerald-500/50' : 'bg-gray-50 border-gray-200 hover:border-gray-200'}`}>
                               <div className="flex items-center justify-between mb-1">
                                   <div className="flex items-center gap-3">
                                       <input type="radio" name="excelFormat" value="custom" checked={tempExcelFormat === 'custom'} onChange={() => setTempExcelFormat('custom')} className="w-4 h-4 accent-emerald-500" />
-                                      <span className={`font-bold ${tempExcelFormat === 'custom' ? 'text-emerald-400' : 'text-slate-300'}`}>내 템플릿 로드 (Custom)</span>
+                                      <span className={`font-bold ${tempExcelFormat === 'custom' ? 'text-emerald-400' : 'text-gray-600'}`}>내 템플릿 로드 (Custom)</span>
                                   </div>
-                                  {userPrefs[currentTeam]?.customTemplateBase64 && tempExcelFormat === 'custom' && <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/30">저장된 템플릿 있음</span>}
+                                  {userPrefs[currentTeam]?.customTemplateBase64 && tempExcelFormat === 'custom' && <span className="text-[11px] bg-blue-50 text-[#1e7ac8] px-2 py-0.5 rounded border border-[#1e7ac8]/30">저장된 템플릿 있음</span>}
                               </div>
-                              <p className="text-xs text-slate-500 ml-7 mb-2">미리 만들어둔 엑셀 서식을 불러와 원하는 셀 위치에 데이터를 주입합니다.</p>
+                              <p className="text-xs text-gray-400 ml-7 mb-2">미리 만들어둔 엑셀 서식을 불러와 원하는 셀 위치에 데이터를 주입합니다.</p>
                               
                               {tempExcelFormat === 'custom' && (
-                                  <div className="ml-7 p-3 bg-slate-900 border border-slate-800 rounded-lg space-y-3 cursor-default" onClick={e => e.stopPropagation()}>
-                                      <input type="file" accept=".xlsx" onChange={(e) => setCustomTemplateFile(e.target.files[0])} className="text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
-                                      <div className="text-[10px] text-slate-500 space-y-1">
-                                          <p className="font-bold text-slate-400">💡 템플릿 사용 방법:</p>
+                                  <div className="ml-7 p-3 bg-white border border-gray-200 rounded-lg space-y-3 cursor-default" onClick={e => e.stopPropagation()}>
+                                      <input type="file" accept=".xlsx" onChange={(e) => setCustomTemplateFile(e.target.files[0])} className="text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20" />
+                                      <div className="text-[11px] text-gray-400 space-y-1">
+                                          <p className="font-bold text-gray-500">💡 템플릿 사용 방법:</p>
                                           <p>엑셀 파일의 원하는 셀에 <b>{`{{project}}`}, {`{{progress}}`}</b> 처럼 중괄호로 태그를 입력해두면, 시스템이 해당 행을 인식해 데이터를 반복해서 채워줍니다.</p>
                                           <p>사용 가능 주요 태그: no, execNo, project, factory, manager, progressStatus, progress, startDate, endDate, client, content, point, accPoints</p>
                                       </div>
@@ -6405,15 +6394,15 @@ const TechTeamPMS = () => {
                       </div>
 
                       <div className="shrink-0 flex flex-col">
-                          <div className="px-6 py-4 bg-slate-950 flex justify-between items-center border-t border-slate-800">
+                          <div className="px-6 py-4 bg-gray-50 flex justify-between items-center border-t border-gray-200">
                               <label className="flex items-center gap-2 cursor-pointer group">
-                                  <input type="checkbox" checked={tempSaveDefault} onChange={(e) => setTempSaveDefault(e.target.checked)} className="w-4 h-4 accent-cyan-500 bg-slate-800 border-slate-700 cursor-pointer" />
-                                  <span className="text-sm font-bold text-cyan-400 group-hover:text-cyan-300">내 기본 포맷으로 저장 (현재 팀 항상 적용)</span>
+                                  <input type="checkbox" checked={tempSaveDefault} onChange={(e) => setTempSaveDefault(e.target.checked)} className="w-4 h-4 accent-[#1e7ac8] bg-gray-100 border-gray-200 cursor-pointer" />
+                                  <span className="text-sm font-bold text-[#1e7ac8] group-hover:text-[#1e7ac8]">내 기본 포맷으로 저장 (현재 팀 항상 적용)</span>
                               </label>
                           </div>
                           
-                          <div className="p-6 bg-slate-900/50 flex gap-3 border-t border-slate-800">
-                              <button onClick={() => setIsExcelFormatModalOpen(false)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-slate-300 transition-colors">취소</button>
+                          <div className="p-6 bg-white flex gap-3 border-t border-gray-200">
+                              <button onClick={() => setIsExcelFormatModalOpen(false)} className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-600 transition-colors">취소</button>
                               <button onClick={handleFormatModalSubmit} className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white shadow-lg flex items-center justify-center gap-2 transition-all">
                                   <Download size={18} /> 다운로드 실행
                               </button>
@@ -6426,13 +6415,13 @@ const TechTeamPMS = () => {
           {/* ★ 모든 팝업 모달창 (설정/수정/미리보기) 영역 ★ */}
 
           {isSaveConfirmModalOpen && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-gray-200 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
                       <div className="p-4 bg-amber-500/10 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4">
                           <Save className="w-10 h-10 text-amber-500" />
                       </div>
-                      <p className="text-white text-xl font-bold mb-2">DB 확정 저장</p>
-                      <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+                      <p className="text-gray-800 text-xl font-bold mb-2">DB 확정 저장</p>
+                      <p className="text-gray-500 text-sm mb-6 leading-relaxed">
                           현재 메인 화면에 임시 적용된 <strong className="text-amber-400">{localUnsavedProjects.length}건</strong>의 데이터를 클라우드 DB에 완전히 저장합니다.<br/>
                           기존의 <strong>{currentTeam}</strong> 데이터를 모두 지우고 덮어쓰시겠습니까, 아니면 기존 데이터 아래에 추가하시겠습니까?
                       </p>
@@ -6440,10 +6429,10 @@ const TechTeamPMS = () => {
                           <button onClick={() => executeSaveUnsaved(true)} className="w-full px-4 py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2">
                               <AlertTriangle size={16} /> 기존 데이터 삭제 및 덮어쓰기
                           </button>
-                          <button onClick={() => executeSaveUnsaved(false)} className="w-full px-4 py-3.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2">
+                          <button onClick={() => executeSaveUnsaved(false)} className="w-full px-4 py-3.5 bg-[#1e7ac8] hover:bg-[#1e7ac8] text-white rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2">
                               <Plus size={16} /> 기존 데이터 유지 및 추가 저장
                           </button>
-                          <button onClick={() => setIsSaveConfirmModalOpen(false)} className="w-full mt-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all border border-slate-700">
+                          <button onClick={() => setIsSaveConfirmModalOpen(false)} className="w-full mt-2 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all border border-gray-200">
                               취소
                           </button>
                       </div>
@@ -6466,14 +6455,14 @@ const TechTeamPMS = () => {
           )}
 
           {confirmDeleteId && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-gray-200 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                           <Trash2 className="w-12 h-12 text-rose-500 mx-auto mb-4 opacity-80" />
-                          <p className="text-white text-lg font-bold mb-2">프로젝트 삭제 표시</p>
-                          <p className="text-slate-400 text-sm mb-3">이 프로젝트에 <b className="text-rose-400">'삭제' 도장</b>을 찍습니다.</p>
-                          <p className="text-slate-500 text-xs mb-8">데이터와 이력은 보존됩니다. 상태 필터에서 '삭제'를 켜면<br/>다시 볼 수 있고, 상태를 바꾸면 복구됩니다.</p>
+                          <p className="text-gray-800 text-lg font-bold mb-2">프로젝트 삭제 표시</p>
+                          <p className="text-gray-500 text-sm mb-3">이 프로젝트에 <b className="text-rose-400">'삭제' 도장</b>을 찍습니다.</p>
+                          <p className="text-gray-400 text-xs mb-8">데이터와 이력은 보존됩니다. 상태 필터에서 '삭제'를 켜면<br/>다시 볼 수 있고, 상태를 바꾸면 복구됩니다.</p>
                           <div className="flex gap-3 justify-center">
-                              <button onClick={() => setConfirmDeleteId(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
+                              <button onClick={() => setConfirmDeleteId(null)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">취소</button>
                               <button onClick={executeDeleteProject} className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-rose-900/30">삭제 표시</button>
                           </div>
                   </div>
@@ -6482,25 +6471,25 @@ const TechTeamPMS = () => {
 
           {/* A-4a: pid 일괄 발급 모달 — 스캔 → 확인 → 실행 → 완료 */}
           {pidMigModal && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-violet-500/30 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-violet-500/30 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl">
                       <ListChecks className="w-12 h-12 text-violet-400 mx-auto mb-4" />
-                      <p className="text-white text-lg font-bold mb-2">고유 ID(pid) 일괄 발급</p>
+                      <p className="text-gray-800 text-lg font-bold mb-2">고유 ID(pid) 일괄 발급</p>
                       {pidMigModal.stage === 'scan' && (
-                          <p className="text-slate-400 text-sm mb-4">대상을 스캔하는 중...</p>
+                          <p className="text-gray-500 text-sm mb-4">대상을 스캔하는 중...</p>
                       )}
                       {pidMigModal.stage === 'ready' && (
                           <>
-                              <div className="text-left text-sm text-slate-300 bg-slate-800/60 rounded-xl p-4 mb-4 leading-7">
+                              <div className="text-left text-sm text-gray-600 bg-gray-100 rounded-xl p-4 mb-4 leading-7">
                                   <div>월간보고({currentTeam}): 전체 {pidMigModal.projTeamTotal}건 중 <b className="text-violet-300">{pidMigModal.projTargets.length}건</b> 발급 대상</div>
                                   <div>프로젝트 List: 전체 {pidMigModal.listTotal}건 중 <b className="text-violet-300">{pidMigModal.listTargets.length}건</b> 발급 대상</div>
-                                  <div className="text-slate-500 text-xs mt-2">이미 ID가 있는 항목은 건드리지 않습니다. 내용·실적 데이터는 변경되지 않습니다.</div>
+                                  <div className="text-gray-400 text-xs mt-2">이미 ID가 있는 항목은 건드리지 않습니다. 내용·실적 데이터는 변경되지 않습니다.</div>
                               </div>
                               {(pidMigModal.projTargets.length + pidMigModal.listTargets.length) === 0 ? (
-                                  <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">모두 발급되어 있음 — 닫기</button>
+                                  <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">모두 발급되어 있음 — 닫기</button>
                               ) : (
                                   <div className="flex gap-3 justify-center">
-                                      <button onClick={() => setPidMigModal(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
+                                      <button onClick={() => setPidMigModal(null)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">취소</button>
                                       <button onClick={runPidMigration} className="flex-1 px-4 py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-violet-900/30">발급 실행</button>
                                   </div>
                               )}
@@ -6512,7 +6501,7 @@ const TechTeamPMS = () => {
                       {pidMigModal.stage === 'done' && (
                           <>
                               <p className="text-emerald-400 text-sm mb-4 font-bold">완료! 월간보고 {pidMigModal.projN}건 + List {pidMigModal.listN}건 발급</p>
-                              <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">닫기</button>
+                              <button onClick={() => setPidMigModal(null)} className="w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">닫기</button>
                           </>
                       )}
                   </div>
@@ -6521,25 +6510,25 @@ const TechTeamPMS = () => {
 
           {/* A-4b: 주간장부 pid 통일 병합 모달 */}
           {wkMigModal && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-cyan-500/30 p-8 rounded-3xl max-w-lg w-full text-center shadow-2xl">
-                      <TrendingUp className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
-                      <p className="text-white text-lg font-bold mb-2">주간장부 통일 병합 (A-4b)</p>
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-[#1e7ac8] p-8 rounded-3xl max-w-lg w-full text-center shadow-2xl">
+                      <TrendingUp className="w-12 h-12 text-[#1e7ac8] mx-auto mb-4" />
+                      <p className="text-gray-800 text-lg font-bold mb-2">주간장부 통일 병합 (A-4b)</p>
                       {wkMigModal.stage === 'scan' && (
-                          <p className="text-slate-400 text-sm mb-4">옛 장부(실행번호·행ID 이름)를 스캔하는 중...</p>
+                          <p className="text-gray-500 text-sm mb-4">옛 장부(실행번호·행ID 이름)를 스캔하는 중...</p>
                       )}
                       {wkMigModal.stage === 'ready' && (
                           <>
-                              <div className="text-left text-sm text-slate-300 bg-slate-800/60 rounded-xl p-4 mb-3 leading-6">
-                                  <div>병합 가능: <b className="text-cyan-300">{wkMigModal.plans.length}건</b> / 충돌 보류: <b className="text-amber-300">{wkMigModal.conflictPlans.length}건</b> (전체 주간장부 {wkMigModal.totalRecs}개)</div>
-                                  <div className="text-slate-500 text-xs mt-1">옛 장부는 지우지 않고 '이관 도장'만 찍습니다. 같은 주차에 같은 값은 1번만 남습니다.</div>
+                              <div className="text-left text-sm text-gray-600 bg-gray-100 rounded-xl p-4 mb-3 leading-6">
+                                  <div>병합 가능: <b className="text-[#1e7ac8]">{wkMigModal.plans.length}건</b> / 충돌 보류: <b className="text-amber-300">{wkMigModal.conflictPlans.length}건</b> (전체 주간장부 {wkMigModal.totalRecs}개)</div>
+                                  <div className="text-gray-400 text-xs mt-1">옛 장부는 지우지 않고 '이관 도장'만 찍습니다. 같은 주차에 같은 값은 1번만 남습니다.</div>
                               </div>
                               {wkMigModal.plans.length > 0 && (
-                                  <div className="text-left text-xs bg-slate-800/40 rounded-xl p-3 mb-3 max-h-44 overflow-y-auto custom-scrollbar">
+                                  <div className="text-left text-xs bg-gray-100 rounded-xl p-3 mb-3 max-h-44 overflow-y-auto custom-scrollbar">
                                       {wkMigModal.plans.map(pl => (
-                                          <div key={pl.pid} className="py-1 border-b border-slate-800 last:border-0">
-                                              <span className="text-slate-200 font-bold">{pl.project}</span>
-                                              <span className="text-slate-500"> — 옛 장부 {pl.sources.length}개 → 병합 후 합계 {pl.afterSum.toLocaleString()}</span>
+                                          <div key={pl.pid} className="py-1 border-b border-gray-200 last:border-0">
+                                              <span className="text-gray-700 font-bold">{pl.project}</span>
+                                              <span className="text-gray-400"> — 옛 장부 {pl.sources.length}개 → 병합 후 합계 {pl.afterSum.toLocaleString()}</span>
                                           </div>
                                       ))}
                                   </div>
@@ -6561,23 +6550,23 @@ const TechTeamPMS = () => {
                                   </div>
                               )}
                               {wkMigModal.plans.length === 0 ? (
-                                  <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">병합할 옛 장부 없음 — 닫기</button>
+                                  <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">병합할 옛 장부 없음 — 닫기</button>
                               ) : (
                                   <div className="flex gap-3 justify-center">
-                                      <button onClick={() => setWkMigModal(null)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
-                                      <button onClick={runWkMigration} className="flex-1 px-4 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-cyan-900/30">{wkMigModal.plans.length}건 병합 실행</button>
+                                      <button onClick={() => setWkMigModal(null)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">취소</button>
+                                      <button onClick={runWkMigration} className="flex-1 px-4 py-3 bg-[#1e7ac8] hover:bg-[#1e7ac8] text-white rounded-xl font-bold transition-all shadow-lg shadow-cyan-900/30">{wkMigModal.plans.length}건 병합 실행</button>
                                   </div>
                               )}
                           </>
                       )}
                       {wkMigModal.stage === 'running' && (
-                          <p className="text-cyan-300 text-sm mb-4 animate-pulse">병합 중... 창을 닫지 마세요</p>
+                          <p className="text-[#1e7ac8] text-sm mb-4 animate-pulse">병합 중... 창을 닫지 마세요</p>
                       )}
                       {wkMigModal.stage === 'done' && (
                           <>
                               <p className="text-emerald-400 text-sm mb-2 font-bold">완료! {wkMigModal.n}건 병합 (충돌 보류 {wkMigModal.c}건)</p>
-                              <p className="text-slate-500 text-xs mb-4">표의 시운전 숫자가 그대로인지 확인해주세요 (병합은 장부 이름 정리일 뿐, 숫자가 변하면 안 됩니다)</p>
-                              <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">닫기</button>
+                              <p className="text-gray-400 text-xs mb-4">표의 시운전 숫자가 그대로인지 확인해주세요 (병합은 장부 이름 정리일 뿐, 숫자가 변하면 안 됩니다)</p>
+                              <button onClick={() => setWkMigModal(null)} className="w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">닫기</button>
                           </>
                       )}
                   </div>
@@ -6585,14 +6574,14 @@ const TechTeamPMS = () => {
           )}
 
           {isDeleteAllModalOpen && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-rose-500/30 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-rose-500/30 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                           <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto mb-4 animate-pulse" />
-                          <p className="text-white text-lg font-bold mb-2">{currentTeam} 전체 데이터 삭제</p>
+                          <p className="text-gray-800 text-lg font-bold mb-2">{currentTeam} 전체 데이터 삭제</p>
                           <p className="text-rose-400 text-sm mb-2 font-bold">경고: 이 작업은 절대 되돌릴 수 없습니다!</p>
-                          <p className="text-slate-400 text-xs mb-8">현재 팀의 모든 프로젝트와 실적 데이터가 영구적으로 삭제됩니다. 계속하시겠습니까?</p>
+                          <p className="text-gray-500 text-xs mb-8">현재 팀의 모든 프로젝트와 실적 데이터가 영구적으로 삭제됩니다. 계속하시겠습니까?</p>
                           <div className="flex gap-3 justify-center">
-                              <button onClick={() => setIsDeleteAllModalOpen(false)} className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold transition-all">취소</button>
+                              <button onClick={() => setIsDeleteAllModalOpen(false)} className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold transition-all">취소</button>
                               <button onClick={executeDeleteAllTeamProjects} className="flex-1 px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-rose-900/30">모두 삭제하기</button>
                           </div>
                   </div>
@@ -6600,10 +6589,10 @@ const TechTeamPMS = () => {
           )}
           
           {alertMessage && (
-              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-slate-950/80 animate-in">
-                  <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl whitespace-pre-line">
-                          <p className="text-white text-lg font-bold mb-6">{alertMessage}</p>
-                          <button onClick={() => setAlertMessage('')} className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold transition-all w-full">확인</button>
+              <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
+                  <div className="bg-white border border-gray-200 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl whitespace-pre-line">
+                          <p className="text-gray-800 text-lg font-bold mb-6">{alertMessage}</p>
+                          <button onClick={() => setAlertMessage('')} className="px-6 py-3 bg-[#1e7ac8] hover:bg-[#1e7ac8] text-white rounded-xl font-bold transition-all w-full">확인</button>
                   </div>
               </div>
           )}
@@ -6726,12 +6715,12 @@ const TechTeamPMS = () => {
           {/* ★ 월간 저장 완료 토스트 ★ */}
           {monthlySnapToast && (
               <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] animate-in fade-in slide-in-from-bottom-4">
-                  <div className="flex items-center gap-3 bg-slate-900 border border-emerald-500/60 px-5 py-3 rounded-2xl shadow-2xl">
+                  <div className="flex items-center gap-3 bg-white border border-emerald-500/60 px-5 py-3 rounded-2xl shadow-2xl">
                       <CheckCheck size={18} className="text-emerald-400 shrink-0" />
-                      <span className="text-white font-bold text-sm">
+                      <span className="text-gray-800 font-bold text-sm">
                           {monthlySnapToast.month.replace('-', '년 ')}월 업무현황 저장 완료
                       </span>
-                      <span className="text-slate-400 text-xs">({monthlySnapToast.count}건)</span>
+                      <span className="text-gray-500 text-xs">({monthlySnapToast.count}건)</span>
                   </div>
               </div>
           )}
@@ -6749,8 +6738,8 @@ const TechTeamPMS = () => {
                       display: 'flex',
                       flexDirection: 'column',
                       backgroundColor: '#ffffff',
-                      border: '2px solid #4e6880',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+                      border: '1px solid var(--line)',
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
                       overflow: 'hidden',
                       userSelect: editModalDragRef.current.dragging ? 'none' : 'auto',
                   }}
@@ -6762,12 +6751,12 @@ const TechTeamPMS = () => {
                           editModalDragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: editModalPos.x, origY: editModalPos.y };
                           e.preventDefault();
                       }}
-                      style={{ cursor: 'move', backgroundColor: '#dce3ec', borderBottom: '2px solid #9aa8b8', padding: '6px 10px 4px', flexShrink: 0 }}
+                      style={{ cursor: 'move', backgroundColor: 'var(--head-bg)', borderBottom: '1px solid var(--line)', padding: '6px 10px 4px', flexShrink: 0 }}
                   >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Activity size={13} style={{ color: '#1e7ac8' }}/>
-                              <span style={{ fontSize: 13, fontWeight: 800, color: '#1a1a1a' }}>{editingProject ? '업무 실적 상세 수정' : '프로젝트 등록'}</span>
+                              <Activity size={13} style={{ color: 'var(--brand)' }}/>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--txt-strong)' }}>{editingProject ? '업무 실적 상세 수정' : '프로젝트 등록'}</span>
                               {/* A-4a: 고유 ID(pid) 표시 — 발급 확인용 */}
                               {(formData.pid || editingProject?.pid) && (
                                   <span title="고유 ID (불변·자동 발급)" style={{ fontSize: 10, fontWeight: 700, color: '#5b21b6', background: 'rgba(124,58,237,0.10)', border: '1px solid rgba(124,58,237,0.35)', borderRadius: 4, padding: '1px 6px', marginLeft: 4 }}>
@@ -6779,7 +6768,7 @@ const TechTeamPMS = () => {
                           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                               {[{k:'plc',l:'PLC'},{k:'etos',l:'ETOS'},{k:'hmi',l:'HMI'},{k:'internalTest',l:'자체'},{k:'integratedTest',l:'통합'}].map(({k,l}) =>
                                   ((formData.progressItems || DEFAULT_PROGRESS_ITEMS)[k]) !== false
-                                      ? <span key={k} style={{fontSize:11,color:'#555',fontWeight:600}}>{l}: <b style={{color:'#1e7ac8'}}>{formData[k]??0}%</b></span>
+                                      ? <span key={k} style={{fontSize:11,color:'#555',fontWeight:600}}>{l}: <b style={{color:'var(--brand)'}}>{formData[k]??0}%</b></span>
                                       : null
                               )}
                               <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', display: 'flex', alignItems: 'center', padding: 2, marginLeft:6 }}><X size={16}/></button>
@@ -6789,10 +6778,10 @@ const TechTeamPMS = () => {
 
                   <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden', minHeight: 0 }}>
                       {/* Left: Excel-style label|value rows */}
-                      <div style={{ flex: 1, overflowY: 'auto', borderRight: '1px solid #c4ccd8' }} className="custom-scrollbar">
+                      <div style={{ flex: 1, overflowY: 'auto', borderRight: '1px solid var(--line)' }} className="custom-scrollbar">
                           {(() => {
-                              const rowSt = {display:'flex', borderBottom:'1px solid #c4ccd8'};
-                              const lbSt  = {backgroundColor:'#dce3ec', color:'#1a1a1a', fontWeight:700, fontSize:12, padding:'6px 10px', borderRight:'2px solid #9aa8b8', minWidth:96, flexShrink:0, display:'flex', alignItems:'center'};
+                              const rowSt = {display:'flex', borderBottom:'1px solid var(--line)'};
+                              const lbSt  = {backgroundColor:'var(--head-bg)', color:'var(--txt-strong)', fontWeight:700, fontSize:12, padding:'6px 10px', borderRight:'1px solid var(--line)', minWidth:96, flexShrink:0, display:'flex', alignItems:'center'};
                               const valSt = {flex:1, backgroundColor:'#ffffff', padding:0};
                               const inSt  = {width:'100%', border:'none', backgroundColor:'transparent', fontSize:12, padding:'6px 8px', outline:'none', color:'#000000', boxSizing:'border-box'};
                               return (<>
@@ -6805,8 +6794,8 @@ const TechTeamPMS = () => {
                                   {(() => { const _m = mapLegacyStatus(formData.progressStatus ?? formData.status ?? ''); return (<div style={rowSt}><div style={lbSt}>↳ 자동 2단계</div><div style={{...valSt, fontSize:'12px', color:'#64748b'}}>계약현황 <b style={{color:'#b45309'}}>{_m.contractStatus || '–'}</b> · 작업현황 <b style={{color:'#1d4ed8'}}>{_m.workStatus || '–'}</b>{_m.pending ? ' (보류 · 4차 정리)' : ''}</div></div>); })()}
                                   <div style={rowSt}><div style={lbSt}>발주처</div><div style={valSt}><input name="client" value={formData.client || ''} onChange={handleInputChange} style={inSt} placeholder="발주처명"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>투자심의</div><div style={valSt}><input name="investReview" value={formData.investReview || ''} onChange={handleInputChange} style={inSt} placeholder="투자심의 내용"/></div></div>
-                                  <div style={rowSt}><div style={lbSt}>시작일</div><div style={valSt}><input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} style={inSt} className="color-scheme-dark"/></div></div>
-                                  <div style={rowSt}><div style={lbSt}>완료일</div><div style={valSt}><input type="date" name="endDate" value={formData.endDate} onChange={handleInputChange} style={inSt} className="color-scheme-dark"/></div></div>
+                                  <div style={rowSt}><div style={lbSt}>시작일</div><div style={valSt}><input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} style={inSt} className="color-scheme-light"/></div></div>
+                                  <div style={rowSt}><div style={lbSt}>완료일</div><div style={valSt}><input type="date" name="endDate" value={formData.endDate} onChange={handleInputChange} style={inSt} className="color-scheme-light"/></div></div>
                                   <div style={rowSt}><div style={lbSt}>L1</div><div style={valSt}><input type="number" name="l1" min="0" max="100" value={formData.l1 ?? 0} onChange={handleInputChange} style={{...inSt, textAlign:'right'}}/></div></div>
                                   <div style={rowSt}><div style={lbSt}>L2</div><div style={valSt}><input type="number" name="l2" min="0" max="100" value={formData.l2 ?? 0} onChange={handleInputChange} style={{...inSt, textAlign:'right'}}/></div></div>
                                   <div style={rowSt}><div style={lbSt}>자재(%)</div><div style={valSt}><input type="number" name="material" min="0" max="100" value={formData.material ?? 0} onChange={handleInputChange} style={{...inSt, textAlign:'right'}}/></div></div>
@@ -6817,15 +6806,15 @@ const TechTeamPMS = () => {
                                               const items = formData.progressItems || DEFAULT_PROGRESS_ITEMS;
                                               const applied = items[k] !== false;
                                               return (
-                                                  <label key={k} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'3px 8px', border:`1px solid ${applied ? '#1e7ac8' : '#ccc'}`, backgroundColor: applied ? '#e8f0fe' : '#f5f5f5' }}>
+                                                  <label key={k} style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer', padding:'3px 8px', border:`1px solid ${applied ? 'var(--brand)' : '#ccc'}`, backgroundColor: applied ? '#e8f0fe' : '#f5f5f5' }}>
                                                       <input type="checkbox" checked={applied} onChange={e => {
                                                           const checked = e.target.checked;
                                                           setFormData(prev => ({
                                                               ...prev,
                                                               progressItems: { ...DEFAULT_PROGRESS_ITEMS, ...(prev.progressItems || {}), [k]: checked }
                                                           }));
-                                                      }} style={{ width:13, height:13, accentColor:'#1e7ac8', cursor:'pointer' }} />
-                                                      <span style={{ fontSize:12, fontWeight:700, color: applied ? '#1e7ac8' : '#999' }}>{l}</span>
+                                                      }} style={{ width:13, height:13, accentColor:'var(--brand)', cursor:'pointer' }} />
+                                                      <span style={{ fontSize:12, fontWeight:700, color: applied ? 'var(--brand)' : '#999' }}>{l}</span>
                                                   </label>
                                               );
                                           })}
@@ -6838,38 +6827,38 @@ const TechTeamPMS = () => {
                       </div>
 
                       {/* Right: Total Points + Monthly History + Buttons */}
-                      <div style={{ width: 260, display: 'flex', flexDirection: 'column', flexShrink: 0, borderLeft: '1px solid #c4ccd8' }}>
+                      <div style={{ width: 260, display: 'flex', flexDirection: 'column', flexShrink: 0, borderLeft: '1px solid var(--line)' }}>
                           <div style={{ flex: 1, overflowY: 'auto', padding: 10 }} className="custom-scrollbar">
-                              <div style={{backgroundColor:'#d4dde8', borderBottom:'2px solid #4e6880', padding:'5px 10px', fontSize:11, fontWeight:800, color:'#1a1a1a', letterSpacing:'0.05em', marginBottom:6}}>TOTAL POINTS</div>
-                              <input type="number" name="totalCommissioningPoints" value={formData.totalCommissioningPoints} onChange={handleInputChange} style={{width:'100%', padding:'6px 10px', fontSize:16, fontWeight:900, color:'#1e7ac8', textAlign:'right', marginBottom:12, border:'2px solid #c4ccd8', boxSizing:'border-box'}}/>
-                              <div style={{backgroundColor:'#d4dde8', borderBottom:'2px solid #4e6880', padding:'5px 10px', fontSize:11, fontWeight:800, color:'#1a1a1a', letterSpacing:'0.05em', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                              <div style={{backgroundColor:'var(--head-bg)', borderBottom:'1px solid var(--line)', padding:'5px 10px', fontSize:11, fontWeight:800, color:'var(--txt-strong)', letterSpacing:'0.05em', marginBottom:6}}>TOTAL POINTS</div>
+                              <input type="number" name="totalCommissioningPoints" value={formData.totalCommissioningPoints} onChange={handleInputChange} style={{width:'100%', padding:'6px 10px', fontSize:16, fontWeight:900, color:'var(--brand)', textAlign:'right', marginBottom:12, border:'1px solid var(--line)', boxSizing:'border-box'}}/>
+                              <div style={{backgroundColor:'var(--head-bg)', borderBottom:'1px solid var(--line)', padding:'5px 10px', fontSize:11, fontWeight:800, color:'var(--txt-strong)', letterSpacing:'0.05em', marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                                   <span>월별 실적 합계</span>
-                                  <span style={{color:'#059669', fontWeight:700}}>{(formData.monthlyPoints || []).reduce((sum, m) => sum + safeNumber(m.value), 0).toLocaleString()} pt</span>
+                                  <span style={{color:'var(--st-done)', fontWeight:700}}>{(formData.monthlyPoints || []).reduce((sum, m) => sum + safeNumber(m.value), 0).toLocaleString()} pt</span>
                               </div>
-                              <button type="button" onClick={addMonthlyPoint} style={{width:'100%', padding:'5px 8px', backgroundColor:'rgba(5,150,105,0.08)', border:'1px solid rgba(5,150,105,0.4)', color:'#059669', fontWeight:700, fontSize:12, marginBottom:8, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:4, boxSizing:'border-box'}}>
+                              <button type="button" onClick={addMonthlyPoint} style={{width:'100%', padding:'5px 8px', backgroundColor:'rgba(5,150,105,0.08)', border:'1px solid rgba(5,150,105,0.4)', color:'var(--st-done)', fontWeight:700, fontSize:12, marginBottom:8, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:4, boxSizing:'border-box'}}>
                                   <Plus size={14}/> 다음 달 추가
                               </button>
                               <div style={{display:'flex', flexDirection:'column', gap:2}}>
                                   {(formData.monthlyPoints || []).length === 0 ? (
-                                      <div style={{textAlign:'center', padding:'16px', border:'1px dashed #c4ccd8', color:'#888', fontSize:11}}>
+                                      <div style={{textAlign:'center', padding:'16px', border:'1px dashed var(--line)', color:'#888', fontSize:11}}>
                                           등록된 월별 실적이 없습니다.<br/>우측 상단의 [+] 버튼을 눌러 추가하세요.
                                       </div>
                                   ) : (
                                       (formData.monthlyPoints || []).map((mp, index) => (
-                                          <div key={index} style={{display:'flex', alignItems:'center', gap:4, borderBottom:'1px solid #c4ccd8', padding:'4px 2px'}}>
-                                              <input type="month" value={mp.date} onChange={(e) => updateMonthlyPoint(index, 'date', e.target.value)} className="color-scheme-dark" style={{flex:1, border:'none', backgroundColor:'transparent', fontSize:12, fontWeight:700, outline:'none', color:'#000'}}/>
-                                              <input type="number" value={mp.value} onChange={(e) => updateMonthlyPoint(index, 'value', e.target.value)} placeholder="실적" style={{width:64, textAlign:'right', fontWeight:700, color:'#059669', border:'1px solid #c4ccd8', padding:'2px 4px', fontSize:12}}/>
+                                          <div key={index} style={{display:'flex', alignItems:'center', gap:4, borderBottom:'1px solid var(--line)', padding:'4px 2px'}}>
+                                              <input type="month" value={mp.date} onChange={(e) => updateMonthlyPoint(index, 'date', e.target.value)} className="color-scheme-light" style={{flex:1, border:'none', backgroundColor:'transparent', fontSize:12, fontWeight:700, outline:'none', color:'#000'}}/>
+                                              <input type="number" value={mp.value} onChange={(e) => updateMonthlyPoint(index, 'value', e.target.value)} placeholder="실적" style={{width:64, textAlign:'right', fontWeight:700, color:'var(--st-done)', border:'1px solid var(--line)', padding:'2px 4px', fontSize:12}}/>
                                               <button type="button" onClick={() => deleteMonthlyPoint(index)} style={{color:'#888', background:'none', border:'none', cursor:'pointer', padding:'0 2px'}}><Trash2 size={14}/></button>
                                           </div>
                                       ))
                                   )}
                               </div>
                           </div>
-                          <div style={{padding:'10px', borderTop:'2px solid #9aa8b8', backgroundColor:'#dce3ec', display:'flex', gap:6, flexShrink:0}}>
+                          <div style={{padding:'10px', borderTop:'1px solid var(--line)', backgroundColor:'var(--head-bg)', display:'flex', gap:6, flexShrink:0}}>
                               <button type="button" onClick={() => setIsModalOpen(false)} style={{flex:1, padding:'8px', backgroundColor:'#ebebeb', border:'1px solid #c0c0c0', fontWeight:700, fontSize:13, cursor:'pointer', color:'#333'}}>
                                   취소
                               </button>
-                              <button type="submit" style={{flex:2, padding:'8px', backgroundColor: editingProject ? '#1e7ac8' : '#059669', color:'#ffffff', fontWeight:700, fontSize:13, cursor:'pointer', border:'none'}}>
+                              <button type="submit" style={{flex:2, padding:'8px', backgroundColor: editingProject ? 'var(--brand)' : 'var(--st-done)', color:'#ffffff', fontWeight:700, fontSize:13, cursor:'pointer', border:'none'}}>
                                   {editingProject ? 'DB 저장 반영' : '등록'}
                               </button>
                           </div>
@@ -6880,16 +6869,16 @@ const TechTeamPMS = () => {
 
           {/* ★ 시스템 설정(Settings) 탭 모달 ★ */}
           {isSettingsOpen && (
-              <div className="fixed inset-0 z-[100] flex justify-center items-center p-4 backdrop-blur-sm bg-slate-950/90">
-                  <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
-                      <div className="p-6 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0">
-                          <div className="flex items-center gap-2"><Settings size={18} className="text-cyan-400"/><h3 className="text-lg font-bold text-white">팀 리스트 및 초기화면 설정</h3></div>
-                          <button onClick={() => setIsSettingsOpen(false)} className="text-slate-500 hover:text-white"><X size={20} /></button>
+              <div className="fixed inset-0 z-[100] flex justify-center items-center p-4 backdrop-blur-sm bg-gray-50/90">
+                  <div className="bg-white border border-gray-200 rounded-3xl w-full max-w-md shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+                      <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
+                          <div className="flex items-center gap-2"><Settings size={18} className="text-[#1e7ac8]"/><h3 className="text-lg font-bold text-gray-800">팀 리스트 및 초기화면 설정</h3></div>
+                          <button onClick={() => setIsSettingsOpen(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
                       </div>
                       
-                      <div className="bg-slate-950/60 p-3 flex justify-between items-center border-b border-slate-800 shrink-0">
-                          <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5 ml-2">
-                              <Activity size={14} className="text-indigo-400" />
+                      <div className="bg-gray-50/60 p-3 flex justify-between items-center border-b border-gray-200 shrink-0">
+                          <div className="text-[11px] text-gray-500 font-medium flex items-center gap-1.5 ml-2">
+                              <Activity size={14} className="text-[#1e7ac8]" />
                               DB/엑셀에서 누락된 항목 찾기
                           </div>
                           <button onClick={async () => {
@@ -6901,14 +6890,14 @@ const TechTeamPMS = () => {
                               } else {
                                   setAlertMessage("현재 데이터에 등록되지 않은 새로운 항목이 없습니다.");
                               }
-                          }} className="flex items-center gap-1 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 hover:text-indigo-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm">
+                          }} className="flex items-center gap-1 bg-blue-50 hover:bg-[#1e7ac8]/40 border border-[#1e7ac8]/30 text-[#1e7ac8] hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm">
                               <Database size={12} /> 일괄 추출 및 저장
                           </button>
                       </div>
 
-                      <div className="flex border-b border-slate-800 bg-slate-950/30 overflow-x-auto custom-scrollbar shrink-0">
+                      <div className="flex border-b border-gray-200 bg-gray-50/30 overflow-x-auto custom-scrollbar shrink-0">
                           {['defaults', 'status', 'factory', 'manager'].map(tab => (
-                              <button key={tab} onClick={() => { setSettingsTab(tab); setNewItemInput(''); }} className={`flex-1 min-w-[80px] py-4 px-2 text-[11px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${settingsTab === tab ? 'text-cyan-400 border-b-2 border-cyan-500 bg-cyan-500/5' : 'text-slate-500 hover:text-slate-300'}`}>
+                              <button key={tab} onClick={() => { setSettingsTab(tab); setNewItemInput(''); }} className={`flex-1 min-w-[80px] py-4 px-2 text-[11px] font-bold uppercase tracking-widest transition-all whitespace-nowrap ${settingsTab === tab ? 'text-[#1e7ac8] border-b-2 border-[#1e7ac8] bg-[#1e7ac8]/5' : 'text-gray-400 hover:text-gray-600'}`}>
                                   {tab === 'defaults' ? '초기화면' : tab === 'status' ? '상태(현황)' : tab === 'factory' ? '공장코드' : '담당자'}
                               </button>
                           ))}
@@ -6917,24 +6906,24 @@ const TechTeamPMS = () => {
                       <div className="p-6 space-y-6 flex-1 overflow-y-auto max-h-[400px] custom-scrollbar text-left font-bold relative">
                           {settingsTab === 'defaults' ? (
                               <div className="space-y-6 animate-in">
-                                  <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl mb-2">
-                                      <p className="text-xs text-cyan-300 font-medium leading-relaxed">
+                                  <div className="p-4 bg-blue-50 border border-[#1e7ac8]/20 rounded-xl mb-2">
+                                      <p className="text-xs text-[#1e7ac8] font-medium leading-relaxed">
                                           <Info size={14} className="inline mr-1 mb-0.5" />
                                           메인 화면 진입 시 <b>기본으로 띄워둘 항목</b>을 선택하세요. <br/>
-                                          <span className="text-slate-400 text-[10px] mt-1 block">(* 체크를 해제하면 해당 항목은 사용자가 버튼을 누르기 전까지 숨겨집니다.)</span>
+                                          <span className="text-gray-500 text-[11px] mt-1 block">(* 체크를 해제하면 해당 항목은 사용자가 버튼을 누르기 전까지 숨겨집니다.)</span>
                                       </p>
                                   </div>
                                   
                                   <div className="space-y-3">
-                                      <h4 className="text-xs font-bold text-slate-400 uppercase border-b border-slate-800 pb-2 flex items-center gap-2"><BarChart3 size={14} /> 기본 표시 현황 (Status)</h4>
+                                      <h4 className="text-xs font-bold text-gray-500 uppercase border-b border-gray-200 pb-2 flex items-center gap-2"><BarChart3 size={14} /> 기본 표시 현황 (Status)</h4>
                                       <div className="grid grid-cols-2 gap-2">
                                           {currentStatusOptions.map(s => {
                                               const isActive = (teamSettings[currentTeam]?.defaultActiveStatuses || []).includes(s.label);
                                               return (
-                                                  <label key={s.label} className={`flex items-center gap-2.5 cursor-pointer p-2.5 rounded-xl border transition-all hover:bg-slate-800 ${isActive ? 'bg-slate-800/50 border-cyan-500/30' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-                                                      <input type="checkbox" checked={isActive} onChange={() => toggleDefaultActive('status', s.label)} className="w-4 h-4 accent-cyan-500 rounded bg-slate-800 border-slate-700 cursor-pointer" />
+                                                  <label key={s.label} className={`flex items-center gap-2.5 cursor-pointer p-2.5 rounded-xl border transition-all hover:bg-gray-100 ${isActive ? 'bg-gray-100 border-[#1e7ac8]' : 'bg-white border-gray-200 opacity-60'}`}>
+                                                      <input type="checkbox" checked={isActive} onChange={() => toggleDefaultActive('status', s.label)} className="w-4 h-4 accent-[#1e7ac8] rounded bg-gray-100 border-gray-200 cursor-pointer" />
                                                       <div className={`w-2 h-2 rounded-full ${s.color}`}></div>
-                                                      <span className={`text-xs font-bold ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>{s.label}</span>
+                                                      <span className={`text-xs font-bold ${isActive ? 'text-gray-700' : 'text-gray-400'}`}>{s.label}</span>
                                                   </label>
                                               )
                                           })}
@@ -6942,14 +6931,14 @@ const TechTeamPMS = () => {
                                   </div>
 
                                   <div className="space-y-3">
-                                      <h4 className="text-xs font-bold text-slate-400 uppercase border-b border-slate-800 pb-2 flex items-center gap-2"><LayoutGrid size={14} /> 기본 표시 공장 (Factory)</h4>
+                                      <h4 className="text-xs font-bold text-gray-500 uppercase border-b border-gray-200 pb-2 flex items-center gap-2"><LayoutGrid size={14} /> 기본 표시 공장 (Factory)</h4>
                                       <div className="grid grid-cols-2 gap-2">
                                           {currentFactoryOptions.map(f => {
                                               const isActive = (teamSettings[currentTeam]?.defaultActiveFactories || []).includes(f);
                                               return (
-                                                  <label key={f} className={`flex items-center gap-2.5 cursor-pointer p-2.5 rounded-xl border transition-all hover:bg-slate-800 ${isActive ? 'bg-slate-800/50 border-indigo-500/30' : 'bg-slate-900 border-slate-800 opacity-60'}`}>
-                                                      <input type="checkbox" checked={isActive} onChange={() => toggleDefaultActive('factory', f)} className="w-4 h-4 accent-indigo-500 rounded bg-slate-800 border-slate-700 cursor-pointer" />
-                                                      <span className={`text-xs font-bold ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>{f}</span>
+                                                  <label key={f} className={`flex items-center gap-2.5 cursor-pointer p-2.5 rounded-xl border transition-all hover:bg-gray-100 ${isActive ? 'bg-gray-100 border-[#1e7ac8]/30' : 'bg-white border-gray-200 opacity-60'}`}>
+                                                      <input type="checkbox" checked={isActive} onChange={() => toggleDefaultActive('factory', f)} className="w-4 h-4 accent-[#1e7ac8] rounded bg-gray-100 border-gray-200 cursor-pointer" />
+                                                      <span className={`text-xs font-bold ${isActive ? 'text-gray-700' : 'text-gray-400'}`}>{f}</span>
                                                   </label>
                                               )
                                           })}
@@ -6959,8 +6948,8 @@ const TechTeamPMS = () => {
                           ) : (
                               <div className="animate-in space-y-6">
                                   <div className="flex gap-2">
-                                      <input type="text" value={newItemInput} onChange={(e) => setNewItemInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addItemToOptions()} placeholder={`${settingsTab === 'status' ? '신규 상태' : settingsTab === 'factory' ? '신규 공장코드' : '신규 담당자'} 입력`} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:ring-1 focus:ring-cyan-500 outline-none font-bold text-white" />
-                                      <button onClick={addItemToOptions} className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 rounded-xl font-bold shadow-md"><Plus size={18} /></button>
+                                      <input type="text" value={newItemInput} onChange={(e) => setNewItemInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addItemToOptions()} placeholder={`${settingsTab === 'status' ? '신규 상태' : settingsTab === 'factory' ? '신규 공장코드' : '신규 담당자'} 입력`} className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-1 focus:ring-[#1e7ac8] outline-none font-bold text-gray-800" />
+                                      <button onClick={addItemToOptions} className="bg-[#1e7ac8] hover:bg-[#1e7ac8] text-white px-4 rounded-xl font-bold shadow-md"><Plus size={18} /></button>
                                   </div>
                                   {settingsTab === 'status' && (
                                       <button onClick={() => {
@@ -7011,24 +7000,24 @@ const TechTeamPMS = () => {
                                                   });
                                               }}
                                               onDragOver={(e) => e.preventDefault()}
-                                              className={`flex items-center justify-between bg-slate-950/50 p-4 rounded-2xl border border-slate-800 group hover:border-slate-600 transition-all cursor-grab active:cursor-grabbing ${draggedSettingKey === item ? 'opacity-40 border-dashed border-cyan-500 bg-slate-900 scale-[0.98]' : 'opacity-100'}`}
+                                              className={`flex items-center justify-between bg-gray-50 p-4 rounded-2xl border border-gray-200 group hover:border-gray-300 transition-all cursor-grab active:cursor-grabbing ${draggedSettingKey === item ? 'opacity-40 border-dashed border-[#1e7ac8] bg-white scale-[0.98]' : 'opacity-100'}`}
                                           >
                                               <div className="flex items-center gap-3 pointer-events-none">
-                                                  <Menu size={14} className="text-slate-600 group-hover:text-slate-400 mr-1" />
+                                                  <Menu size={14} className="text-gray-400 group-hover:text-gray-500 mr-1" />
                                                   {settingsTab === 'status' && <div className={`w-2 h-2 rounded-full ${currentStatusOptions.find(s => s && s.label === item)?.color}`}></div>}
-                                                  {settingsTab === 'factory' && <LayoutGrid size={14} className="text-slate-500" />}
-                                                  {settingsTab === 'manager' && <Users size={14} className="text-slate-500" />}
-                                                  <span className="text-sm font-bold text-slate-200">{item}</span>
+                                                  {settingsTab === 'factory' && <LayoutGrid size={14} className="text-gray-400" />}
+                                                  {settingsTab === 'manager' && <Users size={14} className="text-gray-400" />}
+                                                  <span className="text-sm font-bold text-gray-700">{item}</span>
                                               </div>
-                                              <button onClick={() => removeItemFromOptions(item)} className="text-slate-600 hover:text-rose-500 p-1"><Trash2 size={16} /></button>
+                                              <button onClick={() => removeItemFromOptions(item)} className="text-gray-400 hover:text-rose-500 p-1"><Trash2 size={16} /></button>
                                           </div>
                                       ))}
                                   </div>
                               </div>
                           )}
                       </div>
-                      <div className="p-6 border-t border-slate-800 bg-slate-950/50 shrink-0">
-                          <button onClick={() => setIsSettingsOpen(false)} className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold text-sm border border-slate-700 transition-all text-white">설정 닫기</button>
+                      <div className="p-6 border-t border-gray-200 bg-gray-50 shrink-0">
+                          <button onClick={() => setIsSettingsOpen(false)} className="w-full py-3.5 bg-gray-100 hover:bg-gray-200 rounded-2xl font-bold text-sm border border-gray-200 transition-all text-gray-800">설정 닫기</button>
                       </div>
                   </div>
               </div>
@@ -7036,32 +7025,32 @@ const TechTeamPMS = () => {
 
           {/* ★ 엑셀 미리보기 테이블 모달 직접 렌더링 로직 (독립적이고 가장 안전한 형태) ★ */}
           {isExcelPreviewOpen && stagedExcelData && (
-              <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-slate-950/80 custom-scrollbar">
+              <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-gray-50/80 custom-scrollbar">
                   <div className="absolute inset-0" onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}}></div>
-                  <div className="relative bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
-                      <div className="p-6 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0">
+                  <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
+                      <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
                           <div className="flex items-center gap-3">
                               <div className="p-2 bg-emerald-600/20 rounded-lg border border-emerald-500/30">
                                   <Database size={18} className="text-emerald-400"/>
                               </div>
-                              <h3 className="text-xl font-bold text-white">업로드 데이터 전체 검증</h3>
-                              <span className="ml-2 px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-xs font-bold border border-slate-700">총 {stagedExcelData.length}건 읽어옴</span>
+                              <h3 className="text-xl font-bold text-gray-800">업로드 데이터 전체 검증</h3>
+                              <span className="ml-2 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold border border-gray-200">총 {stagedExcelData.length}건 읽어옴</span>
                           </div>
                           <div className="flex items-center gap-4">
-                              <span className="text-xs text-slate-400">💡 표 제목을 <b>우클릭</b>하면 열 고정/해제가 가능합니다.</span>
-                              <button onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}} className="text-slate-500 hover:text-white transition-colors"><X size={24}/></button>
+                              <span className="text-xs text-gray-500">💡 표 제목을 <b>우클릭</b>하면 열 고정/해제가 가능합니다.</span>
+                              <button onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}} className="text-gray-400 hover:text-white transition-colors"><X size={24}/></button>
                           </div>
                       </div>
                       
-                      <div className="bg-slate-900/40 overflow-hidden backdrop-blur-sm flex-1 flex flex-col z-0 relative min-h-0">
+                      <div className="bg-white overflow-hidden backdrop-blur-sm flex-1 flex flex-col z-0 relative min-h-0">
                           {renderTable(visiblePreviewProjects, excelPreviewColDefs, true)}
                       </div>
                       
-                      <div className="p-6 border-t border-slate-800 bg-slate-950/50 flex flex-wrap gap-3 justify-end rounded-b-3xl shrink-0">
-                          <button onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}} className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl font-bold text-slate-300 transition-colors">
+                      <div className="p-6 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-3 justify-end rounded-b-3xl shrink-0">
+                          <button onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}} className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl font-bold text-gray-600 transition-colors">
                               취소 (다시 업로드)
                           </button>
-                          <button onClick={handlePreviewOnMain} className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-black text-white shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2">
+                          <button onClick={handlePreviewOnMain} className="px-6 py-3.5 bg-[#1e7ac8] hover:bg-[#1e7ac8] rounded-xl font-black text-white shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2">
                               <LayoutGrid size={18} /> 메인 화면에 임시 적용
                           </button>
                           <button onClick={handleSaveStagedData} className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-black text-white shadow-xl shadow-emerald-900/20 transition-all flex items-center gap-2">
@@ -7074,39 +7063,39 @@ const TechTeamPMS = () => {
 
           {/* ★ 프로젝트 List 업로드 미리보기 모달 ★ */}
           {isDynamicPreviewOpen && stagedDynamicData && (
-              <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-slate-950/80 custom-scrollbar">
+              <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-gray-50/80 custom-scrollbar">
                   <div className="absolute inset-0" onClick={() => {setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]);}}></div>
-                  <div className="relative bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
-                      <div className="p-6 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0">
+                  <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
+                      <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
                           <div className="flex items-center gap-3">
                               <div className="p-2 bg-amber-600/20 rounded-lg border border-amber-500/30">
                                   <FileText size={18} className="text-amber-400"/>
                               </div>
-                              <h3 className="text-xl font-bold text-white">업로드 프로젝트 목록 검증</h3>
-                              <span className="ml-2 px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-xs font-bold border border-slate-700">총 {stagedDynamicData.length}건 읽어옴</span>
+                              <h3 className="text-xl font-bold text-gray-800">업로드 프로젝트 목록 검증</h3>
+                              <span className="ml-2 px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold border border-gray-200">총 {stagedDynamicData.length}건 읽어옴</span>
                           </div>
                           <div className="flex items-center gap-4">
-                              <button onClick={() => {setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]);}} className="text-slate-500 hover:text-white transition-colors"><X size={24}/></button>
+                              <button onClick={() => {setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]);}} className="text-gray-400 hover:text-white transition-colors"><X size={24}/></button>
                           </div>
                       </div>
                       
-                      <div className="bg-slate-900/40 overflow-hidden backdrop-blur-sm flex-1 flex flex-col z-0 relative min-h-0">
-                          <div className="overflow-auto flex-1 custom-scrollbar bg-slate-950/50 relative">
+                      <div className="bg-white overflow-hidden backdrop-blur-sm flex-1 flex flex-col z-0 relative min-h-0">
+                          <div className="overflow-auto flex-1 custom-scrollbar bg-gray-50 relative">
                               <table className="w-full text-left border-collapse table-fixed min-w-[max-content]">
-                                  <thead className="sticky top-0 bg-slate-900 shadow-md z-40">
-                                      <tr className="text-slate-500 text-[11px] font-bold uppercase tracking-widest border-b border-slate-800 whitespace-nowrap">
-                                          <th className="px-4 py-3 bg-slate-900 text-center w-16 border-r border-slate-800">No.</th>
+                                  <thead className="sticky top-0 bg-white shadow-md z-40">
+                                      <tr className="text-gray-400 text-[11px] font-bold uppercase tracking-widest border-b border-gray-200 whitespace-nowrap">
+                                          <th className="px-4 py-3 bg-white text-center w-16 border-r border-gray-200">No.</th>
                                           {stagedDynamicCols.map(col => (
-                                              <th key={col.key} className="px-4 py-3 bg-slate-900 tracking-wider border-r border-slate-800/50 whitespace-nowrap">{col.label}</th>
+                                              <th key={col.key} className="px-4 py-3 bg-white tracking-wider border-r border-gray-200/50 whitespace-nowrap">{col.label}</th>
                                           ))}
                                       </tr>
                                   </thead>
-                                  <tbody className="divide-y divide-slate-800/50">
+                                  <tbody className="divide-y divide-gray-200/50">
                                       {stagedDynamicData.map((row, idx) => (
                                           <tr key={row.id} className="hover:bg-white/5 transition-colors">
-                                              <td className="px-4 py-3 text-center text-slate-500 font-mono border-r border-slate-800/50 text-[11px] bg-slate-900/30">{idx + 1}</td>
+                                              <td className="px-4 py-3 text-center text-gray-400 font-mono border-r border-gray-200/50 text-[11px] bg-white">{idx + 1}</td>
                                               {stagedDynamicCols.map(col => (
-                                                  <td key={col.key} className="px-4 py-3 text-slate-300 border-r border-slate-800/20 max-w-[200px] truncate" title={row[col.key]}>{row[col.key]}</td>
+                                                  <td key={col.key} className="px-4 py-3 text-gray-600 border-r border-gray-200/20 max-w-[200px] truncate" title={row[col.key]}>{row[col.key]}</td>
                                               ))}
                                           </tr>
                                       ))}
@@ -7115,11 +7104,11 @@ const TechTeamPMS = () => {
                           </div>
                       </div>
                       
-                      <div className="p-6 border-t border-slate-800 bg-slate-950/50 flex flex-wrap gap-3 justify-end rounded-b-3xl shrink-0">
-                          <button onClick={() => { setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]); }} className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl font-bold text-slate-300 transition-colors">
+                      <div className="p-6 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-3 justify-end rounded-b-3xl shrink-0">
+                          <button onClick={() => { setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]); }} className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl font-bold text-gray-600 transition-colors">
                               취소 (다시 업로드)
                           </button>
-                          <button onClick={handleDynamicPreviewOnMain} className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-black text-white shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2">
+                          <button onClick={handleDynamicPreviewOnMain} className="px-6 py-3.5 bg-[#1e7ac8] hover:bg-[#1e7ac8] rounded-xl font-black text-white shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2">
                               <LayoutGrid size={18} /> 메인 화면에 임시 적용
                           </button>
                           <button onClick={handleSaveDynamicDataDirect} className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-black text-white shadow-xl shadow-emerald-900/20 transition-all flex items-center gap-2">
@@ -7144,31 +7133,31 @@ const TechTeamPMS = () => {
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
                   onClick={() => setShowTeamGraph(false)}>
-                  <div style={{background:'#fff',border:'1px solid #c4ccd8',boxShadow:'0 8px 32px rgba(0,0,0,0.18)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
+                  <div style={{background:'#fff',border:'1px solid var(--line)',boxShadow:'0 8px 32px rgba(0,0,0,0.1)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
                       onClick={e => e.stopPropagation()}>
 
                       {/* 헤더 */}
-                      <div style={{background:'#dce3ec',borderBottom:'2px solid #9aa8b8',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+                      <div style={{background:'var(--head-bg)',borderBottom:'2px solid var(--line)',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
                           <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <BarChart3 size={16} color="#4f46e5"/>
-                              <span style={{fontWeight:800,fontSize:14,color:'#1a1a1a'}}>팀 실적 그래프</span>
+                              <BarChart3 size={16} color="var(--brand)"/>
+                              <span style={{fontWeight:800,fontSize:14,color:'var(--txt-strong)'}}>팀 실적 그래프</span>
                               <span style={{fontSize:12,color:'#444',fontWeight:600,marginLeft:4}}>{currentTeam}</span>
                               <span style={{fontSize:11,color:'#888',fontWeight:500}}>— 최근 12개월 월별 프로젝트 현황 (건수)</span>
                           </div>
                           <div style={{display:'flex',alignItems:'center',gap:10}}>
                               <span style={{fontSize:11,color:'#888',fontWeight:600}}>줌</span>
                               <button onClick={() => setTeamChartZoom(z => Math.max(0.5, parseFloat((z-0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'#4f46e5'}}>−</button>
-                              <span style={{fontSize:12,fontWeight:700,color:'#4f46e5',minWidth:36,textAlign:'center'}}>{Math.round(teamChartZoom*100)}%</span>
+                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>−</button>
+                              <span style={{fontSize:12,fontWeight:700,color:'var(--brand)',minWidth:36,textAlign:'center'}}>{Math.round(teamChartZoom*100)}%</span>
                               <button onClick={() => setTeamChartZoom(z => Math.min(3, parseFloat((z+0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'#4f46e5'}}>＋</button>
-                              <button onClick={() => setTeamChartZoom(1)} style={{padding:'2px 8px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontSize:11,fontWeight:700,cursor:'pointer',color:'#666',marginLeft:2}}>초기화</button>
+                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>＋</button>
+                              <button onClick={() => setTeamChartZoom(1)} style={{padding:'2px 8px',border:'1px solid var(--line)',background:'#f0f4f8',fontSize:11,fontWeight:700,cursor:'pointer',color:'#666',marginLeft:2}}>초기화</button>
                               <button onClick={() => setShowTeamGraph(false)} style={{marginLeft:8,background:'none',border:'none',cursor:'pointer',color:'#666',display:'flex',alignItems:'center'}}><X size={18}/></button>
                           </div>
                       </div>
 
                       {/* 범례 */}
-                      <div style={{display:'flex',gap:16,padding:'6px 16px',background:'#f5f8fb',borderBottom:'1px solid #dce3ec',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
+                      <div style={{display:'flex',gap:16,padding:'6px 16px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
                           {targetStatuses.map(s => (
                               <div key={s} style={{display:'flex',alignItems:'center',gap:5}}>
                                   <div style={{width:28,height:3,background:statusColors[s]}}/>
@@ -7189,7 +7178,7 @@ const TechTeamPMS = () => {
                                           {v}
                                       </div>
                                   ))}
-                                  <div style={{position:'absolute',right:4,top:0,fontSize:10,color:'#4f46e5',fontWeight:700}}>건</div>
+                                  <div style={{position:'absolute',right:4,top:0,fontSize:10,color:'var(--brand)',fontWeight:700}}>건</div>
                               </div>
 
                               {/* 라인 차트 영역 */}
@@ -7200,12 +7189,12 @@ const TechTeamPMS = () => {
                                       {/* 수평 격자선 */}
                                       {yGridLines.map(v => (
                                           <line key={v} x1="0" y1={yTick(v)} x2={totalW} y2={yTick(v)}
-                                              stroke={v===0?'#9aa8b8':'#e0e5ec'} strokeWidth={v===0?2:1} strokeDasharray={v===0?'':'5,3'}/>
+                                              stroke={v===0?'var(--line)':'var(--line)'} strokeWidth={v===0?2:1} strokeDasharray={v===0?'':'5,3'}/>
                                       ))}
                                       {/* 수직 월 구분선 */}
                                       {timeline.map((t,i) => (
                                           <line key={t.date} x1={i*colW} y1={0} x2={i*colW} y2={BAR_H}
-                                              stroke={t.showYear && i>0 ? '#4f46e5' : '#e8ecf0'}
+                                              stroke={t.showYear && i>0 ? 'var(--brand)' : 'var(--line)'}
                                               strokeWidth={t.showYear && i>0 ? 1.5 : 1}
                                               strokeOpacity={t.showYear && i>0 ? 0.35 : 1}/>
                                       ))}
@@ -7245,8 +7234,8 @@ const TechTeamPMS = () => {
                                   <div style={{position:'absolute',bottom:0,left:0,display:'flex',width:totalW}}>
                                       {timeline.map((t,i) => (
                                           <div key={t.date} style={{width:colW,flexShrink:0,textAlign:'center'}}>
-                                              {t.showYear && <div style={{fontSize:9,fontWeight:800,color:'#4f46e5',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
-                                              <div style={{fontSize:10,fontWeight:700,color:'#1a1a1a',lineHeight:1.3}}>{parseInt(t.date.slice(5,7),10)}월</div>
+                                              {t.showYear && <div style={{fontSize:9,fontWeight:800,color:'var(--brand)',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
+                                              <div style={{fontSize:10,fontWeight:700,color:'var(--txt-strong)',lineHeight:1.3}}>{parseInt(t.date.slice(5,7),10)}월</div>
                                           </div>
                                       ))}
                                   </div>
@@ -7255,14 +7244,14 @@ const TechTeamPMS = () => {
                       </div>
 
                       {/* 하단 데이터 테이블 */}
-                      <div style={{flexShrink:0,borderTop:'2px solid #9aa8b8',overflow:'auto',maxHeight:180}} className="custom-scrollbar">
+                      <div style={{flexShrink:0,borderTop:'2px solid var(--line)',overflow:'auto',maxHeight:180}} className="custom-scrollbar">
                           <table style={{width:'100%',fontSize:10,minWidth:totalW+96}}>
                               <thead>
-                                  <tr style={{background:'#dce3ec'}}>
-                                      <th style={{padding:'3px 6px',borderRight:'1px solid #b0b8c8',textAlign:'left',fontWeight:700,color:'#1a1a1a',width:60,position:'sticky',left:0,background:'#dce3ec',whiteSpace:'nowrap'}}>상태</th>
+                                  <tr style={{background:'var(--head-bg)'}}>
+                                      <th style={{padding:'3px 6px',borderRight:'1px solid var(--line)',textAlign:'left',fontWeight:700,color:'var(--txt-strong)',width:60,position:'sticky',left:0,background:'var(--head-bg)',whiteSpace:'nowrap'}}>상태</th>
                                       {timeline.map(t => (
-                                          <th key={t.date} style={{padding:'2px 4px',borderRight:'1px solid #c4ccd8',textAlign:'center',fontWeight:700,color:'#1a1a1a',whiteSpace:'nowrap',minWidth:colW}}>
-                                              {t.showYear && <div style={{fontSize:8,color:'#4f46e5',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
+                                          <th key={t.date} style={{padding:'2px 4px',borderRight:'1px solid var(--line)',textAlign:'center',fontWeight:700,color:'var(--txt-strong)',whiteSpace:'nowrap',minWidth:colW}}>
+                                              {t.showYear && <div style={{fontSize:8,color:'var(--brand)',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
                                               <div style={{lineHeight:1.2,fontSize:10}}>{parseInt(t.date.slice(5,7),10)}월</div>
                                           </th>
                                       ))}
@@ -7271,21 +7260,21 @@ const TechTeamPMS = () => {
                               <tbody>
                                   {targetStatuses.map(s => (
                                       <tr key={s}>
-                                          <td style={{padding:'2px 6px',borderRight:'1px solid #c4ccd8',borderBottom:'1px solid #e0e5ec',fontWeight:700,position:'sticky',left:0,background:'#f5f8fb',whiteSpace:'nowrap'}}>
+                                          <td style={{padding:'2px 6px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',fontWeight:700,position:'sticky',left:0,background:'#f5f8fb',whiteSpace:'nowrap'}}>
                                               <span style={{display:'inline-block',width:8,height:8,background:statusColors[s],marginRight:4,verticalAlign:'middle',flexShrink:0}}/>
                                               <span style={{color:statusColors[s],fontSize:10}}>{s}</span>
                                           </td>
                                           {timeline.map(t => (
-                                              <td key={t.date} style={{padding:'2px 4px',borderRight:'1px solid #e0e5ec',borderBottom:'1px solid #e0e5ec',textAlign:'center',fontWeight:600,color: t.counts[s]>0 ? statusColors[s] : '#ddd'}}>
+                                              <td key={t.date} style={{padding:'2px 4px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',textAlign:'center',fontWeight:600,color: t.counts[s]>0 ? statusColors[s] : '#ddd'}}>
                                                   {t.counts[s] > 0 ? t.counts[s] : '—'}
                                               </td>
                                           ))}
                                       </tr>
                                   ))}
                                   <tr style={{background:'#edf1f7'}}>
-                                      <td style={{padding:'2px 6px',borderRight:'1px solid #c4ccd8',fontWeight:800,color:'#1a1a1a',position:'sticky',left:0,background:'#dce3ec',fontSize:10}}>합계</td>
+                                      <td style={{padding:'2px 6px',borderRight:'1px solid var(--line)',fontWeight:800,color:'var(--txt-strong)',position:'sticky',left:0,background:'var(--head-bg)',fontSize:10}}>합계</td>
                                       {timeline.map(t => (
-                                          <td key={t.date} style={{padding:'2px 4px',borderRight:'1px solid #c4ccd8',textAlign:'center',fontWeight:800,color:'#1a1a1a',fontSize:10}}>
+                                          <td key={t.date} style={{padding:'2px 4px',borderRight:'1px solid var(--line)',textAlign:'center',fontWeight:800,color:'var(--txt-strong)',fontSize:10}}>
                                               {t.totalCount > 0 ? t.totalCount : '—'}
                                           </td>
                                       ))}
@@ -7314,36 +7303,36 @@ const TechTeamPMS = () => {
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
                   onClick={() => setGraphProject(null)}>
-                  <div style={{background:'#fff',border:'1px solid #c4ccd8',boxShadow:'0 8px 32px rgba(0,0,0,0.18)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
+                  <div style={{background:'#fff',border:'1px solid var(--line)',boxShadow:'0 8px 32px rgba(0,0,0,0.1)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
                       onClick={e => e.stopPropagation()}>
 
                       {/* 헤더 */}
-                      <div style={{background:'#dce3ec',borderBottom:'2px solid #9aa8b8',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+                      <div style={{background:'var(--head-bg)',borderBottom:'2px solid var(--line)',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
                           <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <BarChart3 size={16} color="#1e7ac8"/>
-                              <span style={{fontWeight:800,fontSize:14,color:'#1a1a1a'}}>실적 그래프</span>
+                              <BarChart3 size={16} color="var(--brand)"/>
+                              <span style={{fontWeight:800,fontSize:14,color:'var(--txt-strong)'}}>실적 그래프</span>
                               <span style={{fontSize:12,color:'#444',fontWeight:600,marginLeft:4}}>{graphProject.project}</span>
                           </div>
                           <div style={{display:'flex',alignItems:'center',gap:10}}>
                               {/* 줌 컨트롤 */}
                               <span style={{fontSize:11,color:'#888',fontWeight:600}}>줌</span>
                               <button onClick={() => setChartZoom(z => Math.max(0.5, parseFloat((z-0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'#1e7ac8'}}>−</button>
-                              <span style={{fontSize:12,fontWeight:700,color:'#1e7ac8',minWidth:36,textAlign:'center'}}>{Math.round(chartZoom*100)}%</span>
+                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>−</button>
+                              <span style={{fontSize:12,fontWeight:700,color:'var(--brand)',minWidth:36,textAlign:'center'}}>{Math.round(chartZoom*100)}%</span>
                               <button onClick={() => setChartZoom(z => Math.min(3, parseFloat((z+0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'#1e7ac8'}}>＋</button>
-                              <button onClick={() => setChartZoom(1)} style={{padding:'2px 8px',border:'1px solid #b0b8c8',background:'#f0f4f8',fontSize:11,fontWeight:700,cursor:'pointer',color:'#666',marginLeft:2}}>초기화</button>
+                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>＋</button>
+                              <button onClick={() => setChartZoom(1)} style={{padding:'2px 8px',border:'1px solid var(--line)',background:'#f0f4f8',fontSize:11,fontWeight:700,cursor:'pointer',color:'#666',marginLeft:2}}>초기화</button>
                               <button onClick={() => setGraphProject(null)} style={{marginLeft:8,background:'none',border:'none',cursor:'pointer',color:'#666',display:'flex',alignItems:'center'}}><X size={18}/></button>
                           </div>
                       </div>
 
                       {/* 요약 배지 */}
-                      <div style={{display:'flex',gap:12,padding:'8px 16px',background:'#f5f8fb',borderBottom:'1px solid #dce3ec',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
+                      <div style={{display:'flex',gap:12,padding:'8px 16px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
                           {[
-                              {l:'총 Point',   v:`${totalPoints.toLocaleString()} pt`, c:'#1e7ac8'},
+                              {l:'총 Point',   v:`${totalPoints.toLocaleString()} pt`, c:'var(--brand)'},
                               {l:'누적 실적',  v:`${totalAcc.toLocaleString()} pt`,    c:'#059669'},
                               {l:'잔여',       v:`${Math.max(totalPoints-totalAcc,0).toLocaleString()} pt`, c:'#d97706'},
-                              {l:'달성률',     v:`${progressPercent}%`,                c: progressPercent>=100?'#dc2626':'#4f46e5'},
+                              {l:'달성률',     v:`${progressPercent}%`,                c: progressPercent>=100?'#dc2626':'var(--brand)'},
                           ].map(({l,v,c}) => (
                               <div key={l} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 12px',border:`1px solid ${c}30`,background:`${c}08`}}>
                                   <span style={{fontSize:11,color:'#888',fontWeight:600}}>{l}</span>
@@ -7367,7 +7356,7 @@ const TechTeamPMS = () => {
                       {/* 범례 */}
                       <div style={{display:'flex',gap:16,padding:'5px 16px',background:'#fafbfc',borderBottom:'1px solid #eaecef',flexShrink:0,flexWrap:'wrap'}}>
                           {[
-                              {c:'#1e7ac8',l:'금월 실적 (포인트)'},
+                              {c:'var(--brand)',l:'금월 실적 (포인트)'},
                               {c:'rgba(30,122,200,0.18)',l:'누적 포인트 (선)'},
                               {c:'#059669',l:'공정률 (%)'},
                               {c:'#f0f6ff',l:'작업기간'},
@@ -7392,7 +7381,7 @@ const TechTeamPMS = () => {
                                               {v.toLocaleString()}
                                           </div>
                                       ))}
-                                      <div style={{position:'absolute',right:4,top:0,fontSize:10,color:'#1e7ac8',fontWeight:700}}>pt</div>
+                                      <div style={{position:'absolute',right:4,top:0,fontSize:10,color:'var(--brand)',fontWeight:700}}>pt</div>
                                   </div>
 
                                   {/* 막대 + 격자 */}
@@ -7401,7 +7390,7 @@ const TechTeamPMS = () => {
                                       <svg style={{position:'absolute',top:0,left:0,width:'100%',height:BAR_H+36,overflow:'visible',pointerEvents:'none'}}>
                                           {yGridLines.map(v => {
                                               const y = yTick(v);
-                                              return <line key={v} x1="0" y1={y} x2={totalW} y2={y} stroke={v===0?'#9aa8b8':'#e0e5ec'} strokeWidth={v===0?2:1} strokeDasharray={v===0?'':'4,3'}/>;
+                                              return <line key={v} x1="0" y1={y} x2={totalW} y2={y} stroke={v===0?'var(--line)':'var(--line)'} strokeWidth={v===0?2:1} strokeDasharray={v===0?'':'4,3'}/>;
                                           })}
                                           {totalPoints > 0 && totalPoints <= maxY && (
                                               <line x1="0" y1={yTick(totalPoints)} x2={totalW} y2={yTick(totalPoints)} stroke="#dc2626" strokeWidth={1.5} strokeDasharray="6,3"/>
@@ -7426,20 +7415,20 @@ const TechTeamPMS = () => {
                                               const barH = maxY > 0 ? Math.round((t.monthPt / maxY) * BAR_H) : 0;
                                               const isOver = totalPoints > 0 && t.accPt > totalPoints;
                                               return (
-                                                  <div key={t.date} style={{width:colW,flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:BAR_H+36,position:'relative',background:'#f0f6ff',borderRight:'1px solid #e8ecf0'}}>
+                                                  <div key={t.date} style={{width:colW,flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:BAR_H+36,position:'relative',background:'#f0f6ff',borderRight:'1px solid var(--line)'}}>
                                                       {t.monthPt > 0 && (
-                                                          <div style={{position:'absolute',bottom:barH+38,fontSize:10,fontWeight:800,color:isOver?'#dc2626':'#1e7ac8',whiteSpace:'nowrap'}}>{t.monthPt}</div>
+                                                          <div style={{position:'absolute',bottom:barH+38,fontSize:10,fontWeight:800,color:isOver?'#dc2626':'var(--brand)',whiteSpace:'nowrap'}}>{t.monthPt}</div>
                                                       )}
-                                                      <div style={{width:Math.max(colW-12,8),height:Math.max(barH,t.monthPt>0?2:0),background:isOver?'rgba(220,38,38,0.7)':'rgba(30,122,200,0.75)',border:t.monthPt>0?`1px solid ${isOver?'#dc2626':'#1e7ac8'}`:'none',position:'relative',marginBottom:34}}>
+                                                      <div style={{width:Math.max(colW-12,8),height:Math.max(barH,t.monthPt>0?2:0),background:isOver?'rgba(220,38,38,0.7)':'rgba(30,122,200,0.75)',border:t.monthPt>0?`1px solid ${isOver?'#dc2626':'var(--brand)'}`:'none',position:'relative',marginBottom:34}}>
                                                           {t.progressPct > 0 && (
                                                               <div style={{position:'absolute',bottom:Math.round((t.progressPct/100)*BAR_H)-barH-4,left:'50%',transform:'translateX(-50%)',width:7,height:7,borderRadius:'50%',background:'#059669',border:'2px solid #fff',boxShadow:'0 0 3px rgba(5,150,105,0.6)'}}/>
                                                           )}
                                                       </div>
                                                       <div style={{position:'absolute',bottom:0,textAlign:'center',whiteSpace:'nowrap'}}>
-                                                          {t.showYear && <div style={{fontSize:9,fontWeight:800,color:'#1e7ac8',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
-                                                          <div style={{fontSize:10,fontWeight:700,color:t.hasData?'#1a1a1a':'#aaa',lineHeight:1.2}}>{parseInt(t.date.slice(5,7),10)}월</div>
+                                                          {t.showYear && <div style={{fontSize:9,fontWeight:800,color:'var(--brand)',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
+                                                          <div style={{fontSize:10,fontWeight:700,color:t.hasData?'var(--txt-strong)':'#aaa',lineHeight:1.2}}>{parseInt(t.date.slice(5,7),10)}월</div>
                                                       </div>
-                                                      {t.showYear && i > 0 && <div style={{position:'absolute',top:0,left:0,width:2,height:BAR_H,background:'#1e7ac8',opacity:0.3}}/>}
+                                                      {t.showYear && i > 0 && <div style={{position:'absolute',top:0,left:0,width:2,height:BAR_H,background:'var(--brand)',opacity:0.3}}/>}
                                                   </div>
                                               );
                                           })}
@@ -7467,14 +7456,14 @@ const TechTeamPMS = () => {
                       </div>
 
                       {/* 하단 데이터 테이블 */}
-                      <div style={{flexShrink:0,borderTop:'2px solid #9aa8b8',overflow:'auto',maxHeight:160}} className="custom-scrollbar">
+                      <div style={{flexShrink:0,borderTop:'2px solid var(--line)',overflow:'auto',maxHeight:160}} className="custom-scrollbar">
                           <table style={{width:'100%',fontSize:11,borderCollapse:'collapse',minWidth:totalW+80}}>
                               <thead>
-                                  <tr style={{background:'#dce3ec'}}>
-                                      <th style={{padding:'4px 8px',borderRight:'1px solid #b0b8c8',textAlign:'left',fontWeight:700,color:'#1a1a1a',width:80,position:'sticky',left:0,background:'#dce3ec'}}>항목</th>
+                                  <tr style={{background:'var(--head-bg)'}}>
+                                      <th style={{padding:'4px 8px',borderRight:'1px solid var(--line)',textAlign:'left',fontWeight:700,color:'var(--txt-strong)',width:80,position:'sticky',left:0,background:'var(--head-bg)'}}>항목</th>
                                       {timeline.map(t => (
-                                          <th key={t.date} style={{padding:'2px 6px',borderRight:'1px solid #c4ccd8',textAlign:'center',fontWeight:700,color:'#1a1a1a',whiteSpace:'nowrap',minWidth:colW}}>
-                                              {t.showYear && <div style={{fontSize:9,color:'#1e7ac8',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
+                                          <th key={t.date} style={{padding:'2px 6px',borderRight:'1px solid var(--line)',textAlign:'center',fontWeight:700,color:'var(--txt-strong)',whiteSpace:'nowrap',minWidth:colW}}>
+                                              {t.showYear && <div style={{fontSize:9,color:'var(--brand)',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
                                               <div style={{lineHeight:1.2}}>{parseInt(t.date.slice(5,7),10)}월</div>
                                           </th>
                                       ))}
@@ -7482,13 +7471,13 @@ const TechTeamPMS = () => {
                               </thead>
                               <tbody>
                                   {[
-                                      {l:'금월 pt', f: t => t.monthPt > 0 ? t.monthPt.toLocaleString() : '—', c: t => '#1e7ac8'},
+                                      {l:'금월 pt', f: t => t.monthPt > 0 ? t.monthPt.toLocaleString() : '—', c: t => 'var(--brand)'},
                                       {l:'누적 pt', f: t => t.accPt > 0 ? t.accPt.toLocaleString() : '—', c: t => totalPoints>0&&t.accPt>totalPoints?'#dc2626':'#333'},
                                       {l:'공정률', f: t => t.progressPct > 0 ? `${t.progressPct}%` : '—', c: t => '#059669'},
                                   ].map(({l,f,c}) => (
                                       <tr key={l}>
-                                          <td style={{padding:'3px 8px',borderRight:'1px solid #c4ccd8',borderBottom:'1px solid #e0e5ec',fontWeight:700,color:'#555',position:'sticky',left:0,background:'#f5f8fb'}}>{l}</td>
-                                          {timeline.map(t => <td key={t.date} style={{padding:'3px 6px',borderRight:'1px solid #e0e5ec',borderBottom:'1px solid #e0e5ec',textAlign:'center',fontWeight:600,color:c(t)}}>{f(t)}</td>)}
+                                          <td style={{padding:'3px 8px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',fontWeight:700,color:'#555',position:'sticky',left:0,background:'#f5f8fb'}}>{l}</td>
+                                          {timeline.map(t => <td key={t.date} style={{padding:'3px 6px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',textAlign:'center',fontWeight:600,color:c(t)}}>{f(t)}</td>)}
                                       </tr>
                                   ))}
                               </tbody>
