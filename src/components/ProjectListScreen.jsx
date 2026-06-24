@@ -11,7 +11,7 @@ import {
 import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import { db, appId } from '../firebase';
-import { loadXLSX, loadExcelJS, loadFileSaver, generatePid } from '../utils';
+import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 
 const VERSION = 'v6.8.7';
 
@@ -1143,7 +1143,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             });
         }
 
-        const szCls  = compactMode === 0 ? (small ? 'text-[10px]' : 'text-[11px]')
+        const szCls  = compactMode === 0 ? (small ? 'text-[11px]' : 'text-[11px]')
                      : compactMode === 1 ? (small ? 'text-[9px]'  : 'text-[10px]')
                      :                     'text-[9px]';
         const iconSz = compactMode === 0 ? (small ? 8 : 10) : 8;
@@ -1191,8 +1191,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             <div ref={el => { filterRefs.current[h] = el; }} className="relative w-full flex items-center justify-center gap-0.5">
                 <button
                     onClick={e => { e.stopPropagation(); requestSort(h); }}
-                    className={`flex-1 truncate text-center font-bold transition-colors leading-none py-0 ${szCls}
-                        ${isActive ? 'text-amber-300' : isSortKey ? 'text-cyan-300' : 'text-slate-400 hover:text-cyan-400'}`}
+                    className={`flex-1 truncate text-left font-bold transition-colors leading-none py-0 ${szCls}
+                        ${isActive ? 'text-[#1e7ac8]' : isSortKey ? 'text-[#1e7ac8]' : 'text-slate-400 hover:text-[#1e7ac8]'}`}
                 >
                     {isActive ? `${h}(${selSet.size})` : h}
                     {isSortKey && !isActive && (sortConfig.dir === 'asc'
@@ -1309,15 +1309,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
     const SortHeader = ({ h, small = false, forceColor }) => {
         const isSortKey = sortConfig.key === h;
-        const szCls = compactMode === 0 ? (small ? 'text-[10px]' : 'text-[11px]')
+        const szCls = compactMode === 0 ? (small ? 'text-[11px]' : 'text-[11px]')
                     : compactMode === 1 ? (small ? 'text-[9px]'  : 'text-[10px]')
                     :                     'text-[9px]';
         const iconSz = compactMode === 0 ? (small ? 8 : 10) : 8;
-        const colorCls = forceColor ? '' : (isSortKey ? 'text-cyan-300' : 'text-slate-400');
+        const colorCls = forceColor ? '' : (isSortKey ? 'text-[#1e7ac8]' : 'text-slate-400');
         return (
             <button onClick={() => requestSort(h)}
                 style={forceColor ? { color: isSortKey ? '#1e7ac8' : forceColor } : undefined}
-                className={`w-full truncate text-center font-bold hover:text-cyan-400 transition-colors leading-none py-0
+                className={`w-full truncate text-left font-bold hover:text-cyan-400 transition-colors leading-none py-0
                     ${szCls} ${colorCls}`}>
                 {h}
                 {isSortKey && (sortConfig.dir==='asc'
@@ -1350,12 +1350,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             {alertMsg && (
                 <div className="fixed z-[400] flex items-end justify-center pointer-events-none" style={{ inset:0, paddingBottom:'56px' }}>
                     <div className="pointer-events-auto shadow-2xl" style={{ backgroundColor:'#fff', border:'1.5px solid #c4ccd8', minWidth:'280px', maxWidth:'400px', overflow:'hidden' }}>
-                        <div style={{ backgroundColor:'#16a34a', padding:'8px 16px', color:'#fff', fontSize:'12px', fontWeight:700 }}>알림</div>
+                        <div style={{ backgroundColor:'#1e7ac8', padding:'8px 16px', color:'#fff', fontSize:'12px', fontWeight:700 }}>알림</div>
                         <div style={{ padding:'16px 20px' }}>
                             <p style={{ fontSize:'13px', color:'#1e293b', marginBottom:'14px', whiteSpace:'pre-line' }}>{alertMsg}</p>
                             <div style={{ display:'flex', justifyContent:'flex-end' }}>
                                 <button onClick={() => setAlertMsg('')}
-                                    style={{ padding:'5px 18px', backgroundColor:'#16a34a', color:'#fff', border:'none', fontSize:'12px', fontWeight:700, cursor:'pointer' }}>
+                                    style={{ padding:'5px 18px', backgroundColor:'#1e7ac8', color:'#fff', border:'none', fontSize:'12px', fontWeight:700, cursor:'pointer' }}>
                                     확인
                                 </button>
                             </div>
@@ -1506,41 +1506,41 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             {contextMenu && (
                 <>
                     <div className="fixed inset-0 z-[8000]" onClick={() => setContextMenu(null)}/>
-                    <div className="fixed z-[8001] bg-slate-800 border border-slate-600 shadow-2xl rounded-2xl py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
+                    <div className="fixed z-[8001] bg-white border border-[#c4ccd8] shadow-2xl rounded-lg py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
                         style={{ top: Math.min(contextMenu.y, window.innerHeight-290), left: Math.min(contextMenu.x, window.innerWidth-200) }}
                         onClick={e => e.stopPropagation()}>
-                        <div className="px-3 py-1.5 border-b border-slate-700/50 mb-1">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider truncate">
+                        <div className="px-3 py-1.5 border-b border-[#e5eaf3] mb-1">
+                            <p className="text-[10px] font-black text-[#888] uppercase tracking-wider truncate">
                                 {contextMenu.row['실행번호'] || contextMenu.row['번호'] || contextMenu.row['Project'] || contextMenu.row['프로젝트'] || 'Project'}
                             </p>
                         </div>
                         <button onClick={() => { setDetailRow({...contextMenu.row}); setDetailRowOriginal({...contextMenu.row}); setContextMenu(null); }}
-                            className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
-                            <Edit2 size={16} className="text-emerald-400"/> 상세/수정
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <Edit2 size={16} className="text-[#1e7ac8]"/> 상세/수정
                         </button>
                         <button onClick={() => { openExecNoModal(contextMenu.row); setContextMenu(null); }}
-                            className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
-                            <FileText size={16} className="text-cyan-400"/> 프로젝트 연결 (실행번호+ID)
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <FileText size={16} className="text-[#1e7ac8]"/> 프로젝트 연결 (실행번호+ID)
                         </button>
                         <button onClick={() => { setProgressRow(contextMenu.row); setContextMenu(null); }}
-                            className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
-                            <TrendingUp size={16} className="text-emerald-400"/> 진행실적 등록
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
                         </button>
                         <button onClick={() => {
                             const execNo = contextMenu.row[EXEC_NO_COL];
                             const match = execNo && allProjects ? allProjects.find(p => String(p.execNo) === String(execNo)) : null;
                             if (match && onShowGraph) { onShowGraph(match); setContextMenu(null); }
                             else { setAlertMsg(execNo ? '해당 실행번호의 월간보고 데이터를 찾을 수 없습니다.' : '먼저 실행번호를 등록해주세요.'); setContextMenu(null); }
-                        }} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-slate-300 transition-colors">
-                            <BarChart3 size={16} className="text-indigo-400"/> 실적 그래프 보기
+                        }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
                         {contextMenu.row[EXEC_NO_COL] && onGoToPms && (
                             <>
-                                <div className="border-t border-slate-700/50 my-1"/>
+                                <div className="border-t border-[#e5eaf3] my-1"/>
                                 <button onClick={() => {
                                     onGoToPms(contextMenu.row[EXEC_NO_COL]);
                                     setContextMenu(null);
-                                }} className="w-full text-left px-4 py-2 hover:bg-slate-700 flex items-center gap-3 text-sm font-bold text-amber-400 transition-colors">
+                                }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#d97706] transition-colors">
                                     <AlignJustify size={16}/> 업무현황 이동
                                 </button>
                             </>
@@ -1552,20 +1552,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             {/* ── 실행번호 등록 모달 ── */}
             {execNoModal && (
                 <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div style={{background:'#0f172a', border:'1px solid #334155', borderRadius:12, width:560, maxWidth:'95vw', maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 8px 40px rgba(0,0,0,0.5)'}}>
+                    <div style={{background:'#ffffff', border:'1px solid var(--line)', borderRadius:12, width:560, maxWidth:'95vw', maxHeight:'80vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 8px 40px rgba(0,0,0,0.18)'}}>
                         {/* 헤더 */}
-                        <div style={{padding:'14px 20px', borderBottom:'1px solid #1e293b', display:'flex', alignItems:'center', justifyContent:'space-between', background:'#1e293b'}}>
+                        <div style={{padding:'14px 20px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', background:'var(--brand)'}}>
                             <div>
-                                <div style={{color:'#e2e8f0', fontWeight:800, fontSize:14}}>프로젝트 연결 (월간보고와 잇기)</div>
-                                <div style={{color:'#64748b', fontSize:11, marginTop:2}}>선택하면 실행번호가 기록되고 양쪽의 고유 ID가 하나로 통일됩니다</div>
+                                <div style={{color:'#ffffff', fontWeight:800, fontSize:14}}>프로젝트 연결 (월간보고와 잇기)</div>
+                                <div style={{color:'rgba(255,255,255,0.85)', fontSize:11, marginTop:2}}>선택하면 실행번호가 기록되고 양쪽의 고유 ID가 하나로 통일됩니다</div>
                             </div>
-                            <button onClick={() => setExecNoModal(null)} style={{background:'none', border:'none', color:'#64748b', cursor:'pointer', padding:4}}>
+                            <button onClick={() => setExecNoModal(null)} style={{background:'none', border:'none', color:'#ffffff', cursor:'pointer', padding:4}}>
                                 <X size={16}/>
                             </button>
                         </div>
 
                         {/* 현재 행 프로젝트명 */}
-                        <div style={{padding:'10px 20px', background:'#0f1e2e', borderBottom:'1px solid #1e293b', fontSize:12, color:'#94a3b8'}}>
+                        <div style={{padding:'10px 20px', background:'#f3f6fa', borderBottom:'1px solid var(--line)', fontSize:12, color:'var(--txt-mid)'}}>
                             현재 행: {(() => {
                                 const nameKeys = ['프로젝트명','프로젝트','Project','공사명','건명','명칭'];
                                 const k = nameKeys.find(k => activeHeaders.includes(k)) || activeHeaders.find(h => /프로젝트|공사|건명/.test(h)) || '';
@@ -1576,11 +1576,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         {/* 후보 목록 */}
                         <div style={{flex:1, overflowY:'auto', padding:'8px 0'}}>
                             {execNoModal.loading ? (
-                                <div style={{textAlign:'center', padding:'40px 0', color:'#64748b', fontSize:13}}>
+                                <div style={{textAlign:'center', padding:'40px 0', color:'var(--txt-mid)', fontSize:13}}>
                                     월간보고 데이터 불러오는 중...
                                 </div>
                             ) : execNoModal.candidates.length === 0 ? (
-                                <div style={{textAlign:'center', padding:'40px 0', color:'#64748b', fontSize:13}}>
+                                <div style={{textAlign:'center', padding:'40px 0', color:'var(--txt-mid)', fontSize:13}}>
                                     등록된 월간보고 프로젝트가 없습니다
                                 </div>
                             ) : (
@@ -1590,28 +1590,28 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         <div key={i} onClick={() => setExecNoModal(p => ({...p, selected: c}))}
                                             style={{
                                                 display:'flex', alignItems:'center', gap:12, padding:'10px 20px',
-                                                cursor:'pointer', borderBottom:'1px solid #1e293b',
-                                                background: isSelected ? 'rgba(34,211,238,0.08)' : 'transparent',
-                                                borderLeft: isSelected ? '3px solid #22d3ee' : '3px solid transparent'
+                                                cursor:'pointer', borderBottom:'1px solid var(--line)',
+                                                background: isSelected ? 'rgba(30,122,200,0.10)' : 'transparent',
+                                                borderLeft: isSelected ? '3px solid var(--brand)' : '3px solid transparent'
                                             }}>
-                                            <div style={{minWidth:90, fontFamily:'monospace', fontSize:12, fontWeight:700, color: c.score > 0.3 ? '#22d3ee' : '#475569'}}>
+                                            <div style={{minWidth:90, fontFamily:'monospace', fontSize:12, fontWeight:700, color: c.score > 0.3 ? 'var(--brand)' : 'var(--txt-soft)'}}>
                                                 {c.execNo}
                                             </div>
-                                            <div style={{flex:1, fontSize:12, color: isSelected ? '#e2e8f0' : '#94a3b8'}}>
+                                            <div style={{flex:1, fontSize:12, color: isSelected ? 'var(--txt-strong)' : 'var(--txt-mid)'}}>
                                                 {c.project}
                                             </div>
                                             {c.linkedToThis && (
-                                                <span style={{fontSize:9, fontWeight:800, color:'#4ade80', border:'1px solid rgba(74,222,128,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}}>현재 연결</span>
+                                                <span style={{fontSize:9, fontWeight:800, color:'#059669', border:'1px solid rgba(5,150,105,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}}>현재 연결</span>
                                             )}
                                             {c.linkedToOther && (
-                                                <span style={{fontSize:9, fontWeight:800, color:'#fbbf24', border:'1px solid rgba(251,191,36,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}} title="다른 List 행과 이미 연결됨 — 선택 시 이 행으로 다시 연결됩니다">타 행 연결됨</span>
+                                                <span style={{fontSize:9, fontWeight:800, color:'#d97706', border:'1px solid rgba(217,119,6,0.4)', borderRadius:4, padding:'1px 5px', flexShrink:0}} title="다른 List 행과 이미 연결됨 — 선택 시 이 행으로 다시 연결됩니다">타 행 연결됨</span>
                                             )}
                                             {c.score > 0 && (
-                                                <div style={{fontSize:10, color: c.score > 0.5 ? '#4ade80' : c.score > 0.2 ? '#fbbf24' : '#475569', fontWeight:700, minWidth:36, textAlign:'right'}}>
+                                                <div style={{fontSize:10, color: c.score > 0.5 ? '#059669' : c.score > 0.2 ? '#d97706' : '#94a3b8', fontWeight:700, minWidth:36, textAlign:'right'}}>
                                                     {Math.round(c.score * 100)}%
                                                 </div>
                                             )}
-                                            {isSelected && <Check size={14} style={{color:'#22d3ee', flexShrink:0}}/>}
+                                            {isSelected && <Check size={14} style={{color:'var(--brand)', flexShrink:0}}/>}
                                         </div>
                                     );
                                 })
@@ -1620,19 +1620,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
                         {/* 선택된 항목 표시 */}
                         {execNoModal.selected && (
-                            <div style={{padding:'10px 20px', background:'rgba(34,211,238,0.06)', borderTop:'1px solid #1e293b', fontSize:12, color:'#22d3ee'}}>
+                            <div style={{padding:'10px 20px', background:'rgba(30,122,200,0.06)', borderTop:'1px solid var(--line)', fontSize:12, color:'var(--brand)'}}>
                                 선택: <strong>{execNoModal.selected.execNo}</strong> — {execNoModal.selected.project}
                             </div>
                         )}
 
                         {/* 버튼 */}
-                        <div style={{padding:'12px 20px', borderTop:'1px solid #1e293b', display:'flex', justifyContent:'flex-end', gap:8, background:'#1e293b'}}>
+                        <div style={{padding:'12px 20px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', gap:8, background:'#f3f6fa'}}>
                             <button onClick={() => setExecNoModal(null)}
-                                style={{padding:'7px 20px', background:'#334155', border:'none', color:'#94a3b8', fontSize:12, fontWeight:700, borderRadius:6, cursor:'pointer'}}>
+                                style={{padding:'7px 20px', background:'#e5e7eb', border:'none', color:'var(--txt-mid)', fontSize:12, fontWeight:700, borderRadius:6, cursor:'pointer'}}>
                                 취소
                             </button>
                             <button onClick={saveExecNo} disabled={!execNoModal.selected}
-                                style={{padding:'7px 20px', background: execNoModal.selected ? '#0891b2' : '#1e3a4a', border:'none', color: execNoModal.selected ? '#fff' : '#475569', fontSize:12, fontWeight:700, borderRadius:6, cursor: execNoModal.selected ? 'pointer' : 'not-allowed'}}>
+                                style={{padding:'7px 20px', background: execNoModal.selected ? 'var(--brand)' : '#e5e7eb', border:'none', color: execNoModal.selected ? '#fff' : 'var(--txt-soft)', fontSize:12, fontWeight:700, borderRadius:6, cursor: execNoModal.selected ? 'pointer' : 'not-allowed'}}>
                                 확인
                             </button>
                         </div>
@@ -1846,13 +1846,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             {/* 삭제 확인 */}
             {confirmClearOpen && (
                 <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4">
-                    <div className="bg-slate-900 border border-rose-500/30 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+                    <div className="bg-white border border-[#c4ccd8] p-8 rounded-lg max-w-sm w-full text-center shadow-2xl">
                         <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto mb-4"/>
-                        <p className="text-white font-bold mb-2">전체 데이터 삭제</p>
-                        <p className="text-rose-400 text-sm mb-6">로컬·Firebase 모든 데이터가 삭제됩니다.</p>
+                        <p className="text-[#222] font-bold mb-2">전체 데이터 삭제</p>
+                        <p className="text-rose-600 text-sm mb-6">로컬·Firebase 모든 데이터가 삭제됩니다.</p>
                         <div className="flex gap-3">
-                            <button onClick={() => setConfirmClearOpen(false)} className="flex-1 py-3 bg-slate-800 rounded-xl font-bold text-slate-300">취소</button>
-                            <button onClick={clearAll} className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl font-bold text-white">삭제</button>
+                            <button onClick={() => setConfirmClearOpen(false)} className="flex-1 py-3 bg-[#f1f5f9] border border-[#c4ccd8] rounded-lg font-bold text-[#555]">취소</button>
+                            <button onClick={clearAll} className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-lg font-bold text-white">삭제</button>
                         </div>
                     </div>
                 </div>
@@ -1875,15 +1875,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                   boxShadow:'0 8px 40px rgba(0,0,0,0.45)' }}>
 
                         {/* 타이틀 바 */}
-                        <div style={{ backgroundColor:'#dce3ec', borderBottom:'2px solid #9aa8b8',
+                        <div style={{ backgroundColor:'#1e7ac8', borderBottom:'2px solid #1565a0',
                                       padding:'8px 14px', display:'flex', justifyContent:'space-between',
                                       alignItems:'center', flexShrink:0 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                                <Plus size={14} style={{ color:'#059669' }}/>
-                                <span style={{ fontSize:13, fontWeight:800, color:'#1a1a1a' }}>프로젝트 추가</span>
+                                <Plus size={14} style={{ color:'#ffffff' }}/>
+                                <span style={{ fontSize:13, fontWeight:800, color:'#ffffff' }}>프로젝트 추가</span>
                             </div>
                             <button onClick={() => setAddingRow(null)}
-                                style={{ background:'none', border:'none', cursor:'pointer', color:'#666',
+                                style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.85)',
                                          display:'flex', alignItems:'center', padding:2 }}>
                                 <X size={16}/>
                             </button>
@@ -2006,11 +2006,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             <header className="flex flex-row justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
                 {/* 왼쪽: 타이틀 + 연도 + 카운트 */}
                 <div className="flex items-center gap-2 min-w-0 shrink-0">
-                    <div className="p-2 bg-emerald-500 rounded-xl shadow-lg shadow-emerald-500/20 text-white shrink-0">
+                    <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                         <ListChecks size={20}/>
                     </div>
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-1.5 whitespace-nowrap">
+                        <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
                             {currentTeam} 프로젝트 List
                         </h1>
                         {availableYears.length > 0 && (
@@ -2049,9 +2049,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         onClick={() => setCompactMode(v => (v + 1) % 3)}
                         title={['기본 보기 → 컴팩트', '컴팩트 → 초소형', '초소형 → 기본'][compactMode]}
                         className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${
-                            compactMode === 0 ? 'bg-slate-900 border-slate-700 hover:bg-slate-800'
-                          : compactMode === 1 ? 'bg-cyan-500/20 border-cyan-500'
-                          : 'bg-violet-500/20 border-violet-500'
+                            compactMode === 0 ? 'bg-slate-100 border-slate-300'
+                          : compactMode === 1 ? 'bg-blue-100 border-blue-400'
+                          : 'bg-blue-200 border-blue-500'
                         }`}
                     >
                         <AlignJustify size={14} style={{ color: '#111827' }} />
@@ -2060,7 +2060,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
                     {/* 프로젝트 추가 */}
                     <button onClick={handleOpenAddRow}
-                        className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-violet-500/60 bg-violet-500/15 hover:bg-violet-500 text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0">
+                        className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-blue-500/60 bg-blue-500/15 hover:bg-blue-500 text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0">
                         <Plus size={14}/> 프로젝트 추가
                     </button>
 
@@ -2092,7 +2092,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     {/* 월간 업무 보고 이동 버튼 */}
                     {onGoToPms && (
                         <button onClick={() => onGoToPms()} title="월간 업무 보고"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-cyan-700 bg-cyan-900/30 hover:bg-cyan-700 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-blue-700 bg-blue-100 hover:bg-blue-600 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
                             <FileText size={13}/> 월간보고
                         </button>
                     )}
@@ -2107,97 +2107,97 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         {settingsOpen && (
                             <>
                                 <div className="fixed inset-0 z-[55]" onClick={() => setSettingsOpen(false)}/>
-                                <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-[60] py-2">
+                                <div className="absolute right-0 mt-2 w-56 bg-white border border-[#c4ccd8] rounded-lg shadow-2xl overflow-hidden z-[60] py-2">
                                     {/* 데이터 소스 표시 */}
-                                    <div className={`px-4 py-2 border-b border-slate-800 mb-1 flex items-center gap-2 ${srcBadge.text}`}>
+                                    <div className={`px-4 py-2 border-b border-[#e5eaf3] mb-1 flex items-center gap-2 ${srcBadge.text}`}>
                                         {srcBadge.icon}
                                         <span className="text-[11px] font-bold">{srcBadge.label}</span>
-                                        {dataSource !== 'firebase' && <span className="text-slate-600 text-[10px] ml-auto">{activeRows.length}행</span>}
+                                        {dataSource !== 'firebase' && <span className="text-[#aaa] text-[10px] ml-auto">{activeRows.length}행</span>}
                                     </div>
                                     {/* 로컬 임시 저장 (pending) */}
                                     {dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToLocal(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-violet-400 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-violet-600 flex items-center gap-2 transition-colors">
                                             <HardDrive size={14}/> 로컬 임시 저장
                                         </button>
                                     )}
                                     {/* A-4c 병합 미리보기 (드라이런 · 저장 없음 · 데이터 안 바뀜) */}
                                     {dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleMergePreview(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-sky-400 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-sky-600 flex items-center gap-2 transition-colors">
                                             <Eye size={14}/> 병합 미리보기 (드라이런)
                                         </button>
                                     )}
                                     {/* Firebase 확정 저장 (pending/local) */}
                                     {(dataSource === 'pending' || dataSource === 'local') && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToFirebase(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-emerald-400 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-emerald-600 flex items-center gap-2 transition-colors">
                                             <CloudUpload size={14}/> Firebase 확정 저장
                                         </button>
                                     )}
                                     {/* 로컬 삭제 (local) */}
                                     {dataSource === 'local' && (
                                         <button onClick={() => { setSettingsOpen(false); handleDeleteLocal(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-amber-400 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-amber-600 flex items-center gap-2 transition-colors">
                                             <Trash2 size={14}/> 로컬 데이터 삭제
                                         </button>
                                     )}
                                     {/* 업로드 취소 (pending) */}
                                     {dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); setPendingData(null); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-slate-400 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#888] flex items-center gap-2 transition-colors">
                                             <X size={14}/> 업로드 취소
                                         </button>
                                     )}
                                     {/* 엑셀 업로드 */}
                                     <button onClick={() => { setSettingsOpen(false); if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-2 transition-colors">
-                                        <Upload size={14} className="text-cyan-400"/> 엑셀 업로드
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Upload size={14} className="text-cyan-600"/> 엑셀 업로드
                                     </button>
                                     {/* 엑셀 생성 */}
                                     <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!activeHeaders.length}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold text-white flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                        <FileSpreadsheet size={14} className="text-indigo-400"/> 엑셀 생성
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
                                     </button>
-                                    <div className="border-t border-slate-800 my-1"/>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 열 표시/숨기기 */}
                                     <button onClick={() => setColDropOpen(v=>!v)}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenCols.size>0?'text-rose-400':'text-slate-300'}`}>
-                                        <Eye size={14} className={hiddenCols.size>0?'text-rose-400':'text-slate-500'}/>
+                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenCols.size>0?'text-rose-600':'text-[#333]'}`}>
+                                        <Eye size={14} className={hiddenCols.size>0?'text-rose-600':'text-[#999]'}/>
                                         열 표시/숨기기
-                                        {hiddenCols.size>0 && <span className="ml-auto text-[10px] bg-rose-500 text-white px-1.5 py-0.5 font-mono">{hiddenCols.size}개 숨김</span>}
+                                        {hiddenCols.size>0 && <span className="ml-auto text-[10px] bg-rose-500 text-[#222] px-1.5 py-0.5 font-mono">{hiddenCols.size}개 숨김</span>}
                                     </button>
                                     {colDropOpen && (
                                         <div className="px-3 pb-2">
                                             <div className="flex justify-end mb-1.5">
-                                                <button onClick={() => setHiddenCols(new Set())} className="text-[11px] text-emerald-400 hover:text-emerald-300 font-bold px-2 py-0.5 bg-emerald-500/10">모두 표시</button>
+                                                <button onClick={() => setHiddenCols(new Set())} className="text-[11px] text-emerald-600 hover:text-emerald-600 font-bold px-2 py-0.5 bg-emerald-50">모두 표시</button>
                                             </div>
                                             {detailOnlyHeaders.length > 0 && (
-                                                <p className="text-[10px] text-slate-600 mb-1 px-1">※ 나머지 {detailOnlyHeaders.length}개 열은 우클릭 → 상세 화면에서 확인</p>
+                                                <p className="text-[10px] text-[#aaa] mb-1 px-1">※ 나머지 {detailOnlyHeaders.length}개 열은 우클릭 → 상세 화면에서 확인</p>
                                             )}
                                             <div className="space-y-0.5 max-h-48 overflow-y-auto custom-scrollbar">
                                                 {allMainCols.map(h => (
-                                                    <label key={h} className="flex items-center gap-2 cursor-pointer group py-1 px-2 hover:bg-slate-800/50 transition-colors">
+                                                    <label key={h} className="flex items-center gap-2 cursor-pointer group py-1 px-2 hover:bg-blue-50 transition-colors">
                                                         <input type="checkbox" checked={!hiddenCols.has(h)}
                                                             onChange={() => setHiddenCols(p => { const n=new Set(p); n.has(h)?n.delete(h):n.add(h); return n; })}
                                                             className="w-3 h-3 accent-emerald-500 cursor-pointer"/>
-                                                        <span className={`text-[12px] font-medium ${hiddenCols.has(h)?'text-slate-500':'text-slate-200 group-hover:text-white'}`}>{h}</span>
+                                                        <span className={`text-[12px] font-medium ${hiddenCols.has(h)?'text-[#999]':'text-[#222] group-hover:text-[#1e7ac8]'}`}>{h}</span>
                                                     </label>
                                                 ))}
                                             </div>
                                         </div>
                                     )}
-                                    <div className="border-t border-slate-800 my-1"/>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 디버그 */}
                                     <button onClick={() => { setSettingsOpen(false); setShowDebug(v=>!v); }}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-slate-800 text-xs font-bold flex items-center gap-2 transition-colors border-b border-slate-800 ${showDebug?'text-emerald-400':'text-slate-300'}`}>
+                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors border-b border-[#e5eaf3] ${showDebug?'text-emerald-600':'text-[#333]'}`}>
                                         <TerminalSquare size={14}/> 디버그 모드
-                                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug?'border-emerald-500 text-emerald-400':'border-slate-600 text-slate-500'}`}>{showDebug?'ON':'OFF'}</span>
+                                        <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug?'border-emerald-600 text-emerald-600':'border-[#c4ccd8] text-[#999]'}`}>{showDebug?'ON':'OFF'}</span>
                                     </button>
-                                    <div className="border-t border-slate-800 my-1"/>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 전체 삭제 */}
                                     <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!activeRows.length}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-rose-900/30 text-xs font-bold text-rose-400 flex items-center gap-2 transition-colors disabled:opacity-40">
+                                        className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
                                         <Trash2 size={14}/> 전체 데이터 삭제
                                     </button>
                                 </div>
@@ -2233,7 +2233,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             {/* 진행현황 */}
                             <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>{statusFilterCol}</span>
                             <button onClick={() => setActiveStatusChips(new Set())}
-                                style={{ padding: '3px 10px', fontSize: '11px', fontWeight: activeStatusChips.size === 0 ? 800 : 600, backgroundColor: activeStatusChips.size === 0 ? '#1e7ac8' : '#fff', color: activeStatusChips.size === 0 ? '#fff' : '#555', border: activeStatusChips.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #c4ccd8', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                style={{ padding: '3px 10px', fontSize: '11px', fontWeight: activeStatusChips.size === 0 ? 800 : 600, backgroundColor: activeStatusChips.size === 0 ? 'rgba(30,122,200,0.12)' : '#fff', color: activeStatusChips.size === 0 ? '#1358a0' : '#888', border: activeStatusChips.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 전체 <span style={{ fontSize: '10px', opacity: 0.85 }}>({yearFilteredRows.length})</span>
                             </button>
                             {statusChipData.map(([status, count]) => {
@@ -2242,7 +2242,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 return (
                                     <button key={status}
                                         onClick={() => setActiveStatusChips(prev => { const next = new Set(prev); if (next.has(status)) next.delete(status); else next.add(status); return next; })}
-                                        style={{ padding: '3px 10px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? c.activeBg : c.bg, color: isActive ? c.activeText : c.text, border: `1.5px solid ${isActive ? c.activeBg : c.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        style={{ padding: '3px 10px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? c.bg : '#fff', color: isActive ? c.text : '#888', border: `1.5px solid ${isActive ? c.border : '#e5e7eb'}`, borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         {status} <span style={{ fontSize: '10px', opacity: isActive ? 0.9 : 0.75 }}>({count})</span>
                                     </button>
                                 );
@@ -2259,7 +2259,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             {assigneeFilterCol && (<>
                                 <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>담당자</span>
                                 <button onClick={() => setActiveAssignees(new Set())}
-                                    style={{ padding: '3px 8px', fontSize: '11px', fontWeight: activeAssignees.size === 0 ? 800 : 600, backgroundColor: activeAssignees.size === 0 ? '#1e7ac8' : '#fff', color: activeAssignees.size === 0 ? '#fff' : '#555', border: activeAssignees.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #c4ccd8', cursor: 'pointer' }}>
+                                    style={{ padding: '3px 8px', fontSize: '11px', fontWeight: activeAssignees.size === 0 ? 800 : 600, backgroundColor: activeAssignees.size === 0 ? 'rgba(30,122,200,0.12)' : '#fff', color: activeAssignees.size === 0 ? '#1358a0' : '#888', border: activeAssignees.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer' }}>
                                     전체
                                 </button>
                                 {ASSIGNEE_LIST.map(name => {
@@ -2267,7 +2267,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     return (
                                         <button key={name}
                                             onClick={() => setActiveAssignees(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; })}
-                                            style={{ padding: '3px 8px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? '#374151' : 'rgba(107,114,128,0.08)', color: isActive ? '#fff' : '#374151', border: isActive ? '1.5px solid #374151' : '1.5px solid #c4ccd8', cursor: 'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
+                                            style={{ padding: '3px 8px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? 'rgba(30,122,200,0.12)' : '#fff', color: isActive ? '#1358a0' : '#888', border: isActive ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
                                             {name}
                                             <span style={{ fontSize:'10px', opacity:0.8 }}>({assigneeCountMap[extractName(name)] || 0})</span>
                                         </button>
@@ -2284,11 +2284,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     )}
                     <div className="overflow-auto flex-1 custom-scrollbar">
                         <table className="w-full text-left border-collapse table-fixed"
-                            style={{ minWidth: mainVisibleHeaders.reduce((s,h)=>s+getW(h),0)+22+34 }}>
+                            style={{ minWidth: mainVisibleHeaders.reduce((s,h)=>s+getW(h),0)+22+120 }}>
                             <colgroup>
                                 <col style={{width:22}}/>
                                 {mainVisibleHeaders.map(h => <col key={h} style={{width:getW(h)}}/>)}
-                                <col style={{width:34}}/>
+                                <col style={{width:120}}/>
                             </colgroup>
                             {(() => {
                                 // 헤드 높이 약 20% 축소
@@ -2297,7 +2297,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 const tdPx    = compactMode===0 ? 'px-3 py-2'   : compactMode===1 ? 'px-2 py-1'   : 'px-1.5 py-0.5';
                                 const noTdPx  = compactMode===0 ? 'px-2 py-2'   : compactMode===1 ? 'px-2 py-1'   : 'px-1 py-0.5';
                                 const actTdPx = compactMode===0 ? 'px-1 py-1'   : compactMode===1 ? 'px-1 py-0.5'   : 'px-0.5 py-0';
-                                const noSz    = compactMode===0 ? 'text-xs'     : compactMode===1 ? 'text-[11px]' : 'text-[9px]';
+                                const noSz    = compactMode===0 ? 'text-[11px]' : compactMode===1 ? 'text-[11px]' : 'text-[9px]';
                                 const mgrSz   = compactMode===0 ? 'text-[11px]' : compactMode===1 ? 'text-[10px]' : 'text-[9px]';
                                 const iconSz  = compactMode===2 ? 12 : 14;
 
@@ -2315,23 +2315,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 const isPinH = h => h === frozenUpTo;
 
                                 return (<>
-                            <thead className="sticky top-0 z-30" style={{background:'#0f172a'}}>
+                            <thead className="sticky top-0 z-30" style={{background:'var(--head-bg)'}}>
                                 <tr className="border-b border-slate-800">
-                                    <th rowSpan={hasMainGroups?2:1} className={`${noTdPx} text-center text-slate-600 ${noSz} font-bold border-r border-slate-800/60 sticky left-0 z-40`} style={{background:'#0f172a'}}>No.</th>
+                                    <th rowSpan={hasMainGroups?2:1} className={`${noTdPx} text-center text-slate-400 ${noSz} font-bold border-r border-slate-800/60 sticky left-0 z-40`} style={{background:'var(--head-bg)'}}>No.</th>
                                     {hasMainGroups ? mainVisibleGroups.map((g,gi) => {
                                         if (!g.label) {
                                             const h = g.cols[0];
                                             if (h === EXEC_NO_COL) return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
-                                                    className={`${thPx} text-center text-cyan-500 border-r border-cyan-800/40`}
-                                                    style={{background:'#0f172a', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
+                                                    className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-800/40`}
+                                                    style={{background:'var(--head-bg)', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
                                                     실행번호
                                                 </th>
                                             );
                                             return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
                                                     className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
-                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'#0f172a'}:{}}
+                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
                                                     onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                                     {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
                                                     <div className="absolute -right-[4px] top-0 bottom-0 w-[8px] cursor-col-resize hover:bg-emerald-500/40 z-10"
@@ -2346,23 +2346,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                 className={`${thPx} text-center border-b-2 border-r border-slate-800/40`}
                                                 style={isProgress
                                                     ? { background:'#daeaf8', borderBottomColor:'#3b82f6' }
-                                                    : { background:'rgba(8,51,68,0.6)', borderBottomColor:'rgba(34,211,238,0.5)' }}>
+                                                    : { background:'var(--head-bg)', borderBottomColor:'var(--brand)' }}>
                                                 <span style={{ fontWeight:700, fontSize:11, letterSpacing:'0.05em',
-                                                    color: isProgress ? '#1a1a1a' : '#67e8f9' }}>{g.label}</span>
+                                                    color: '#94a3b8' }}>{g.label}</span>
                                             </th>
                                             );
                                         }
                                     }) : mainVisibleHeaders.map(h => {
                                         if (h === EXEC_NO_COL) return (
-                                            <th key={h} className={`${thPx} text-center text-cyan-500 border-r border-cyan-800/40`}
-                                                style={{background:'#0f172a', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
+                                            <th key={h} className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-800/40`}
+                                                style={{background:'var(--head-bg)', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
                                                 실행번호
                                             </th>
                                         );
                                         return (
                                         <th key={h}
                                             className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
-                                            style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'#0f172a'}:{}}
+                                            style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
                                             onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                             {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
                                             <div className="absolute -right-[4px] top-0 bottom-0 w-[8px] cursor-col-resize hover:bg-emerald-500/40 z-10"
@@ -2370,14 +2370,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         </th>
                                         );
                                     })}
-                                    <th rowSpan={hasMainGroups?2:1} className={`${actTdPx} text-right text-slate-600 ${mgrSz} font-bold sticky right-0 z-40`} style={{background:'#0f172a'}}>관리</th>
+                                    <th rowSpan={hasMainGroups?2:1} className={`${actTdPx} text-center text-slate-400 ${mgrSz} font-bold sticky right-0 z-40`} style={{background:'var(--head-bg)'}}>관리</th>
                                 </tr>
                                 {hasMainGroups && (
                                     <tr className="border-b border-slate-800">
                                         {mainVisibleGroups.map((g,gi) => {
                                             if (!g.label) return null;
                                             const isProgress = g.label?.includes('공사진행') || g.label?.includes('공사 진행');
-                                            const subBg = isProgress ? '#eef6fd' : 'rgba(8,51,68,0.35)';
+                                            const subBg = isProgress ? '#eef6fd' : 'var(--head-bg)';
                                             return g.cols.map((h,ci) => (
                                                 <th key={`sub-${gi}-${ci}`}
                                                     className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
@@ -2405,24 +2405,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 ) : sortedRows.map((row,ri) => {
                                     const isSelected    = selectedRowId    === row._id;
                                     const isHlRow       = highlightedRowId === row._id;
-                                    const rowBg = isHlRow ? 'rgba(251,191,36,0.18)' : isSelected ? '#1e1535' : '#0f172a';
+                                    const rowBg = isHlRow ? 'rgba(251,191,36,0.18)' : isSelected ? '#dbeafe' : '#ffffff';
                                     return (
                                     <tr key={row._id}
                                         data-row-id={row._id}
                                         className={`group transition-colors cursor-pointer
                                             ${isHlRow
                                                 ? 'tr-highlighted border-l-[3px] border-l-amber-400'
-                                                : isSelected ? 'bg-violet-950/40 ring-1 ring-inset ring-violet-500/40' : 'hover:bg-white/5'}`}
+                                                : isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-white/5'}`}
                                         style={isHlRow ? { backgroundColor: 'rgba(251,191,36,0.18)' } : {}}
                                         onClick={() => setSelectedRowId(prev => prev === row._id ? null : row._id)}
                                         onDoubleClick={() => { setDetailRow({...row}); setDetailRowOriginal({...row}); }}
                                         onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, row }); }}>
-                                        <td className={`${noTdPx} text-center ${noSz} font-mono border-r border-slate-800/30 sticky left-0 z-10 ${isSelected ? 'text-violet-400 font-bold' : isHlRow ? 'text-amber-600 font-bold' : 'text-slate-600'}`}
+                                        <td className={`${noTdPx} text-center ${noSz} border-r border-slate-800/30 sticky left-0 z-10 ${isSelected ? 'text-blue-700 font-bold' : isHlRow ? 'text-amber-600 font-bold' : 'text-slate-600'}`}
                                             style={{background: rowBg}}>{ri+1}</td>
                                         {mainVisibleHeaders.map(h => {
                                             // 실행번호 — 전용 셀
                                             if (h === EXEC_NO_COL) return (
-                                                <td key={h} className={`${tdPx} text-center font-mono border-r border-cyan-800/30`}
+                                                <td key={h} className={`${tdPx} text-center text-[11px] border-r border-cyan-800/30`}
                                                     style={{background: isHlRow ? 'rgba(251,191,36,0.28)' : row[EXEC_NO_COL] ? '#f0f9ff' : rowBg, color: isHlRow ? '#92400e' : row[EXEC_NO_COL] ? '#1a1a1a' : '#64748b', width: getW(h)||90, minWidth: getW(h)||90}}>
                                                     {row[EXEC_NO_COL] || '—'}
                                                 </td>
@@ -2453,7 +2453,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                     className={`${tdPx} truncate align-middle cursor-text hover:bg-emerald-950/20 transition-colors
                                                         ${isPinH(h)?'border-r-2 border-blue-400/50':'border-r border-slate-800/20'}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
-                                                        ${isDateCol(h)?'text-slate-400 text-[11px] font-mono':'text-slate-300'}
+                                                        ${isDateCol(h)?'text-slate-400 text-[11px]':'text-slate-300 text-[11px]'}
                                                         ${isHl?'bg-amber-950/20 text-amber-200':''}
                                                         ${isFrz(h)?'z-10':''}`}
                                                     style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{}}
@@ -2487,19 +2487,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;
                                                         const c = STATUS_CHIP_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
-                                                        return <span style={{ display:'inline-block', padding:'1px 8px', fontSize:'11px', fontWeight:700, backgroundColor:'rgba(255,255,255,0.88)', color:'#1a1a1a', border:`1px solid ${c.border}` }}>{disp}</span>;
+                                                        const _m = mapLegacyStatus(nv);
+                                                        return (
+                                                            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
+                                                                <span style={{ display:'inline-flex', padding:'1px 8px', fontSize:'11px', fontWeight:700, backgroundColor:c.bg, color:c.text, border:`1px solid ${c.border}`, borderRadius:'5px', whiteSpace:'nowrap' }}>{disp}</span>
+                                                                {(_m.contractStatus || _m.workStatus) ? (
+                                                                    <span style={{ fontSize:11, whiteSpace:'nowrap', lineHeight:1.2 }} title="자동 2단계 — 계약현황 · 작업현황"><span style={{ color:'#fbbf24' }}>{_m.contractStatus || '–'}</span><span style={{ color:'#64748b' }}> · </span><span style={{ color:'#60a5fa' }}>{_m.workStatus || '–'}</span></span>
+                                                                ) : null}
+                                                            </div>
+                                                        );
                                                     })() : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : (val || <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}
-                                        <td className="px-0.5 py-0 text-right sticky right-0 bg-slate-900 group-hover:bg-slate-800 transition-colors shadow-[-4px_0_10px_rgba(0,0,0,0.4)]">
+                                        <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 transition-colors shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
                                             {(() => {
                                                 const wKey = row['실행번호'] || row.execNo || '';
                                                 const hasLink = wKey && weeklyLinks?.[wKey];
                                                 const isActivePanelRow = weeklyPanel?.projectId === wKey;
                                                 const projName = row['공사명'] || row['프로젝트명'] || row['Project'] || '';
                                                 return (
-                                                    <div className="flex items-center justify-end gap-0.5 opacity-40 group-hover:opacity-100">
+                                                    <div className="flex items-center justify-center gap-0.5 opacity-40 group-hover:opacity-100">
                                                         {hasLink ? (
                                                             <>
                                                                 <button

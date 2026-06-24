@@ -277,7 +277,7 @@ const GlobalStyles = () => (
         th[colspan] { background-color: #e9eef4 !important; border-bottom: 2px solid var(--line) !important; text-align: center !important; }
 
         /* ── 그룹 구분선 헤더 셀 ── */
-        th.th-group-sep { border-right: 1px solid var(--line) !important; }
+        th.th-group-sep { border-right: 2px solid #9aa8b8 !important; }
 
         /* ── 우클릭 컨텍스트 메뉴 ── */
         .bg-slate-800.border-slate-600 { background-color: #ffffff !important; border-color: #c0c0c0 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important; }
@@ -4030,7 +4030,7 @@ const TechTeamPMS = () => {
                                   key: col.key,
                                   colSpan: col.colSpan || 1,
                                   rowSpan: col.rowSpan || 1,
-                                  className: `group/th ${compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-gray-200 transition-colors ${alignClass} ${col.color || (isBoldGroup ? '' : 'text-gray-400')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroup ? 'th-bold' : ''} ${col.rightBorder ? 'th-group-sep' : ''}`,
+                                  className: `group/th ${compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1.5' : 'px-2 py-0.5'} relative border-b border-gray-200 transition-colors ${alignClass} ${col.color || (isBoldGroup ? '' : 'text-gray-400')} ${getPreviewColClass(col.flatIdx)} ${draggedClass} ${isBoldGroup ? 'th-bold' : ''}`,
                                   style: isSticky ? { left: getStickyLeft(col.flatIdx) } : {}
                               };
 
@@ -4272,7 +4272,7 @@ const TechTeamPMS = () => {
                                                   content = <span style={over ? {color:'#dc2626',fontWeight:800} : undefined} title={titleParts.join(' / ')}>{txt}</span>;
                                               }
                                               else if (col.key === 'totalCommissioningPoints') content = safeNumber(dp[col.key]).toLocaleString();
-                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; const _m2 = mapLegacyStatus(effSt); content = (<div style={{display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2}}><span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap'}}>{safeRender(effSt) === 'sub' ? '하위' : safeRender(effSt)}</span>{(_m2.contractStatus || _m2.workStatus) ? (<span style={{fontSize:10, whiteSpace:'nowrap', lineHeight:1.2}} title="자동 2단계 — 계약현황 · 작업현황"><span style={{color:'#fbbf24'}}>{_m2.contractStatus || '–'}</span><span style={{color:'#64748b'}}> · </span><span style={{color:'#60a5fa'}}>{_m2.workStatus || '–'}</span></span>) : null}</div>); }
+                                              else if (col.key === 'progressStatus') { const effSt = getEffectiveStatus(dp); const sc = STATUS_COLORS[safeRender(effSt)] || { bg:'rgba(107,114,128,0.10)', text:'#6b7280', border:'rgba(107,114,128,0.3)' }; const _m2 = mapLegacyStatus(effSt); content = (<div style={{display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2}}><span style={{display:'inline-flex', padding:'1px 8px', fontSize:11, fontWeight:700, border:`1px solid ${sc.border}`, backgroundColor:sc.bg, color:sc.text, whiteSpace:'nowrap', borderRadius:5}}>{safeRender(effSt) === 'sub' ? '하위' : safeRender(effSt)}</span>{(_m2.contractStatus || _m2.workStatus) ? (<span style={{fontSize:10, whiteSpace:'nowrap', lineHeight:1.2}} title="자동 2단계 — 계약현황 · 작업현황"><span style={{color:'#fbbf24'}}>{_m2.contractStatus || '–'}</span><span style={{color:'#64748b'}}> · </span><span style={{color:'#60a5fa'}}>{_m2.workStatus || '–'}</span></span>) : null}</div>); }
                                               else content = safeRender(dp[col.key]);
 
                                               if (col.key === 'project') {
@@ -4363,7 +4363,7 @@ const TechTeamPMS = () => {
                                               const alignClass = col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left';
                                               const rowPad = compactMode === 0 ? 'px-4 py-3.5' : compactMode === 1 ? 'px-3 py-1' : 'px-2 py-0.5';
                                               let cellClass = `${rowPad} ${editingInline?.id === rId && editingInline?.field === col.key ? '' : 'truncate'} ${alignClass} ${col.bg || ''} ${getPreviewColClass(cIdx)} group-hover:bg-gray-100 transition-colors`;
-                                              if (col.rightBorder) cellClass += " !border-r !border-r-gray-300";
+                                              if (col.rightBorder) cellClass += " !border-r-2 !border-r-[#9aa8b8]";
                                               if (draggedColKey === col.key) cellClass += " opacity-20 bg-white"; 
                                               if (col.key === 'execNo' && !p.isSub) cellClass += " font-mono font-extrabold text-[#1e7ac8]";
                                               if (col.key === 'estNo') cellClass += " font-mono text-gray-500";
@@ -4505,7 +4505,7 @@ const TechTeamPMS = () => {
       const STATUS_COLORS_GRAPH = {
           '진행':    '#1e7ac8',
           '금월완료':'#059669',
-          '신규':    '#2563eb',
+          '신규':    '#7c3aed',
           '미작업':  '#6b7280',
           '예상':    '#d97706',
       };
@@ -5446,31 +5446,11 @@ const TechTeamPMS = () => {
                                       {card.hasSubMenu && (
                                           <div className="border-t border-gray-100 bg-white">
 
-                                              {/* 1. 월간 업무 보고 */}
-                                              <button onClick={() => {
-                                                  setCurrentTeam(card.id);
-                                                  setCurrentMode('pms');
-                                                  const defaults = teamSettings[card.id] || initialTeamSettings[card.id];
-                                                  const saved = defaults?.defaultActiveStatuses || [];
-                                                  setActiveFilterStatuses(new Set(saved));
-                                                  setActiveFilterFactories(new Set(defaults?.defaultActiveFactories || []));
-                                                  setSearchTerm('');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 border-b border-gray-200/50 transition-colors text-left group/btn">
-                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-blue-50 transition-colors border border-gray-200 group-hover/btn:border-[#1e7ac8]">
-                                                      <FileText size={14} className="text-gray-500 group-hover/btn:text-[#1e7ac8] transition-colors" />
-                                                  </div>
-                                                  <div className="flex-1">
-                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
-                                                      <div className="text-gray-400 text-xs">시운전 실적 및 공정률 월간 현황 관리</div>
-                                                  </div>
-                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-[#1e7ac8] transition-colors" />
-                                              </button>
-
-                                              {/* 2. 프로젝트 List 관리 */}
+                                              {/* 1. 프로젝트 List 관리 */}
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('projectList');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 border-t border-gray-100 hover:bg-emerald-50 transition-colors text-left group/btn">
+                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-emerald-50 border-b border-gray-200/50 transition-colors text-left group/btn">
                                                   <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-emerald-500/20 transition-colors border border-gray-200 group-hover/btn:border-emerald-500/30">
                                                       <ListChecks size={14} className="text-gray-500 group-hover/btn:text-emerald-400 transition-colors" />
                                                   </div>
@@ -5479,6 +5459,26 @@ const TechTeamPMS = () => {
                                                       <div className="text-gray-400 text-xs">팀 전체 프로젝트 목록 엑셀 기반 관리</div>
                                                   </div>
                                                   <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-emerald-400 transition-colors" />
+                                              </button>
+
+                                              {/* 2. 월간 업무 보고 */}
+                                              <button onClick={() => {
+                                                  setCurrentTeam(card.id);
+                                                  setCurrentMode('pms');
+                                                  const defaults = teamSettings[card.id] || initialTeamSettings[card.id];
+                                                  const saved = defaults?.defaultActiveStatuses || [];
+                                                  setActiveFilterStatuses(new Set(saved));
+                                                  setActiveFilterFactories(new Set(defaults?.defaultActiveFactories || []));
+                                                  setSearchTerm('');
+                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 border-t border-gray-100 transition-colors text-left group/btn">
+                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-blue-50 transition-colors border border-gray-200 group-hover/btn:border-[#1e7ac8]">
+                                                      <FileText size={14} className="text-gray-500 group-hover/btn:text-[#1e7ac8] transition-colors" />
+                                                  </div>
+                                                  <div className="flex-1">
+                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
+                                                      <div className="text-gray-400 text-xs">시운전 실적 및 공정률 월간 현황 관리</div>
+                                                  </div>
+                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-[#1e7ac8] transition-colors" />
                                               </button>
 
                                           </div>
@@ -5914,7 +5914,7 @@ const TechTeamPMS = () => {
                                       <button
                                           onClick={handleMonthlySaveClick}
                                           title={hasSaved ? `${m}월 저장됨 — 클릭하면 갱신` : `${m}월 업무현황 저장`}
-                                          className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${hasSaved ? 'bg-amber-500/20 border-amber-500 text-amber-400 hover:bg-amber-500/30' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                                          className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${hasSaved ? 'bg-green-500/20 border-green-600 text-green-700 hover:bg-green-500/30' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'}`}
                                       >
                                           <BookMarked size={14} />
                                           <span style={{ color: '#111827' }}>전체저장</span>
@@ -5928,15 +5928,14 @@ const TechTeamPMS = () => {
                                   <FileSpreadsheet size={14} /> 엑셀생성
                               </button>
 
-                              {/* 프로젝트 List관리 이동 버튼 */}
-                              <button onClick={() => setCurrentMode('projectList')} title="프로젝트 List관리" className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
-                                  <ListChecks size={13} /> List관리
-                              </button>
-
-
                               {/* 도움말 버튼 */}
                               <button onClick={() => setIsHelpOpen(true)} className="flex items-center justify-center gap-1 bg-white hover:bg-blue-50 border border-gray-200 hover:border-[#1e7ac8] px-2 py-1.5 rounded transition-all text-xs font-bold text-gray-500 hover:text-[#1e7ac8] shrink-0" title="도움말">
                                   <HelpCircle size={13} /> 도움말
+                              </button>
+
+                              {/* 프로젝트 List관리 이동 버튼 (설정 바로 앞 — List 화면과 위치 통일) */}
+                              <button onClick={() => setCurrentMode('projectList')} title="프로젝트 List관리" className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                                  <ListChecks size={13} /> List관리
                               </button>
 
                               {/* 설정 드롭다운 — Debug·로컬→DB 포함 */}
@@ -7125,10 +7124,12 @@ const TechTeamPMS = () => {
           const BAR_H = 260;
           const colW  = Math.max(60, Math.round(80 * teamChartZoom));
           const totalW = colW * timeline.length;
-          const yTick  = (v) => Math.round(BAR_H - (v / maxCount) * BAR_H);
-          // Y축 눈금: maxCount에 따라 적절한 간격
-          const step = maxCount <= 5 ? 1 : maxCount <= 10 ? 2 : maxCount <= 20 ? 5 : 10;
-          const yGridLines = Array.from({length: Math.floor(maxCount/step)+1}, (_,i) => i*step);
+          const _rawMax = Math.max(...timeline.map(t => targetStatuses.reduce((a,st)=>a+(t.counts[st]||0),0)), 1);
+          const _u = _rawMax <= 10 ? 2 : _rawMax <= 30 ? 5 : _rawMax <= 60 ? 10 : 20;
+          const maxTotal = Math.ceil(_rawMax / _u) * _u;
+          const yTick  = (v) => Math.round(BAR_H - (v / maxTotal) * BAR_H);
+          const step = _u;
+          const yGridLines = Array.from({length: Math.floor(maxTotal/step)+1}, (_,i) => i*step);
 
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
@@ -7160,7 +7161,7 @@ const TechTeamPMS = () => {
                       <div style={{display:'flex',gap:16,padding:'6px 16px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
                           {targetStatuses.map(s => (
                               <div key={s} style={{display:'flex',alignItems:'center',gap:5}}>
-                                  <div style={{width:28,height:3,background:statusColors[s]}}/>
+                                  <div style={{width:13,height:13,borderRadius:3,background:statusColors[s]}}/>
                                   <span style={{fontSize:11,color:'#444',fontWeight:700}}>{s}</span>
                               </div>
                           ))}
@@ -7198,33 +7199,30 @@ const TechTeamPMS = () => {
                                               strokeWidth={t.showYear && i>0 ? 1.5 : 1}
                                               strokeOpacity={t.showYear && i>0 ? 0.35 : 1}/>
                                       ))}
-                                      {/* 상태별 굵은 꺾은선 */}
-                                      {targetStatuses.map(s => {
-                                          const pts = timeline.map((t,i) => `${i*colW + colW/2},${yTick(t.counts[s]||0)}`).join(' ');
+                                      {/* 월별 누적 막대 (stacked bar) */}
+                                      {timeline.map((t,i) => {
+                                          let acc = 0;
+                                          const total = targetStatuses.reduce((a,st)=>a+(t.counts[st]||0),0);
+                                          const barW = Math.min(colW*0.52, 34);
+                                          const cx = i*colW + colW/2;
+                                          const segs = targetStatuses.map(st => {
+                                              const cnt = t.counts[st]||0;
+                                              const seg = {st, cnt, y: yTick(acc+cnt), h: (cnt/maxTotal)*BAR_H};
+                                              acc += cnt;
+                                              return seg;
+                                          }).filter(d => d.cnt > 0);
                                           return (
-                                              <g key={s}>
-                                                  <polyline points={pts} fill="none" stroke={statusColors[s]} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round"/>
-                                                  {/* 데이터 포인트 도트 */}
-                                                  {timeline.map((t,i) => {
-                                                      const cnt = t.counts[s] || 0;
-                                                      return (
-                                                          <circle key={t.date} cx={i*colW + colW/2} cy={yTick(cnt)}
-                                                              r={cnt > 0 ? 4 : 2.5}
-                                                              fill={cnt > 0 ? statusColors[s] : '#fff'}
-                                                              stroke={statusColors[s]} strokeWidth={2}/>
-                                                      );
+                                              <g key={t.date}>
+                                                  {segs.map((d,di) => {
+                                                      const _x = cx-barW/2;
+                                                      if (di===segs.length-1 && d.h >= 5) {
+                                                          return <path key={d.st} d={`M ${_x},${d.y+4} a 4,4 0 0 1 4,-4 h ${barW-8} a 4,4 0 0 1 4,4 v ${d.h-4} h ${-barW} z`} fill={statusColors[d.st]}/>;
+                                                      }
+                                                      return <rect key={d.st} x={_x} y={d.y} width={barW} height={Math.max(d.h,1)} fill={statusColors[d.st]}/>;
                                                   })}
-                                                  {/* 값 레이블 (0 제외) */}
-                                                  {timeline.map((t,i) => {
-                                                      const cnt = t.counts[s] || 0;
-                                                      if (!cnt) return null;
-                                                      return (
-                                                          <text key={t.date} x={i*colW + colW/2} y={yTick(cnt)-8}
-                                                              textAnchor="middle" fontSize={9} fontWeight="800" fill={statusColors[s]}>
-                                                              {cnt}
-                                                          </text>
-                                                      );
-                                                  })}
+                                                  {total>0 && (
+                                                      <text x={cx} y={yTick(total)-7} textAnchor="middle" fontSize={11} fontWeight="800" fill="var(--txt-strong)">{total}</text>
+                                                  )}
                                               </g>
                                           );
                                       })}
@@ -7293,7 +7291,9 @@ const TechTeamPMS = () => {
           const BAR_H = 260;
           const colW  = Math.max(56, Math.round(80 * chartZoom));
           const totalW = colW * timeline.length;
-          const maxY = totalPoints > 0 ? totalPoints : Math.max(...timeline.map(t => t.accPt), 10);
+          const _dataMax = Math.max(...timeline.map(t => t.accPt), 10);
+          const _unit = _dataMax <= 250 ? 50 : _dataMax <= 1000 ? 200 : _dataMax <= 5000 ? 1000 : 2000;
+          const maxY = Math.ceil(_dataMax * 1.1 / _unit) * _unit;
 
           const yTick = (v) => Math.round(BAR_H - (v / maxY) * BAR_H);
 
@@ -7356,20 +7356,28 @@ const TechTeamPMS = () => {
                       {/* 범례 */}
                       <div style={{display:'flex',gap:16,padding:'5px 16px',background:'#fafbfc',borderBottom:'1px solid #eaecef',flexShrink:0,flexWrap:'wrap'}}>
                           {[
-                              {c:'var(--brand)',l:'금월 실적 (포인트)'},
-                              {c:'rgba(30,122,200,0.18)',l:'누적 포인트 (선)'},
-                              {c:'#059669',l:'공정률 (%)'},
-                              {c:'#f0f6ff',l:'작업기간'},
-                          ].map(({c,l}) => (
+                              {c:'var(--brand)',l:'금월 실적 (포인트)',t:'bar'},
+                              {c:'rgba(30,122,200,0.7)',l:'누적 포인트 (점선)',t:'dashed'},
+                              {c:'#059669',l:'공정률 (%)',t:'line'},
+                          ].map(({c,l,t}) => (
                               <div key={l} style={{display:'flex',alignItems:'center',gap:5}}>
-                                  <div style={{width:12,height:12,background:c,border:`1px solid ${c}`}}/>
+                                  {t==='bar'
+                                      ? <div style={{width:12,height:12,background:c,borderRadius:2}}/>
+                                      : <div style={{width:16,borderTop:`2px ${t==='dashed'?'dashed':'solid'} ${c}`}}/>}
                                   <span style={{fontSize:11,color:'#666',fontWeight:600}}>{l}</span>
                               </div>
                           ))}
                       </div>
 
                       {/* 차트 영역 — 가로 스크롤 (날짜 범위가 길면 스크롤바 자동 표시) */}
-                      <div style={{flex:1,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+                      <div style={{flex:1,minHeight:0,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
+                          {totalAcc === 0 && progressPercent === 0 && (
+                              <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:5,pointerEvents:'none',gap:10}}>
+                                  <BarChart3 size={44} style={{color:'#cbd5e1'}}/>
+                                  <div style={{fontSize:15,fontWeight:800,color:'#94a3b8'}}>아직 등록된 실적이 없습니다</div>
+                                  <div style={{fontSize:12,color:'#cbd5e1'}}>진행실적을 등록하면 막대 그래프가 표시됩니다</div>
+                              </div>
+                          )}
                           {/* 스크롤 가능한 차트 본체 */}
                           <div style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',padding:'16px 0 0'}} className="custom-scrollbar">
                               <div style={{display:'flex',paddingLeft:16,paddingRight:16,minWidth:totalW+96}}>
@@ -7398,7 +7406,7 @@ const TechTeamPMS = () => {
                                           {timeline.length > 1 && (
                                               <polyline
                                                   points={timeline.map((t,i) => `${i*colW + colW/2},${yTick(Math.min(t.accPt,maxY))}`).join(' ')}
-                                                  fill="none" stroke="rgba(30,122,200,0.55)" strokeWidth={2} strokeDasharray="5,2"
+                                                  fill="none" stroke="rgba(30,122,200,0.7)" strokeWidth={2} strokeDasharray="5,2"
                                               />
                                           )}
                                           {timeline.length > 1 && (
@@ -7415,11 +7423,11 @@ const TechTeamPMS = () => {
                                               const barH = maxY > 0 ? Math.round((t.monthPt / maxY) * BAR_H) : 0;
                                               const isOver = totalPoints > 0 && t.accPt > totalPoints;
                                               return (
-                                                  <div key={t.date} style={{width:colW,flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:BAR_H+36,position:'relative',background:'#f0f6ff',borderRight:'1px solid var(--line)'}}>
+                                                  <div key={t.date} style={{width:colW,flexShrink:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:BAR_H+36,position:'relative',background:'transparent',borderRight:'none'}}>
                                                       {t.monthPt > 0 && (
                                                           <div style={{position:'absolute',bottom:barH+38,fontSize:10,fontWeight:800,color:isOver?'#dc2626':'var(--brand)',whiteSpace:'nowrap'}}>{t.monthPt}</div>
                                                       )}
-                                                      <div style={{width:Math.max(colW-12,8),height:Math.max(barH,t.monthPt>0?2:0),background:isOver?'rgba(220,38,38,0.7)':'rgba(30,122,200,0.75)',border:t.monthPt>0?`1px solid ${isOver?'#dc2626':'var(--brand)'}`:'none',position:'relative',marginBottom:34}}>
+                                                      <div style={{width:Math.max(colW-16,6),height:Math.max(barH,t.monthPt>0?2:0),background:isOver?'linear-gradient(180deg,#fb7185,#dc2626)':'linear-gradient(180deg,#5ba3e0,#1e7ac8)',borderRadius:'5px 5px 0 0',boxShadow:t.monthPt>0?(isOver?'0 2px 6px rgba(220,38,38,0.28)':'0 2px 6px rgba(30,122,200,0.28)'):'none',position:'relative',marginBottom:34}}>
                                                           {t.progressPct > 0 && (
                                                               <div style={{position:'absolute',bottom:Math.round((t.progressPct/100)*BAR_H)-barH-4,left:'50%',transform:'translateX(-50%)',width:7,height:7,borderRadius:'50%',background:'#059669',border:'2px solid #fff',boxShadow:'0 0 3px rgba(5,150,105,0.6)'}}/>
                                                           )}
