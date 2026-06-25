@@ -66,3 +66,6 @@ export const isCheckCol = (h) => { const s = String(h).replace(/\s/g, ''); retur
 export const isProgressContentCol = (h) => String(h ?? '').replace(/\s/g, '').includes('내용');
 // 공사진행 '날짜' 칸 = '날짜' 글자 포함. '공사계약'·'공사완료'에는 '날짜' 글자가 없어 자동 제외(그 둘은 안 건드림).
 export const isProgressDateCol = (h) => String(h ?? '').replace(/\s/g, '').includes('날짜');
+
+// ⑦ 표 기본 숨김 대상 — ④ 안전·관리 8개(전부 빈칸): 안전관리비·견적코드·자재·기안·서브원. 필요시 설정 '열 표시/숨기기'에서 켜기.
+export const isDefaultHiddenCol = (h) => { const s = String(h ?? '').replace(/\s/g, ''); return ['안전', '견적코드', '자재', '기안', '서브원', '관리자'].some(k => s.includes(k)); };

@@ -149,6 +149,9 @@ export function parseExcelHeaders(raw, addLog) {
         else if (!gv && cv) {                  colDefs.push({ idx: i, name: cv, groupLabel: curGroup }); }
     }
 
+    // 헤더 이름 정규화 — 엑셀 셀의 줄바꿈·중복 공백을 단일 공백으로 (예: "공사[줄바꿈]계약" → "공사 계약")
+    colDefs.forEach(cd => { cd.name = String(cd.name).replace(/\s+/g, ' ').trim(); });
+
     // ③ 중복 헤더 자동 구분 — 엑셀에 '발주처'가 2개라, 그대로 두면 데이터를 obj[name]으로 담을 때 한쪽이 덮어써짐.
     //    두 번째 등장부터 이름 분리: 발주처 → '발주처 담당자', 그 외 중복은 '이름 (2)' 식.
     const _seenName = {};

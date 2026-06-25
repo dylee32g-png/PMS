@@ -13,7 +13,7 @@ import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isDefaultHiddenCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -139,6 +139,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const activeColGroups = pendingData?.colGroups  || localData?.colGroups  || fbColGroups;
     const activeRows      = pendingData?.rows       || localData?.rows       || fbRows;
     const dataSource      = pendingData ? 'pending' : localData ? 'local' : 'firebase';
+
+    // ⑦ 안전·관리 칸 기본 숨김 — 데이터 첫 로드 시 1회 적용 (사용자가 설정에서 켜면 그 선택 존중)
+    const _defaultHideApplied = useRef(false);
+    useEffect(() => {
+        if (!_defaultHideApplied.current && activeHeaders.length) {
+            _defaultHideApplied.current = true;
+            setHiddenCols(prev => {
+                const n = new Set(prev);
+                activeHeaders.forEach(h => { if (isDefaultHiddenCol(h)) n.add(h); });
+                return n;
+            });
+        }
+    }, [activeHeaders]);
 
 
     // ── 외부(업무현황)에서 이동 시 실행번호 행 하이라이트 ────────────────
@@ -506,18 +519,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     // ── 상세 화면 저장 ─────────────────────────────────────────────────────
     const saveDetailRow = async () => {
         if (!detailRow) return;
-        // ② 내용↔날짜 연동: 상세팝업에서 '내용'이 실제로 바뀌었으면 '날짜'를 오늘로 갱신한 뒤 저장
-        let working = detailRow;
+        // ⑨ 동시수정 보완 + ② 내용↔날짜:
+        //   팝업이 열린 사이 표(인라인)에서 같은 행을 고쳤을 수 있으니, '현재 최신 원본(latest)'에
+        //   '팝업에서 실제로 바뀐 칸'만 덮어쓴다(표 편집 보존). 그 위에 내용↔날짜 연동을 적용.
+        const latest = activeRows.find(r => r._id === detailRow._id) || detailRowOriginal || detailRow;
+        const popupChanges = {};
+        activeHeaders.forEach(h => {
+            if (String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? '')) popupChanges[h] = detailRow[h];
+        });
+        let working = { ...latest, ...popupChanges };
         const contentChanged = activeHeaders.some(h =>
             isProgressContentCol(h) && String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? ''));
         if (contentChanged) {
             const today = new Date().toISOString().slice(0, 10);
-            const patch = {};
-            activeHeaders.forEach(h => { if (isProgressDateCol(h)) patch[h] = today; });
-            if (Object.keys(patch).length) working = { ...detailRow, ...patch };
+            activeHeaders.forEach(h => { if (isProgressDateCol(h)) working[h] = today; });
         }
-        const entry = buildChangeEntry(detailRowOriginal, working);
-        const prevHist = Array.isArray(working._changeHistory) ? working._changeHistory : [];
+        const entry = buildChangeEntry(latest, working);
+        const prevHist = Array.isArray(latest._changeHistory) ? latest._changeHistory : [];
         const updatedRow = entry ? { ...working, _changeHistory: [...prevHist, entry] } : working;
         if (dataSource !== 'firebase') {
             const updater = rows => rows.map(r => r._id === updatedRow._id ? { ...updatedRow } : r);
@@ -890,13 +908,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
     // ── 메인 테이블 열 (키워드 매칭 + 공사진행 그룹) ─────────────────────
     const isMainTableCol = (h) => {
-        // ③ 관리자·발주처 담당자는 상세팝업에서만 (메인표 기본 제외; 표현 토글은 ⑦에서)
+        // ③⑦ 발주처 담당자는 상세팝업 전용. 관리자·안전은 후보로 두되 기본 숨김(설정 '열 표시/숨기기'에서 켜기 가능).
         const _s = String(h).replace(/\s/g, '');
-        if (_s.includes('관리자')) return false;
         if (_s.includes('발주처') && _s.includes('담당')) return false;
-        return MAIN_COL_KEYWORDS.some(k => h.includes(k)) ||
+        return MAIN_COL_KEYWORDS.some(k => _s.includes(k.replace(/\s/g, ''))) ||
         isStatusCol(h) ||
         isAssigneeCol(h) ||
+        isDefaultHiddenCol(h) ||
         activeColGroups.some(g =>
             (g.label?.includes('공사진행') || g.label?.includes('공사 진행')) && g.cols.includes(h)
         );
