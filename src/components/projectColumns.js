@@ -54,3 +54,6 @@ export const ASSIGNEE_NORMALIZE = {
 };
 export const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] || String(v||'');
 export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim();
+
+// 진행현황 표기 통일 (HOLD → Hold). 표시·필터에서 대소문자 통일용 (데이터는 안 바꿈)
+export const normalizeStatus = v => String(v ?? '').toUpperCase() === 'HOLD' ? 'Hold' : String(v ?? '');

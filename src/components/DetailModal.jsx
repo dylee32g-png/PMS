@@ -1,12 +1,12 @@
 import React from 'react';
 import { LayoutList, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업
 // ProjectListScreen.jsx에서 분리 (2026-06-25, 코드 분리 3조각 = 상세팝업)
 // 저장 로직(saveDetailRow)은 부모에 그대로 두고 onSave 로 받음. 이 파일은 화면만 그림.
-// props: detailRow · setDetailRow · onSave · mainVisibleHeaders · activeHeaders · activeColGroups
+// ⑧ Hold/HOLD 표기 통일: 상태 표시에 normalizeStatus 적용 (표시만, 데이터 불변)
 // ─────────────────────────────────────────────────────────────────────────
 export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups }) {
     if (!detailRow) return null;
@@ -45,11 +45,12 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                             {mainVisibleHeaders.filter(h => detailRow[h]).map(h => {
                                 const val = detailRow[h];
                                 if (isStatusCol(h)) {
-                                    const c = STATUS_CHIP_COLORS[val] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
+                                    const sv = normalizeStatus(val);
+                                    const c = STATUS_CHIP_COLORS[sv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
                                     return (
                                         <span key={h} style={{ fontSize:'11px' }}>
                                             <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
-                                            <span style={{ display:'inline-block', padding:'0 7px', fontSize:'11px', fontWeight:700, backgroundColor:c.bg, color:c.text, border:`1px solid ${c.border}` }}>{val}</span>
+                                            <span style={{ display:'inline-block', padding:'0 7px', fontSize:'11px', fontWeight:700, backgroundColor:c.bg, color:c.text, border:`1px solid ${c.border}` }}>{sv}</span>
                                         </span>
                                     );
                                 }
@@ -81,7 +82,7 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                             </div>
                                             <div style={{ flex:1, padding:'2px 0', display:'flex', alignItems:'stretch' }}>
                                                 {isStatus ? (
-                                                    <select value={val}
+                                                    <select value={normalizeStatus(val)}
                                                         onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
                                                         style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
                                                         <option value="">—</option>
