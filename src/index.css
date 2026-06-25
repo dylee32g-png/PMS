@@ -388,3 +388,15 @@ tbody td:first-child {
   --fs-subtitle: 14px;
   --fs-body:     12px;
 }
+
+
+/* ============================================================
+   달력 스타일 월 선택기 (프로젝트 List 헤더)
+   브라우저 기본 달력 아이콘을 투명하게 박스 전체로 덮어,
+   박스 어디를 눌러도 달력이 뜨고 파란 아이콘만 보이게 한다.
+   ============================================================ */
+.cal-month { position: relative; }
+.cal-month input[type="month"]::-webkit-calendar-picker-indicator {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; opacity: 0; cursor: pointer;
+}

@@ -1,0 +1,56 @@
+// ─────────────────────────────────────────────────────────────────────────
+// 프로젝트 List — 컬럼(표의 세로줄) 판별·표시 규칙 모음
+// ProjectListScreen.jsx에서 분리 (2026-06-25, 코드 분리 1조각 = 컬럼 정의)
+// 전부 순수 상수·함수라 화면 동작에는 영향 없음. 컬럼 규칙을 한곳에서 관리.
+// ─────────────────────────────────────────────────────────────────────────
+
+// ─── 필터/날짜 열 판별 ────────────────────────────────────────────────────
+export const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당자', '담당자', '발주처'];
+export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
+export const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
+export const isDateCol     = (h) => ['날짜', '일자', 'Date', '일시'].some(k => h.includes(k));
+export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
+export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
+export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체');
+export const isClientCol    = (h) => h.includes('발주처');
+export const isVendorAssCol = (h) => h.includes('업체') && h.includes('담당자');
+export const toDateInputVal = v => {
+    const s = String(v||'').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    const m = s.match(/^(\d{4})[.\/ ](\d{1,2})[.\/ ](\d{1,2})/);
+    return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : '';
+};
+
+// ─── 메인 테이블 표시 열 키워드 ──────────────────────────────────────────
+// (이 키워드를 포함하는 열만 메인 테이블에 표시; 나머지는 우클릭 → 상세 화면)
+export const MAIN_COL_KEYWORDS = ['번호', '발주처', 'Project', '프로젝트', '공사계약', '공사완료', '공사 계약', '공사 완료', '진행현황', '담당자', '참조'];
+
+// ─── 진행현황 상태 색상 ──────────────────────────────────────────────────
+export const STATUS_CHIP_COLORS = {
+    '진행중':  { bg:'rgba(30,122,200,0.12)',   text:'#1358a0', border:'rgba(30,122,200,0.45)',  activeBg:'#1e7ac8', activeText:'#fff' },
+    '진행':    { bg:'rgba(30,122,200,0.12)',   text:'#1358a0', border:'rgba(30,122,200,0.45)',  activeBg:'#1e7ac8', activeText:'#fff' },
+    '추진중':  { bg:'rgba(217,119,6,0.12)',    text:'#92400e', border:'rgba(217,119,6,0.45)',   activeBg:'#d97706', activeText:'#fff' },
+    '완료':    { bg:'rgba(5,150,105,0.18)',    text:'#047857', border:'rgba(5,150,105,0.55)',   activeBg:'#047857', activeText:'#fff' },
+    '취소':    { bg:'rgba(220,38,38,0.12)',    text:'#991b1b', border:'rgba(220,38,38,0.45)',   activeBg:'#dc2626', activeText:'#fff' },
+    '삭제':    { bg:'rgba(127,29,29,0.12)',    text:'#7f1d1d', border:'rgba(127,29,29,0.45)',   activeBg:'#7f1d1d', activeText:'#fff' },
+    'Hold':    { bg:'rgba(245,158,11,0.12)',   text:'#92400e', border:'rgba(245,158,11,0.5)',   activeBg:'#f59e0b', activeText:'#fff' },
+    '이전':    { bg:'rgba(107,114,128,0.12)', text:'#374151', border:'rgba(107,114,128,0.4)',  activeBg:'#6b7280', activeText:'#fff' },
+    '금월완료': { bg:'rgba(5,150,105,0.12)',   text:'#065f46', border:'rgba(5,150,105,0.45)',   activeBg:'#059669', activeText:'#fff' },
+    '보고완료': { bg:'rgba(79,70,229,0.12)',   text:'#3730a3', border:'rgba(79,70,229,0.45)',   activeBg:'#4f46e5', activeText:'#fff' },
+    '미작업':  { bg:'rgba(107,114,128,0.12)', text:'#374151', border:'rgba(107,114,128,0.4)',  activeBg:'#6b7280', activeText:'#fff' },
+    '예상':    { bg:'rgba(217,119,6,0.12)',    text:'#92400e', border:'rgba(217,119,6,0.45)',   activeBg:'#d97706', activeText:'#fff' },
+    '신규':    { bg:'rgba(37,99,235,0.12)',    text:'#1e40af', border:'rgba(37,99,235,0.45)',   activeBg:'#2563eb', activeText:'#fff' },
+    'sub':     { bg:'rgba(139,92,246,0.12)',   text:'#5b21b6', border:'rgba(139,92,246,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
+    '검토중':  { bg:'rgba(124,58,237,0.12)',   text:'#5b21b6', border:'rgba(124,58,237,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
+};
+export const DEFAULT_STATUS_OPTIONS = ['진행중','추진중','완료','취소','삭제','Hold','이전'];
+
+// ─── 담당자 목록 & 이름 정규화 ───────────────────────────────────────────
+export const ASSIGNEE_LIST = ['최영환DD','김준혁TL','조장현TL','신정환C','김종석C','장명휘C','김윤재C','김수민C'];
+export const ASSIGNEE_NORMALIZE = {
+    '신장환CK':'신정환C','신정환CK':'신정환C',
+    '김종석K':'김종석C','장명휘D':'장명휘C',
+    '김수민K':'김수민C','김윤재CJ':'김윤재C',
+};
+export const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] || String(v||'');
+export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim();

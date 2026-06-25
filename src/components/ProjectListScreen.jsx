@@ -4,7 +4,7 @@ import {
     AlertTriangle, ListChecks, Search,
     FileSpreadsheet, TerminalSquare, Eye,
     Edit2, Save, ChevronUp, ChevronDown, Check,
-    Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify,
+    Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
     PanelRight, Link, Link2Off
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeB
 import ProgressModal from './ProgressModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName } from './projectColumns';
 
 const VERSION = 'v6.8.7';
 
@@ -78,56 +79,7 @@ async function idbDelete(teamId) {
     });
 }
 
-// ─── 필터/날짜 열 판별 ────────────────────────────────────────────────────
-const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당자', '담당자', '발주처'];
-const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
-const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
-const isDateCol     = (h) => ['날짜', '일자', 'Date', '일시'].some(k => h.includes(k));
-const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
-const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
-const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체');
-const isClientCol    = (h) => h.includes('발주처');
-const isVendorAssCol = (h) => h.includes('업체') && h.includes('담당자');
-const toDateInputVal = v => {
-    const s = String(v||'').trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
-    const m = s.match(/^(\d{4})[.\/ ](\d{1,2})[.\/ ](\d{1,2})/);
-    return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : '';
-};
-
-// ─── 메인 테이블 표시 열 키워드 ──────────────────────────────────────────
-// (이 키워드를 포함하는 열만 메인 테이블에 표시; 나머지는 우클릭 → 상세 화면)
-const MAIN_COL_KEYWORDS = ['번호', '발주처', 'Project', '프로젝트', '공사계약', '공사완료', '공사 계약', '공사 완료', '진행현황', '담당자', '참조'];
-
-// ─── 진행현황 상태 색상 ──────────────────────────────────────────────────
-const STATUS_CHIP_COLORS = {
-    '진행중':  { bg:'rgba(30,122,200,0.12)',   text:'#1358a0', border:'rgba(30,122,200,0.45)',  activeBg:'#1e7ac8', activeText:'#fff' },
-    '진행':    { bg:'rgba(30,122,200,0.12)',   text:'#1358a0', border:'rgba(30,122,200,0.45)',  activeBg:'#1e7ac8', activeText:'#fff' },
-    '추진중':  { bg:'rgba(217,119,6,0.12)',    text:'#92400e', border:'rgba(217,119,6,0.45)',   activeBg:'#d97706', activeText:'#fff' },
-    '완료':    { bg:'rgba(5,150,105,0.18)',    text:'#047857', border:'rgba(5,150,105,0.55)',   activeBg:'#047857', activeText:'#fff' },
-    '취소':    { bg:'rgba(220,38,38,0.12)',    text:'#991b1b', border:'rgba(220,38,38,0.45)',   activeBg:'#dc2626', activeText:'#fff' },
-    '삭제':    { bg:'rgba(127,29,29,0.12)',    text:'#7f1d1d', border:'rgba(127,29,29,0.45)',   activeBg:'#7f1d1d', activeText:'#fff' },
-    'Hold':    { bg:'rgba(245,158,11,0.12)',   text:'#92400e', border:'rgba(245,158,11,0.5)',   activeBg:'#f59e0b', activeText:'#fff' },
-    '이전':    { bg:'rgba(107,114,128,0.12)', text:'#374151', border:'rgba(107,114,128,0.4)',  activeBg:'#6b7280', activeText:'#fff' },
-    '금월완료': { bg:'rgba(5,150,105,0.12)',   text:'#065f46', border:'rgba(5,150,105,0.45)',   activeBg:'#059669', activeText:'#fff' },
-    '보고완료': { bg:'rgba(79,70,229,0.12)',   text:'#3730a3', border:'rgba(79,70,229,0.45)',   activeBg:'#4f46e5', activeText:'#fff' },
-    '미작업':  { bg:'rgba(107,114,128,0.12)', text:'#374151', border:'rgba(107,114,128,0.4)',  activeBg:'#6b7280', activeText:'#fff' },
-    '예상':    { bg:'rgba(217,119,6,0.12)',    text:'#92400e', border:'rgba(217,119,6,0.45)',   activeBg:'#d97706', activeText:'#fff' },
-    '신규':    { bg:'rgba(37,99,235,0.12)',    text:'#1e40af', border:'rgba(37,99,235,0.45)',   activeBg:'#2563eb', activeText:'#fff' },
-    'sub':     { bg:'rgba(139,92,246,0.12)',   text:'#5b21b6', border:'rgba(139,92,246,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
-    '검토중':  { bg:'rgba(124,58,237,0.12)',   text:'#5b21b6', border:'rgba(124,58,237,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
-};
-const DEFAULT_STATUS_OPTIONS = ['진행중','추진중','완료','취소','삭제','Hold','이전'];
-
-// ─── 담당자 목록 & 이름 정규화 ───────────────────────────────────────────
-const ASSIGNEE_LIST = ['최영환DD','김준혁TL','조장현TL','신정환C','김종석C','장명휘C','김윤재C','김수민C'];
-const ASSIGNEE_NORMALIZE = {
-    '신장환CK':'신정환C','신정환CK':'신정환C',
-    '김종석K':'김종석C','장명휘D':'장명휘C',
-    '김수민K':'김수민C','김윤재CJ':'김윤재C',
-};
-const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] || String(v||'');
-const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim();
+// 컬럼 판별·표시 규칙은 ./projectColumns.js 로 분리 (2026-06-25 코드분리 1조각)
 
 // ─── A-4c: 보존 병합 '미리보기(드라이런)' — Firebase 쓰기 없음, 매칭 결과만 계산 ───
 // 매칭 1순위 (연도+번호) → 2순위 (연도+Project명 정규화). 목적 = 기존 _pid·실행번호·이력 보존.
@@ -273,6 +225,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const [logs, setLogs]                   = useState([]);
     const [showDebug, setShowDebug]         = useState(false);
     const [selectedYear, setSelectedYear]   = useState(String(new Date().getFullYear()));
+    // ── 월별 보기 (월간보고식 월 선택기 + 그달만/이전전체 토글) — 1단계: UI 뼈대 ──
+    const [viewMonth, setViewMonth] = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
+    const [monthMode, setMonthMode] = useState('single'); // 'single'=그 달만 | 'cumul'=이전 전체
+
+    // 연도 자동전환(엑셀 업로드 등)으로 selectedYear가 바뀌면 월 선택기 연도도 맞춘다
+    useEffect(() => {
+        setViewMonth(vm => { const y = vm.slice(0, 4); return (selectedYear && y !== selectedYear) ? selectedYear + '-' + vm.slice(5) : vm; });
+    }, [selectedYear]);
     const [frozenUpTo, setFrozenUpTo]       = useState(null); // 고정 열 — 이 열까지 sticky
 
     const fileInputRef = useRef(null);
@@ -1050,9 +1013,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
 
     const visibleHeaders    = activeHeaders.filter(h => !hiddenCols.has(h));
-    const activeFilterCount = Object.values(columnFilters).filter(v => v instanceof Set ? v.size > 0 : !!v).length
-                           + (activeStatusChips.size > 0 ? 1 : 0)
-                           + (activeAssignees.size > 0 ? 1 : 0);
+    const activeFilterCount = Object.values(columnFilters).reduce((acc, v) => acc + (v instanceof Set ? v.size : (v ? 1 : 0)), 0)
+                           + activeStatusChips.size
+                           + activeAssignees.size;
 
     const visibleGroups = useMemo(() =>
         activeColGroups.map(g => ({ ...g, cols: g.cols.filter(c => !hiddenCols.has(c)) })).filter(g => g.cols.length > 0),
@@ -2013,13 +1976,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
                             {currentTeam} 프로젝트 List
                         </h1>
-                        {availableYears.length > 0 && (
-                            <select value={selectedYear}
-                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); }}
-                                className="bg-slate-800 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold px-2 py-1 outline-none cursor-pointer hover:border-emerald-400 transition-all">
-                                {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
-                            </select>
-                        )}
+                        {/* 월별 보기 — 월간보고 기준월과 동일 형식 (연도 드롭다운 대체) */}
+                        <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0">
+                            <Calendar size={11} className="text-[#1e7ac8] mr-1" />
+                            <span className="text-[11px] font-bold text-gray-500 mr-1">기준월:</span>
+                            <input
+                                type="month"
+                                value={viewMonth}
+                                onChange={e => { const v = e.target.value; setViewMonth(v); const y = v.slice(0, 4); if (y && y !== selectedYear) { setSelectedYear(y); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); } }}
+                                className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer"
+                            />
+                        </div>
+                        <div className="flex items-center rounded-md overflow-hidden border border-[#1e7ac8]/40 text-[11px] font-bold shrink-0">
+                            <button onClick={() => setMonthMode('single')}
+                                className={`px-2 py-1 transition-all ${monthMode === 'single' ? 'bg-[#1e7ac8] text-white' : 'text-[#1e7ac8] hover:bg-[#1e7ac8]/10'}`}>
+                                그 달만
+                            </button>
+                            <button onClick={() => setMonthMode('cumul')}
+                                className={`px-2 py-1 transition-all border-l border-[#1e7ac8]/40 ${monthMode === 'cumul' ? 'bg-[#1e7ac8] text-white' : 'text-[#1e7ac8] hover:bg-[#1e7ac8]/10'}`}>
+                                이전 전체
+                            </button>
+                        </div>
                         <span className="text-[11px] text-slate-500 whitespace-nowrap">
                             <span className="text-emerald-400 font-bold">{sortedRows.length}</span>
                             <span className="text-slate-600">/{yearFilteredRows.length}행</span>
