@@ -13,7 +13,7 @@ import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -402,11 +402,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const commitCellEdit = async () => {
         if (!editingCell.id || !editingCell.key) return;
         const srcRow = activeRows.find(r => r._id === editingCell.id);
-        const entry  = makeChangeEntry(srcRow, editingCell.key, editingCell.value);
+        // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
+        const patch = { [editingCell.key]: editingCell.value };
+        const contentChanged = isProgressContentCol(editingCell.key)
+            && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
+        if (contentChanged) {
+            const today = new Date().toISOString().slice(0, 10);
+            activeHeaders.forEach(h => { if (isProgressDateCol(h)) patch[h] = today; });
+        }
+        // 변경 이력: 실제로 바뀐 필드(내용, 그리고 따라 바뀐 날짜)를 함께 기록
+        const changes = Object.keys(patch)
+            .map(k => ({ field: k, from: String(srcRow?.[k] ?? ''), to: String(patch[k] ?? '') }))
+            .filter(c => c.from !== c.to);
+        const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
         if (dataSource !== 'firebase') {
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
-                return { ...r, [editingCell.key]: editingCell.value, _changeHistory: pushChangeHist(r, entry) };
+                return { ...r, ...patch, _changeHistory: pushChangeHist(r, entry) };
             });
             if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
             if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
@@ -419,7 +431,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         try {
             await setDoc(rowDocRef(currentTeam, _id), {
                 ...rest,
-                [editingCell.key]: editingCell.value,
+                ...patch,
                 _changeHistory: pushChangeHist(row, entry)
             });
         }
@@ -494,9 +506,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     // ── 상세 화면 저장 ─────────────────────────────────────────────────────
     const saveDetailRow = async () => {
         if (!detailRow) return;
-        const entry = buildChangeEntry(detailRowOriginal, detailRow);
-        const prevHist = Array.isArray(detailRow._changeHistory) ? detailRow._changeHistory : [];
-        const updatedRow = entry ? { ...detailRow, _changeHistory: [...prevHist, entry] } : detailRow;
+        // ② 내용↔날짜 연동: 상세팝업에서 '내용'이 실제로 바뀌었으면 '날짜'를 오늘로 갱신한 뒤 저장
+        let working = detailRow;
+        const contentChanged = activeHeaders.some(h =>
+            isProgressContentCol(h) && String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? ''));
+        if (contentChanged) {
+            const today = new Date().toISOString().slice(0, 10);
+            const patch = {};
+            activeHeaders.forEach(h => { if (isProgressDateCol(h)) patch[h] = today; });
+            if (Object.keys(patch).length) working = { ...detailRow, ...patch };
+        }
+        const entry = buildChangeEntry(detailRowOriginal, working);
+        const prevHist = Array.isArray(working._changeHistory) ? working._changeHistory : [];
+        const updatedRow = entry ? { ...working, _changeHistory: [...prevHist, entry] } : working;
         if (dataSource !== 'firebase') {
             const updater = rows => rows.map(r => r._id === updatedRow._id ? { ...updatedRow } : r);
             if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));

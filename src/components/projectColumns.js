@@ -8,7 +8,7 @@
 export const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당자', '담당자', '발주처'];
 export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
 export const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
-export const isDateCol     = (h) => ['날짜', '일자', 'Date', '일시'].some(k => h.includes(k));
+export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료'].some(k => s.includes(k)); };
 export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
 export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
 export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체');
@@ -59,4 +59,10 @@ export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim(
 export const normalizeStatus = v => String(v ?? '').toUpperCase() === 'HOLD' ? 'Hold' : String(v ?? '');
 
 // O 체크 칸 판별 (영업견적·공사계획서·리포트·완료처리) — 클릭 토글 대상. ④안전 쪽 '제출'은 제외
-export const isCheckCol = (h) => ['영업견적', '공사계획서', '리포트', '완료처리'].some(k => h.includes(k));
+export const isCheckCol = (h) => { const s = String(h).replace(/\s/g, ''); return ['영업견적', '공사계획서', '리포트', '완료처리'].some(k => s.includes(k)); };
+
+// ② 공사진행 '내용' ↔ '날짜' 자동 연동 (기준문서 ②)
+// 내용 칸 = 진행 상황 설명. 이 칸을 '실제로' 바꾸면 같은 줄 '날짜'를 오늘로 자동 갱신하는 트리거.
+export const isProgressContentCol = (h) => String(h ?? '').replace(/\s/g, '').includes('내용');
+// 공사진행 '날짜' 칸 = '날짜' 글자 포함. '공사계약'·'공사완료'에는 '날짜' 글자가 없어 자동 제외(그 둘은 안 건드림).
+export const isProgressDateCol = (h) => String(h ?? '').replace(/\s/g, '').includes('날짜');
