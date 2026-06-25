@@ -889,13 +889,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     [activeColGroups, hiddenCols]);
 
     // ── 메인 테이블 열 (키워드 매칭 + 공사진행 그룹) ─────────────────────
-    const isMainTableCol = (h) =>
-        MAIN_COL_KEYWORDS.some(k => h.includes(k)) ||
+    const isMainTableCol = (h) => {
+        // ③ 관리자·발주처 담당자는 상세팝업에서만 (메인표 기본 제외; 표현 토글은 ⑦에서)
+        const _s = String(h).replace(/\s/g, '');
+        if (_s.includes('관리자')) return false;
+        if (_s.includes('발주처') && _s.includes('담당')) return false;
+        return MAIN_COL_KEYWORDS.some(k => h.includes(k)) ||
         isStatusCol(h) ||
         isAssigneeCol(h) ||
         activeColGroups.some(g =>
             (g.label?.includes('공사진행') || g.label?.includes('공사 진행')) && g.cols.includes(h)
         );
+    };
 
     const allMainCols = useMemo(() =>
         activeHeaders.filter(h => isMainTableCol(h)),

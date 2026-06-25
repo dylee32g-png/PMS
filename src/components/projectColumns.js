@@ -11,8 +11,8 @@ export const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
 export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료'].some(k => s.includes(k)); };
 export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
 export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
-export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체');
-export const isClientCol    = (h) => h.includes('발주처');
+export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체') && !h.includes('발주처'); // ③ '발주처 담당자'는 내부 작업자 아님 → 담당자 드롭다운 제외
+export const isClientCol    = (h) => h.includes('발주처') && !h.includes('담당'); // ③ 회사 '발주처'만 드롭다운; '발주처 담당자' 제외
 export const isVendorAssCol = (h) => h.includes('업체') && h.includes('담당자');
 export const toDateInputVal = v => {
     const s = String(v||'').trim();
