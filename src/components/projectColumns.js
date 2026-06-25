@@ -57,3 +57,6 @@ export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim(
 
 // 진행현황 표기 통일 (HOLD → Hold). 표시·필터에서 대소문자 통일용 (데이터는 안 바꿈)
 export const normalizeStatus = v => String(v ?? '').toUpperCase() === 'HOLD' ? 'Hold' : String(v ?? '');
+
+// O 체크 칸 판별 (영업견적·공사계획서·리포트·완료처리) — 클릭 토글 대상. ④안전 쪽 '제출'은 제외
+export const isCheckCol = (h) => ['영업견적', '공사계획서', '리포트', '완료처리'].some(k => h.includes(k));

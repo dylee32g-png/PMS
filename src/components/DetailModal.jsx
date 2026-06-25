@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutList, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업
@@ -72,6 +72,7 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                     const span2 = isContentCol || activeColGroups.some(g => (g.label?.includes('공사진행')||g.label?.includes('공사 진행')) && g.cols.includes(h) && !isDateCol(h));
                                     const isStatus = isStatusCol(h);
                                     const isAssignee = isAssigneeCol(h);
+                                    const isCheck = isCheckCol(h);
                                     return (
                                         <div key={h}
                                             style={{ display:'flex', borderBottom:'1px solid #e5eaf3', gridColumn: span2 ? 'span 2' : undefined, backgroundColor: i%2===0?'#fff':'#fafcff' }}>
@@ -81,7 +82,13 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                                 {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800 }}>▼</span>}
                                             </div>
                                             <div style={{ flex:1, padding:'2px 0', display:'flex', alignItems:'stretch' }}>
-                                                {isStatus ? (
+                                                {isCheck ? (
+                                                    <button type="button"
+                                                        onClick={() => setDetailRow(p => ({...p, [h]: (String(val).toUpperCase()==='O' ? '' : 'O')}))}
+                                                        style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'13px', fontWeight:700, backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer', textAlign:'left', color: String(val).toUpperCase()==='O' ? '#047857' : '#aaa' }}>
+                                                        {String(val).toUpperCase()==='O' ? '☑ O (제출)' : '☐ 미제출'}
+                                                    </button>
+                                                ) : isStatus ? (
                                                     <select value={normalizeStatus(val)}
                                                         onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
                                                         style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
