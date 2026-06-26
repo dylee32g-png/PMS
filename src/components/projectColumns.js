@@ -18,12 +18,23 @@ export const toDateInputVal = v => {
     const s = String(v||'').trim();
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
     const m = s.match(/^(\d{4})[.\/ ](\d{1,2})[.\/ ](\d{1,2})/);
-    return m ? `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}` : '';
+    if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    // 6자리 YYMMDD (예: 251125 → 2025-11-25). 앞 2자리=연도(70 미만은 20xx), 월·일 유효성 통과 시만 인정.
+    // 날짜가 아닌 값(예: "2022년")은 그대로 ''(빈값)을 돌려 표시쪽에서 원본을 살린다. (2026-06-26 ①)
+    const d6 = s.match(/^(\d{2})(\d{2})(\d{2})$/);
+    if (d6) {
+        const yy = +d6[1], mm = +d6[2], dd = +d6[3];
+        if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+            const yyyy = yy < 70 ? 2000 + yy : 1900 + yy;
+            return `${yyyy}-${d6[2]}-${d6[3]}`;
+        }
+    }
+    return '';
 };
 
 // ─── 메인 테이블 표시 열 키워드 ──────────────────────────────────────────
 // (이 키워드를 포함하는 열만 메인 테이블에 표시; 나머지는 우클릭 → 상세 화면)
-export const MAIN_COL_KEYWORDS = ['번호', '발주처', 'Project', '프로젝트', '공사계약', '공사완료', '공사 계약', '공사 완료', '진행현황', '담당자', '참조'];
+export const MAIN_COL_KEYWORDS = ['번호', '발주처', 'Project', '프로젝트', '공사계약', '공사완료', '공사 계약', '공사 완료', '진행현황', '담당자', '참조', '관리자'];
 
 // ─── 진행현황 상태 색상 ──────────────────────────────────────────────────
 export const STATUS_CHIP_COLORS = {
@@ -67,5 +78,12 @@ export const isProgressContentCol = (h) => String(h ?? '').replace(/\s/g, '').in
 // 공사진행 '날짜' 칸 = '날짜' 글자 포함. '공사계약'·'공사완료'에는 '날짜' 글자가 없어 자동 제외(그 둘은 안 건드림).
 export const isProgressDateCol = (h) => String(h ?? '').replace(/\s/g, '').includes('날짜');
 
-// ⑦ 표 기본 숨김 대상 — ④ 안전·관리 8개(전부 빈칸): 안전관리비·견적코드·자재·기안·서브원. 필요시 설정 '열 표시/숨기기'에서 켜기.
-export const isDefaultHiddenCol = (h) => { const s = String(h ?? '').replace(/\s/g, ''); return ['안전', '견적코드', '자재', '기안', '서브원', '관리자'].some(k => s.includes(k)); };
+// ⑦ 표 기본 숨김 대상 (2026-06-26 팀장님 지정) — 표엔 안 보이되 상세 팝업·설정 '열 표시/숨기기'엔 보임.
+//   보임 유지: 번호·발주처·Project·진행현황·담당자 + 날짜·내용·PLC·ETOS·HMI·자체시운전·통합시운전·포인트
+//   (공백 제거 후 정확히 일치하는 이름만 숨김 — 오인식 방지)
+export const DEFAULT_HIDDEN_COLS = ['공사계약','공사완료','도면입수','I/OMap','화면작성','기준정보','참조','업체담당자','안전관리비금액','안전관리비제출','견적코드','자재','기안','안전관리비기안','서브원교육일지제출','서브원작업일보제출'];
+export const isDefaultHiddenCol = (h) => DEFAULT_HIDDEN_COLS.includes(String(h ?? '').replace(/\s/g, ''));
+
+// ③ 공사진행 중 메인표에서 숨길 칸 (2026-06-27 팀장님 지정: 날짜·내용·포인트는 표에서 빼고 상세팝업에서만 보기)
+//   공백 제거 후 부분일치 — '포인트'는 한글/영문(POINT) 모두 대응. 상세팝업·설정 '열 표시/숨기기'엔 그대로 노출.
+export const isProgHiddenCol = (h) => { const s = String(h ?? '').replace(/\s/g, ''); return s.includes('날짜') || s.includes('내용') || s.includes('포인트') || /point/i.test(s); };

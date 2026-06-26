@@ -128,8 +128,21 @@ export function parseExcelHeaders(raw, addLog) {
     const neB  = rowB.filter(v => String(v).trim() !== '').length;
     addLog(`행${startRow}: ${neA}개 | 행${startRow+1}: ${neB}개`);
 
+    // 3층 헤더(공사진행 > 진행현황/Point > PLC·ETOS·HMI / 총·누적) 지원 — 2026-06-27
+    const rowC = raw[startRow + 2] || [];
+    const neC  = rowC.filter(v => String(v).trim() !== '').length;
+    // 세부행(rowC)에 값이 있고, 그 자리의 중간행(rowB)이 비어 있으면(병합 하위) = 3층 헤더
+    const threeLayer = neA > 0 && neB > 0 && neC > 0 &&
+        rowC.some((v, i) => String(v).trim() !== '' && String(rowB[i] || '').trim() === '');
+
     let groupArr, colArr, dataStart;
-    if (neA > 0 && neB > 0 && neA > neB) {
+    if (threeLayer) {
+        // 그룹=rowA(맨 위), 컬럼명=세부(rowC) 우선·없으면 중간(rowB)
+        groupArr = rowA;
+        colArr   = rowA.map((_, i) => String(rowC[i] || '').trim() || String(rowB[i] || '').trim());
+        dataStart = startRow + 3;
+        addLog(`3행 헤더(3층): 그룹[${startRow}], 중간[${startRow+1}], 세부[${startRow+2}], 데이터=[${startRow+3}~]`);
+    } else if (neA > 0 && neB > 0 && neA > neB) {
         groupArr = rowA; colArr = rowB; dataStart = startRow + 2;
         addLog(`2행 헤더: 그룹[${startRow}]=${neA}, 컬럼[${startRow+1}]=${neB}, 데이터=[${startRow+2}~]`);
     } else {

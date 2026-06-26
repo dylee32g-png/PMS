@@ -13,7 +13,7 @@ import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isDefaultHiddenCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isDefaultHiddenCol, isProgHiddenCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -140,18 +140,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const activeRows      = pendingData?.rows       || localData?.rows       || fbRows;
     const dataSource      = pendingData ? 'pending' : localData ? 'local' : 'firebase';
 
-    // ⑦ 안전·관리 칸 기본 숨김 — 데이터 첫 로드 시 1회 적용 (사용자가 설정에서 켜면 그 선택 존중)
-    const _defaultHideApplied = useRef(false);
-    useEffect(() => {
-        if (!_defaultHideApplied.current && activeHeaders.length) {
-            _defaultHideApplied.current = true;
-            setHiddenCols(prev => {
-                const n = new Set(prev);
-                activeHeaders.forEach(h => { if (isDefaultHiddenCol(h)) n.add(h); });
-                return n;
-            });
-        }
-    }, [activeHeaders]);
+    // (2026-06-27) 엑셀 전체 항목 표시 — 기본 자동 숨김 제거.
+    //   담당자가 필요없는 항목은 상세팝업의 표시/숨김 토글로 끄면 메인표에서 빠짐(hiddenCols).
 
 
     // ── 외부(업무현황)에서 이동 시 실행번호 행 하이라이트 ────────────────
@@ -190,10 +180,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         );
         if (inProgressGrp) {
             if (isDateCol(h) || h.includes('날짜') || h.includes('일자')) return 38;
-            return 210;
+            if (h.includes('내용') || h.includes('내역') || h.includes('비고')) return 210; // 긴 텍스트
+            return 60; // PLC·ETOS·HMI·시운전·포인트 등 짧은 % 값 → 좁게 (2026-06-26)
         }
-        // 날짜 열
-        if (isDateCol(h)) return 38;
+        // 날짜 열 (공사계약·공사완료) — 2025-11-25 형태가 들어가게 넓힘 (2026-06-26 ①)
+        if (isDateCol(h)) return 80;
         // 열별 고정 너비
         if (isStatusCol(h)) return 54;
         if (h === '번호' || (h.includes('번호') && !h.includes('전화') && !h.includes('사업'))) return 22;
@@ -259,9 +250,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             let allRows       = [];
             let canonHeaders  = null;
             let canonColGroups = null;
+            let canonColCount  = 0;
 
+            // 최신 연도 시트 1개만 읽기 (2026 등) — 2026-06-27 팀장님: 과거 연도·SM대응 제외
+            const _years   = wb.SheetNames.map(n => extractYear(n)).filter(y => /^\d{4}$/.test(y));
+            const _latestY = _years.sort((a, b) => b.localeCompare(a))[0];
+            addLog(`최신 연도 시트만 사용: ${_latestY}`);
             for (const sheetName of wb.SheetNames) {
                 const year = extractYear(sheetName);
+                if (year !== _latestY) { addLog(`시트 "${sheetName}" 건너뜀 (최신연도 ${_latestY}만)`); continue; }
                 const ws   = wb.Sheets[sheetName];
                 const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
                 addLog(`── 시트 "${sheetName}" (연도: ${year}): ${raw.length}행`);
@@ -270,8 +267,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 const { colDefs, colGroups: cg, dataStart } = parseExcelHeaders(raw, addLog);
                 if (colDefs.length === 0) { addLog(`  ↳ 스킵 (헤더 없음)`); continue; }
 
-                // 첫 번째 유효 시트의 헤더를 기준으로 사용
-                if (!canonHeaders) { canonHeaders = colDefs.map(c => c.name); canonColGroups = cg; }
+                // 헤더 기준 = 열이 가장 많은(가장 풍부한) 시트. 맨 앞 'SM대응'(10열)처럼 단순한 시트가 기준이 돼
+                // 2026년(31열) 열들이 표에서 통째로 가려지던 문제 수정 (2026-06-26)
+                if (colDefs.length > canonColCount) { canonHeaders = colDefs.map(c => c.name); canonColGroups = cg; canonColCount = colDefs.length; }
 
                 const ts = Date.now();
                 const sheetRows = raw.slice(dataStart).map((row, idx) => {
@@ -907,51 +905,33 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     [activeColGroups, hiddenCols]);
 
     // ── 메인 테이블 열 (키워드 매칭 + 공사진행 그룹) ─────────────────────
-    const isMainTableCol = (h) => {
-        // ③⑦ 발주처 담당자는 상세팝업 전용. 관리자·안전은 후보로 두되 기본 숨김(설정 '열 표시/숨기기'에서 켜기 가능).
-        const _s = String(h).replace(/\s/g, '');
-        if (_s.includes('발주처') && _s.includes('담당')) return false;
-        return MAIN_COL_KEYWORDS.some(k => _s.includes(k.replace(/\s/g, ''))) ||
-        isStatusCol(h) ||
-        isAssigneeCol(h) ||
-        isDefaultHiddenCol(h) ||
-        activeColGroups.some(g =>
-            (g.label?.includes('공사진행') || g.label?.includes('공사 진행')) && g.cols.includes(h)
-        );
-    };
+    // 2026-06-27 엑셀 전체 항목을 메인표에 표시 (담당자가 필요없는 항목은 상세팝업 토글로 숨김). 실행번호·내부키만 제외.
+    const isMainTableCol = (h) => h !== '실행번호' && !String(h).startsWith('_');
 
     const allMainCols = useMemo(() =>
         activeHeaders.filter(h => isMainTableCol(h)),
     [activeHeaders, activeColGroups]); // eslint-disable-line
 
     const EXEC_NO_COL = '실행번호';
-    const mainVisibleHeaders = useMemo(() => {
-        const base = allMainCols.filter(h => !hiddenCols.has(h) && h !== EXEC_NO_COL);
-        const projectIdx = base.findIndex(h => /project|프로젝트명|공사명|건명/i.test(h));
-        if (projectIdx >= 0) {
-            const result = [...base];
-            result.splice(projectIdx + 1, 0, EXEC_NO_COL);
-            return result;
-        }
-        return [...base, EXEC_NO_COL];
-    }, [allMainCols, hiddenCols]);
+    // 실행번호(EXEC_NO_COL)는 표에서 숨김 — 데이터·연결 기능은 유지 (2026-06-26 팀장님 요청, 복원하려면 예전처럼 splice로 삽입)
+    const mainVisibleHeaders = useMemo(() =>
+        allMainCols.filter(h => !hiddenCols.has(h) && h !== EXEC_NO_COL),
+    [allMainCols, hiddenCols]);
 
-    const mainVisibleGroups = useMemo(() => {
-        const base = activeColGroups
+    // 실행번호 숨김에 맞춰 그룹에서도 제외 (2026-06-26)
+    const mainVisibleGroups = useMemo(() =>
+        activeColGroups
             .map(g => ({ ...g, cols: g.cols.filter(c => mainVisibleHeaders.includes(c) && c !== EXEC_NO_COL) }))
-            .filter(g => g.cols.length > 0);
-        // EXEC_NO_COL을 mainVisibleGroups에도 Project 그룹 바로 뒤에 삽입
-        const projectGrpIdx = base.findIndex(g => g.cols.some(c => /project|프로젝트명|공사명|건명/i.test(c)));
-        const execGrp = { label: '', cols: [EXEC_NO_COL] };
-        if (projectGrpIdx >= 0) {
-            const result = [...base];
-            result.splice(projectGrpIdx + 1, 0, execGrp);
-            return result;
-        }
-        return [...base, execGrp];
-    }, [activeColGroups, mainVisibleHeaders]);
+            .filter(g => g.cols.length > 0),
+    [activeColGroups, mainVisibleHeaders]);
 
     const hasMainGroups = mainVisibleGroups.some(g => g.label);
+    // '공사 진행' 묶음 범위 — 시인성용 경계선·배경 (2026-06-26)
+    const _progGrp  = mainVisibleGroups.find(g => g.label && (g.label.includes('공사진행') || g.label.includes('공사 진행')));
+    const progFirst = _progGrp?.cols?.[0];
+    const progLast  = _progGrp?.cols?.[_progGrp.cols.length - 1];
+    const isProgCol = (h) => !!_progGrp && _progGrp.cols.includes(h);
+    const centerCol = (h) => isProgCol(h) && !String(h).replace(/\s/g,'').includes('내용'); // 짧은 % 값 → 중앙정렬
 
     // 상세 화면에 표시할 비-메인 열
     const detailOnlyHeaders = useMemo(() =>
@@ -1530,6 +1510,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     mainVisibleHeaders={mainVisibleHeaders}
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
+                    hiddenCols={hiddenCols}
+                    onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); return n; })}
                 />
             )}
 
@@ -1987,11 +1969,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         </div>
                     )}
                     <div className="overflow-auto flex-1 custom-scrollbar">
-                        <table className="w-full text-left border-collapse table-fixed"
-                            style={{ minWidth: mainVisibleHeaders.reduce((s,h)=>s+getW(h),0)+22+120 }}>
+                        <table className="w-full text-left border-collapse">
                             <colgroup>
                                 <col style={{width:22}}/>
-                                {mainVisibleHeaders.map(h => <col key={h} style={{width:getW(h)}}/>)}
+                                {/* table-auto — 칸 너비는 내용에 맞춰 자동. 항목(칸)이 늘어도 글자 안 짤림 (2026-06-27) */}
+                                {mainVisibleHeaders.map(h => <col key={h} style={{ minWidth: getW(h) || 40 }}/>)}
                                 <col style={{width:120}}/>
                             </colgroup>
                             {(() => {
@@ -2008,7 +1990,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 // ── 고정 열 오프셋 계산 (No.=52px 이후 누적) ──
                                 const frozenOffsets = {};
                                 if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo)) {
-                                    let left = 22;
+                                    let left = 0; // No. 칸 제거로 시작 오프셋 0 (2026-06-26)
                                     for (const h of mainVisibleHeaders) {
                                         frozenOffsets[h] = left;
                                         left += getW(h);
@@ -2021,24 +2003,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 return (<>
                             <thead className="sticky top-0 z-30" style={{background:'var(--head-bg)'}}>
                                 <tr className="border-b border-slate-800">
-                                    <th rowSpan={hasMainGroups?2:1} className={`${noTdPx} text-center text-slate-400 ${noSz} font-bold border-r border-slate-800/60 sticky left-0 z-40`} style={{background:'var(--head-bg)'}}>No.</th>
+                                    {/* No. 칸 제거 — 엑셀 '번호'와 중복 (2026-06-26) */}
                                     {hasMainGroups ? mainVisibleGroups.map((g,gi) => {
                                         if (!g.label) {
                                             const h = g.cols[0];
                                             if (h === EXEC_NO_COL) return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
-                                                    className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-800/40`}
+                                                    className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-400`}
                                                     style={{background:'var(--head-bg)', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
                                                     실행번호
                                                 </th>
                                             );
                                             return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
-                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
+                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                                     style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
                                                     onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                                     {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
-                                                    <div className="absolute -right-[4px] top-0 bottom-0 w-[8px] cursor-col-resize hover:bg-emerald-500/40 z-10"
+                                                    <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
                                             );
@@ -2047,29 +2029,29 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             const isProgress = g.label?.includes('공사진행') || g.label?.includes('공사 진행');
                                             return (
                                             <th key={`g-${gi}`} colSpan={g.cols.length}
-                                                className={`${thPx} text-center border-b-2 border-r border-slate-800/40`}
+                                                className={`${thPx} text-center border-b-2 border-r border-slate-400 ${isProgress?'prog-head':''}`}
                                                 style={isProgress
-                                                    ? { background:'#daeaf8', borderBottomColor:'#3b82f6' }
+                                                    ? { background:'#1e7ac8', borderBottomColor:'#1e3a8a', borderLeft:'4px solid #1e3a8a', borderRight:'4px solid #1e3a8a' }
                                                     : { background:'var(--head-bg)', borderBottomColor:'var(--brand)' }}>
                                                 <span style={{ fontWeight:700, fontSize:11, letterSpacing:'0.05em',
-                                                    color: '#94a3b8' }}>{g.label}</span>
+                                                    color: isProgress ? '#ffffff' : '#94a3b8' }}>{g.label}</span>
                                             </th>
                                             );
                                         }
                                     }) : mainVisibleHeaders.map(h => {
                                         if (h === EXEC_NO_COL) return (
-                                            <th key={h} className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-800/40`}
+                                            <th key={h} className={`${thPx} text-center text-slate-400 text-[11px] border-r border-slate-400`}
                                                 style={{background:'var(--head-bg)', width: getW(h)||90, minWidth: getW(h)||90, whiteSpace:'nowrap'}}>
                                                 실행번호
                                             </th>
                                         );
                                         return (
                                         <th key={h}
-                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
+                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                             style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
                                             onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                             {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
-                                            <div className="absolute -right-[4px] top-0 bottom-0 w-[8px] cursor-col-resize hover:bg-emerald-500/40 z-10"
+                                            <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                 onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                         </th>
                                         );
@@ -2081,16 +2063,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         {mainVisibleGroups.map((g,gi) => {
                                             if (!g.label) return null;
                                             const isProgress = g.label?.includes('공사진행') || g.label?.includes('공사 진행');
-                                            const subBg = isProgress ? '#eef6fd' : 'var(--head-bg)';
+                                            const subBg = isProgress ? '#c7ddf5' : 'var(--head-bg)';
                                             return g.cols.map((h,ci) => (
                                                 <th key={`sub-${gi}-${ci}`}
-                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-800/40'} ${isFrz(h)?'z-40':''}`}
-                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:subBg}:{background:subBg}}
+                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''} ${isProgCol(h)?'prog-cell':''} ${h===progFirst?'prog-l':''} ${h===progLast?'prog-r':''}`}
+                                                    style={{...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:subBg, ...(centerCol(h)?{textAlign:'center'}:{}), ...(h===progFirst?{borderLeft:'4px solid #1e3a8a'}:{}), ...(h===progLast?{borderRight:'4px solid #1e3a8a'}:{})}}
                                                     onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                                     {isFilterable(h)
                                                         ? <ComboFilter h={h} small/>
                                                         : <SortHeader h={h} small forceColor={isProgress ? '#1a1a1a' : undefined}/>}
-                                                    <div className="absolute -right-[4px] top-0 bottom-0 w-[8px] cursor-col-resize hover:bg-emerald-500/40 z-10"
+                                                    <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
                                             ));
@@ -2121,8 +2103,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         onClick={() => setSelectedRowId(prev => prev === row._id ? null : row._id)}
                                         onDoubleClick={() => { setDetailRow({...row}); setDetailRowOriginal({...row}); }}
                                         onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, row }); }}>
-                                        <td className={`${noTdPx} text-center ${noSz} border-r border-slate-800/30 sticky left-0 z-10 ${isSelected ? 'text-blue-700 font-bold' : isHlRow ? 'text-amber-600 font-bold' : 'text-slate-600'}`}
-                                            style={{background: rowBg}}>{ri+1}</td>
+                                        {/* No. 칸 제거 — 엑셀 '번호'와 중복 (2026-06-26) */}
                                         {mainVisibleHeaders.map(h => {
                                             // 실행번호 — 전용 셀
                                             if (h === EXEC_NO_COL) return (
@@ -2154,13 +2135,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             const isHl = columnFilters[h] && String(val||'')===columnFilters[h];
                                             return (
                                                 <td key={h}
-                                                    className={`${tdPx} truncate align-middle cursor-text hover:bg-emerald-950/20 transition-colors
-                                                        ${isPinH(h)?'border-r-2 border-blue-400/50':'border-r border-slate-800/20'}
+                                                    className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20 transition-colors
+                                                        ${isPinH(h)?'border-r-2 border-blue-400/50':'border-r border-slate-400'}
+                                                        ${isProgCol(h)?'prog-cell':''} ${h===progFirst?'prog-l':''} ${h===progLast?'prog-r':''}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
                                                         ${isDateCol(h)?'text-slate-400 text-[11px]':'text-slate-300 text-[11px]'}
                                                         ${isHl?'bg-amber-950/20 text-amber-200':''}
                                                         ${isFrz(h)?'z-10':''}`}
-                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{}}
+                                                    style={{...(isProgCol(h)&&!isHl&&!isFrz(h)?{background:'#d4e6f8'}:{}), ...(centerCol(h)?{textAlign:'center'}:{}), ...(h===progFirst?{borderLeft:'4px solid #1e3a8a'}:{}), ...(h===progLast?{borderRight:'4px solid #1e3a8a'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{})}}
                                                     title={val||''}
                                                     onClick={e=>{
                                                         e.stopPropagation();
@@ -2200,7 +2182,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : (val || <span className="text-slate-700">—</span>)}
+                                                    })() : isDateCol(h) && val ? (toDateInputVal(val) || val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : (val || <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}

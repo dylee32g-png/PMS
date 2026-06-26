@@ -8,7 +8,7 @@ import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STAT
 // 저장 로직(saveDetailRow)은 부모에 그대로 두고 onSave 로 받음. 이 파일은 화면만 그림.
 // ⑧ Hold/HOLD 표기 통일: 상태 표시에 normalizeStatus 적용 (표시만, 데이터 불변)
 // ─────────────────────────────────────────────────────────────────────────
-export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups }) {
+export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups, hiddenCols, onToggleCol }) {
     if (!detailRow) return null;
     return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4"
@@ -76,10 +76,18 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                     return (
                                         <div key={h}
                                             style={{ display:'flex', borderBottom:'1px solid #e5eaf3', gridColumn: span2 ? 'span 2' : undefined, backgroundColor: i%2===0?'#fff':'#fafcff' }}>
-                                            <div style={{ width:'120px', flexShrink:0, backgroundColor:'#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 10px', fontSize:'11px', fontWeight:700, color:'#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
-                                                {h}
+                                            <div style={{ width:'150px', flexShrink:0, backgroundColor: hiddenCols?.has(h) ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 10px', fontSize:'11px', fontWeight:700, color: hiddenCols?.has(h) ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
+                                                <span style={{ flex:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }} title={h}>{h}</span>
                                                 {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800 }}>▼</span>}
                                                 {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800 }}>▼</span>}
+                                                {onToggleCol && (
+                                                    <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
+                                                        title={hiddenCols?.has(h) ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
+                                                        style={{ flexShrink:0, width:'28px', height:'15px', borderRadius:'8px', border:'none', cursor:'pointer', position:'relative', padding:0,
+                                                            backgroundColor: hiddenCols?.has(h) ? '#cbd5e1' : '#1e7ac8' }}>
+                                                        <span style={{ position:'absolute', top:'2px', left: hiddenCols?.has(h) ? '2px' : '15px', width:'11px', height:'11px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                                                    </button>
+                                                )}
                                             </div>
                                             <div style={{ flex:1, padding:'2px 0', display:'flex', alignItems:'stretch' }}>
                                                 {isCheck ? (
