@@ -102,6 +102,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const [pmsData,    setPmsData]    = useState(null);
     const [reloading,  setReloading]  = useState(false);
     const [wSummary,   setWSummary]   = useState(null);
+    const [pointSource, setPointSource] = useState((row && row['포인트소스'] === 'int') ? 'int' : 'self'); // ③ 메인표 포인트 실적 출처: self(자체) 또는 int(통합) — 합 없음, 둘 중 택1 (2026-06-29)
 
     const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; };
     const [wDates,    setWDates]    = useState({ d1: daysAgo(14), d2: daysAgo(7), d3: new Date().toISOString().split('T')[0] });
@@ -436,8 +437,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     };
 
     const projectName = row['Project'] || row['프로젝트명'] || row['공사명'] || row.project || '프로젝트';
-    // B-3: 만점은 totalCommissioningPoints 우선(수정 팝업은 tCP만 갱신 → point는 옛 값일 수 있음), 없으면 point 폴백
-    const totalPt = Number(pmsData?.totalCommissioningPoints || pmsData?.point) || 0;
+    // B-3: 만점은 totalCommissioningPoints 우선(수정 팝업은 tCP만 갱신 → point는 옛 값일 수 있음), 없으면 point,
+    //   그래도 없으면 메인표 '포인트'(상세팝업서 입력한 만점) 폴백 — 진행실적이 만점 못 읽어 시운전%가 0이던 문제 해결 (2026-06-29)
+    const totalPt = Number(pmsData?.totalCommissioningPoints || pmsData?.point || row?.['포인트']) || 0;
 
     const computeApplyData = () => {
         if (!baseDate) return null;
@@ -513,8 +515,26 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
         const prevSelfPts = monthlyCommSums[prevMonthStr] || 0;
         const accSelfPts  = Object.values(monthlyCommSums).reduce((s, v) => s + v, 0);
+        const accIntPts   = Object.values(monthlyIntCommSums).reduce((s, v) => s + v, 0);
+        // 시운전 메인표 %·포인트 = '합계(누적)' 기준 — 주차별 키인은 유지, 표엔 전체 누적합으로 뿌림 (팀장님 2026-06-29: 월1회 보고)
+        const selfPctCum = totalPt > 0 ? Math.min(100, Math.round(accSelfPts / totalPt * 100)) : null;
+        const intPctCum  = totalPt > 0 ? Math.min(100, Math.round(accIntPts  / totalPt * 100)) : null;
+
+        // ── 메인표(List rows) 반영용 mainTable. ★진행실적에 '입력이 있는' 항목만 반영(입력 없는 칸을 0으로 덮어쓰지 않음). ──
+        //   공정·제어 7개 = 누적 최신값(itemFinalPct %) / 시운전 2개 = selfPct·intPct(subRows 하위행 합산까지) / 포인트 = 자체 누적합 (자체/통합/합 선택은 task 17)
+        const HEADER_MAP = { drawing:'도면입수', iomap:'I/O Map', screen:'화면작성', baseinfo:'기준정보', plc:'PLC', etos:'ETOS', hmi:'HMI' };
+        const mainTable = {};
+        [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].forEach(({ key }) => {
+            const wd = weeklyData[key] || {};
+            if (!Object.values(wd).some(v => v !== '' && v !== null && v !== undefined)) return; // 입력 없으면 메인표 안 건드림
+            mainTable[HEADER_MAP[key]] = Math.round(itemFinalPct(key));
+        });
+        if (selfPctCum !== null && accSelfPts > 0) mainTable['자체시운전'] = selfPctCum;
+        if (intPctCum  !== null && accIntPts  > 0) mainTable['통합시운전'] = intPctCum;
+        // 포인트 칸 = '만점'(상세팝업 입력, 고정)이라 진행실적이 덮지 않음. 실적(포인트실적)은 task ③(자체/통합/합 선택)에서 별도 처리.
 
         return {
+            mainTable,
             plc:  getCurrentWeekVal('plc'),
             etos: getCurrentWeekVal('etos'),
             hmi:  getCurrentWeekVal('hmi'),
@@ -524,7 +544,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             prevPoints: prevSelfPts > 0 ? prevSelfPts : null,
             accPoints:  accSelfPts  > 0 ? accSelfPts  : null,
             monthlyCommSums, monthlyIntCommSums,
-            selfPts, intPts, prevSelfPts, accSelfPts, curWeek: nowW,
+            selfPts, intPts, prevSelfPts, accSelfPts, accIntPts, curWeek: nowW,
             monthStr: baseDate, month: m, prevMonthStr,
         };
     };
@@ -540,7 +560,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             });
             setSavedWeekly(weeklyData); setDirty(false);
             onProgressSaved?.({ docKey, weeklyData });
-            await onApplyToMonthly(projectId, applyConfirm);
+            // ③ 포인트 실적 = 선택(자체 또는 통합, 합 없음) → 메인표 포인트실적/포인트소스 (2026-06-29)
+            const _pts = pointSource === 'int' ? (applyConfirm.accIntPts || 0) : (applyConfirm.accSelfPts || 0);
+            const _confirm = { ...applyConfirm, mainTable: { ...applyConfirm.mainTable, '포인트실적': _pts, '포인트소스': pointSource } };
+            await onApplyToMonthly(projectId, _confirm);
             setApplyMsg('✓ 진행실적 저장 및 업무현황 반영 완료');
             setApplyConfirm(null);
             setTimeout(() => setApplyMsg(''), 4000);
@@ -615,10 +638,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const pctByWeek = useMemo(() => {
         const r = {};
         const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
-        // 진척률은 SIMPLE(도면입수·I/O Map·화면작성·기준정보) 제외 — SECONDARY(PLC·ETOS·HMI)+시운전만 (메인 공정률과 항목 통일)
-        const totalItemCnt = SECONDARY_ON.length + cntCommish;
+        // 진척률 = SIMPLE(4: 도면입수·I/O Map·화면작성·기준정보) + SECONDARY(3: PLC·ETOS·HMI) + 시운전(2) = 9개 평균 (팀장님 확정 2026-06-29, 기준문서)
+        const totalItemCnt = SIMPLE_ON.length + SECONDARY_ON.length + cntCommish;
         ALL_WEEKS.forEach(({ key: wKey }) => {
-            const sim = [...SECONDARY_ON].reduce((s, { key }) => s + Math.min(100, cumByKey[key]?.[wKey] || 0), 0);
+            const sim = [...SIMPLE_ON, ...SECONDARY_ON].reduce((s, { key }) => s + Math.min(100, cumByKey[key]?.[wKey] || 0), 0);
             let wk = 0;
             if (subCumByWeek) {
                 const { self = 0, int = 0 } = subCumByWeek[wKey] || {};
@@ -634,7 +657,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     }, [cumByKey, totalPt, subCumByWeek, progressItems]); // eslint-disable-line
 
     const overallPct = useMemo(() => {
-        const simPct = [...SECONDARY_ON].reduce((s, { key }) => s + itemFinalPct(key), 0);
+        const simPct = [...SIMPLE_ON, ...SECONDARY_ON].reduce((s, { key }) => s + itemFinalPct(key), 0);
         let wkPct = 0;
         if (subRows.length > 0) {
             const selfT = subRows.reduce((s, _, i) =>
@@ -647,7 +670,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             wkPct = WEEKLY_ON.reduce((s, { key }) => s + itemFinalPct(key), 0);
         }
         const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
-        const totalItemCnt = SECONDARY_ON.length + cntCommish;
+        const totalItemCnt = SIMPLE_ON.length + SECONDARY_ON.length + cntCommish;
         return totalItemCnt > 0 ? Math.round((simPct + wkPct) / totalItemCnt * 10) / 10 : 0;
     }, [weeklyData, totalPt, subRows, refWKey, progressItems]); // eslint-disable-line
 
@@ -1284,6 +1307,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             <span style={{ color:'#b45309', fontSize:11 }}>적용할 데이터가 없습니다 ({applyConfirm.month}월 입력값 확인)</span>
                         )}
                     </div>
+                    {(applyConfirm.selfPts > 0 || applyConfirm.intPts > 0) && (
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap' }}>
+                            <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>메인표 포인트(왼쪽 실적):</span>
+                            <span style={{ background:'#16a34a', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 12px', borderRadius:5 }}>
+                                {pointSource==='int' ? '통합' : '자체'}시운전 {pointSource==='int' ? (applyConfirm.accIntPts||0) : (applyConfirm.accSelfPts||0)}pt
+                            </span>
+                            <span style={{ fontSize:10, color:'#92400e' }}>(아래 [자체]/[통합] 버튼으로 변경)</span>
+                        </div>
+                    )}
                     <div style={{ display:'flex', gap:8 }}>
                         <button onClick={handleApplyConfirm} disabled={applying}
                             style={{ background: applying?'#16a34a99':'#16a34a', border:'none', borderRadius:6, color:'#fff', fontSize:12, fontWeight:800, padding:'5px 20px', cursor: applying?'default':'pointer' }}>
@@ -1311,6 +1343,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     <RefreshCw size={13} style={{ animation: reloading ? 'spin 0.8s linear infinite' : 'none' }}/>
                     {reloading ? '로딩...' : '새로고침'}
                 </button>
+                {onApplyToMonthly && (
+                    <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700 }}>
+                        <span style={{ color:'#64748b' }}>메인표 시운전:</span>
+                        <button onClick={() => setPointSource('self')} title="자체시운전 포인트를 메인표에 반영"
+                            style={{ background: pointSource==='self'?'#16a34a':'#fff', color: pointSource==='self'?'#fff':'#15803d', border:'1px solid #86efac', borderRadius:5, fontSize:11, fontWeight:700, padding:'5px 11px', cursor:'pointer' }}>자체</button>
+                        <button onClick={() => setPointSource('int')} title="통합시운전 포인트를 메인표에 반영"
+                            style={{ background: pointSource==='int'?'#16a34a':'#fff', color: pointSource==='int'?'#fff':'#15803d', border:'1px solid #86efac', borderRadius:5, fontSize:11, fontWeight:700, padding:'5px 11px', cursor:'pointer' }}>통합</button>
+                    </span>
+                )}
                 {onApplyToMonthly && (
                     <button onClick={() => { const d = computeApplyData(); if (d) setApplyConfirm(d); }} disabled={saving || applying}
                         style={{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:7, color:'#15803d', fontSize:12, fontWeight:800, padding:'6px 16px', cursor:'pointer' }}>

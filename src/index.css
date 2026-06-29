@@ -145,13 +145,7 @@ tr:hover td.sticky-col { background-color: #d8e8fa !important; }
 tbody tr:nth-child(even) td { background-color: #f9fafc !important; }
 tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 
-/* ── 공사 진행 묶음 강조 (2026-06-26) ── */
-thead tr th.prog-head { background-color:#1e7ac8 !important; color:#ffffff !important; border-left:1px solid #1e3a8a !important; border-right:1px solid #1e3a8a !important; }
-thead tr th.prog-head span { color:#ffffff !important; }
-thead tr th.prog-cell { background-color:#e4eef9 !important; }
-tbody tr td.prog-cell { background-color:#f3f9fd !important; }
-thead tr th.prog-l, tbody tr td.prog-l { border-left:1px solid #1e3a8a !important; }
-thead tr th.prog-r, tbody tr td.prog-r { border-right:1px solid #1e3a8a !important; }
+/* ── 공사 진행 묶음 — 일반 항목과 동일 표시 (2026-06-29, 강조 색·경계 제거) ── */
 
 /* =========================================================
    입력창 / 폼 요소 (Excel 셀 스타일)

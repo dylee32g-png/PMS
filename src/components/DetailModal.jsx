@@ -7,9 +7,109 @@ import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STAT
 // ProjectListScreen.jsx에서 분리 (2026-06-25, 코드 분리 3조각 = 상세팝업)
 // 저장 로직(saveDetailRow)은 부모에 그대로 두고 onSave 로 받음. 이 파일은 화면만 그림.
 // ⑧ Hold/HOLD 표기 통일: 상태 표시에 normalizeStatus 적용 (표시만, 데이터 불변)
+// 2026-06-29: 묶음(activeColGroups)별 섹션 재구성 — 묶음 제목 줄 + 같은 묶음 가로 배치 + 라벨 너비 정리.
+//   · 항목 순서는 엑셀(activeColGroups) 그대로 유지 (엑셀 우선 원칙).
+//   · 묶음 없는 단독 항목은 모아서 2열, 묶음(공사진행 등)은 3열 + 제목 줄.
+//   · colGroups에 안 잡힌 항목은 '기타'로 모아 누락 방지.
 // ─────────────────────────────────────────────────────────────────────────
 export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups, hiddenCols, onToggleCol }) {
     if (!detailRow) return null;
+
+    // ── 전체폭(한 줄 통째) 차지 판정: 내용·내역·비고·참조·프로젝트명 = 긴 텍스트 ──
+    const isWideField = (h) => !isDateCol(h) && (/내용|내역|비고|참조/.test(h) || /project|프로젝트/i.test(h));
+    const isInternal  = (h) => String(h).startsWith('_'); // _pid 등 내부 필드는 화면에서 제외
+    // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 입력: 숫자만. 메인표와 동일 (2026-06-29 팀장님)
+    const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k => s.includes(k)); };
+    const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
+
+    // ── 묶음 섹션 빌드 (엑셀 순서 그대로) ──
+    //   label 있는 묶음 = 제목 줄 + 3열, 묶음 없는 단독들은 모아 2열.
+    const sections = [];
+    let soloBuf = [];
+    const flushSolo = () => { if (soloBuf.length) { sections.push({ label: null, isGroup: false, cols: soloBuf }); soloBuf = []; } };
+    (activeColGroups || []).forEach(g => {
+        const cols = (g.cols || []).filter(h => !isInternal(h));
+        if (!cols.length) return;
+        if (g.label && g.label.trim()) { flushSolo(); sections.push({ label: g.label.trim(), isGroup: true, cols }); }
+        else soloBuf.push(...cols);
+    });
+    flushSolo();
+    // colGroups에 안 잡힌 항목 누락 방지 → '기타'로 모음 (묶음 정보가 아예 없으면 제목 없이 2열)
+    const covered = new Set();
+    (activeColGroups || []).forEach(g => (g.cols || []).forEach(c => covered.add(c)));
+    const leftovers = (activeHeaders || []).filter(h => !isInternal(h) && !covered.has(h));
+    if (leftovers.length) sections.push({ label: sections.length ? '기타' : null, isGroup: false, cols: leftovers });
+
+    // ── 한 필드(라벨 + 입력칸 + 메인표 표시토글) 렌더 ──
+    const renderField = (h) => {
+        const val = detailRow[h] || '';
+        const wide = isWideField(h);
+        const isStatus = isStatusCol(h);
+        const isAssignee = isAssigneeCol(h);
+        const isCheck = isCheckCol(h);
+        const hidden = hiddenCols?.has(h);
+        return (
+            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, display:'flex', border:'1px solid #e5eaf3', backgroundColor:'#fff', minWidth:0 }}>
+                <div style={{ minWidth:'56px', flexShrink:0, backgroundColor: hidden ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 9px', fontSize:'11px', fontWeight:700, color: hidden ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ whiteSpace:'nowrap' }} title={h}>{h}</span>
+                    {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800 }}>▼</span>}
+                    {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800 }}>▼</span>}
+                    {onToggleCol && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
+                            title={hidden ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
+                            style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
+                                backgroundColor: hidden ? '#cbd5e1' : '#1e7ac8' }}>
+                            <span style={{ position:'absolute', top:'2px', left: hidden ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                        </button>
+                    )}
+                </div>
+                <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'stretch' }}>
+                    {isCheck ? (
+                        <button type="button"
+                            onClick={() => setDetailRow(p => ({...p, [h]: (String(val).toUpperCase()==='O' ? '' : 'O')}))}
+                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 9px', fontSize:'13px', fontWeight:700, backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer', textAlign:'left', color: String(val).toUpperCase()==='O' ? '#047857' : '#aaa' }}>
+                            {String(val).toUpperCase()==='O' ? '☑ O (제출)' : '☐ 미제출'}
+                        </button>
+                    ) : isStatus ? (
+                        <select value={normalizeStatus(val)}
+                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
+                            <option value="">—</option>
+                            {DEFAULT_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    ) : isAssignee ? (
+                        <select value={val}
+                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
+                            <option value="">—</option>
+                            {ASSIGNEE_LIST.map(a => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                    ) : isDateCol(h) ? (
+                        <input type="date" value={toDateInputVal(val)}
+                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}/>
+                    ) : isPctCol(h) ? (
+                        <div style={{ width:'100%', display:'flex', alignItems:'center' }}>
+                            <input type="text" inputMode="numeric" value={String(val).replace(/%/g,'')}
+                                onChange={e => setDetailRow(p => ({...p, [h]: e.target.value.replace(/[^0-9.]/g,'')}))}
+                                style={{ flex:1, minWidth:0, border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}
+                                onFocus={e => e.target.parentElement.style.backgroundColor='#fffde7'}
+                                onBlur={e => e.target.parentElement.style.backgroundColor='transparent'}/>
+                            {String(val).trim() !== '' && <span style={{ paddingRight:8, fontSize:'12px', color:'#888' }}>%</span>}
+                        </div>
+                    ) : (
+                        <textarea value={val}
+                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                            rows={wide ? 2 : 1}
+                            style={{ width:'100%', border:'none', outline:'none', resize:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', lineHeight:1.5 }}
+                            onFocus={e => e.target.style.backgroundColor='#fffde7'}
+                            onBlur={e => e.target.style.backgroundColor='transparent'}/>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4"
                      onClick={() => setDetailRow(null)}>
@@ -46,87 +146,36 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                 const val = detailRow[h];
                                 if (isStatusCol(h)) {
                                     const sv = normalizeStatus(val);
-                                    const c = STATUS_CHIP_COLORS[sv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
                                     return (
                                         <span key={h} style={{ fontSize:'11px' }}>
                                             <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
-                                            <span style={{ display:'inline-block', padding:'0 7px', fontSize:'11px', fontWeight:700, backgroundColor:c.bg, color:c.text, border:`1px solid ${c.border}` }}>{sv}</span>
+                                            <span style={{ color:'#222' }}>{sv}</span>
                                         </span>
                                     );
                                 }
                                 return (
                                     <span key={h} style={{ fontSize:'11px' }}>
                                         <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
-                                        <span style={{ color:'#222' }}>{val}</span>
+                                        <span style={{ color:'#222' }}>{pctDisplay(h, val)}</span>
                                     </span>
                                 );
                             })}
                         </div>
 
-                        {/* 전체 필드 편집 그리드 */}
-                        <div className="overflow-y-auto flex-1 custom-scrollbar" style={{ padding:'14px 18px' }}>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', border:'1px solid #d0d7e3' }}>
-                                {activeHeaders.filter(h => !h.startsWith('_')).map((h, i) => {
-                                    const val = detailRow[h] || '';
-                                    const isContentCol = !isDateCol(h) && (h.includes('내용') || h.includes('내역') || h.includes('비고') || h.includes('참조'));
-                                    const span2 = isContentCol || activeColGroups.some(g => (g.label?.includes('공사진행')||g.label?.includes('공사 진행')) && g.cols.includes(h) && !isDateCol(h));
-                                    const isStatus = isStatusCol(h);
-                                    const isAssignee = isAssigneeCol(h);
-                                    const isCheck = isCheckCol(h);
-                                    return (
-                                        <div key={h}
-                                            style={{ display:'flex', borderBottom:'1px solid #e5eaf3', gridColumn: span2 ? 'span 2' : undefined, backgroundColor: i%2===0?'#fff':'#fafcff' }}>
-                                            <div style={{ width:'150px', flexShrink:0, backgroundColor: hiddenCols?.has(h) ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 10px', fontSize:'11px', fontWeight:700, color: hiddenCols?.has(h) ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
-                                                <span style={{ flex:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }} title={h}>{h}</span>
-                                                {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800 }}>▼</span>}
-                                                {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800 }}>▼</span>}
-                                                {onToggleCol && (
-                                                    <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
-                                                        title={hiddenCols?.has(h) ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
-                                                        style={{ flexShrink:0, width:'28px', height:'15px', borderRadius:'8px', border:'none', cursor:'pointer', position:'relative', padding:0,
-                                                            backgroundColor: hiddenCols?.has(h) ? '#cbd5e1' : '#1e7ac8' }}>
-                                                        <span style={{ position:'absolute', top:'2px', left: hiddenCols?.has(h) ? '2px' : '15px', width:'11px', height:'11px', borderRadius:'50%', backgroundColor:'#fff' }}/>
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div style={{ flex:1, padding:'2px 0', display:'flex', alignItems:'stretch' }}>
-                                                {isCheck ? (
-                                                    <button type="button"
-                                                        onClick={() => setDetailRow(p => ({...p, [h]: (String(val).toUpperCase()==='O' ? '' : 'O')}))}
-                                                        style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'13px', fontWeight:700, backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer', textAlign:'left', color: String(val).toUpperCase()==='O' ? '#047857' : '#aaa' }}>
-                                                        {String(val).toUpperCase()==='O' ? '☑ O (제출)' : '☐ 미제출'}
-                                                    </button>
-                                                ) : isStatus ? (
-                                                    <select value={normalizeStatus(val)}
-                                                        onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                                                        style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
-                                                        <option value="">—</option>
-                                                        {DEFAULT_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                                    </select>
-                                                ) : isAssignee ? (
-                                                    <select value={val}
-                                                        onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                                                        style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
-                                                        <option value="">—</option>
-                                                        {ASSIGNEE_LIST.map(a => <option key={a} value={a}>{a}</option>)}
-                                                    </select>
-                                                ) : isDateCol(h) ? (
-                                                    <input type="date" value={toDateInputVal(val)}
-                                                        onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                                                        style={{ width:'100%', border:'none', outline:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}/>
-                                                ) : (
-                                                    <textarea value={val}
-                                                        onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                                                        rows={span2 ? 3 : 1}
-                                                        style={{ width:'100%', border:'none', outline:'none', resize:'none', padding:'4px 10px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', lineHeight:1.5 }}
-                                                        onFocus={e => e.target.style.backgroundColor='#fffde7'}
-                                                        onBlur={e => e.target.style.backgroundColor='transparent'}/>
-                                                )}
-                                            </div>
+                        {/* 전체 필드 편집 — 묶음별 섹션 (제목 줄 + 같은 묶음 가로 배치) */}
+                        <div className="overflow-y-auto flex-1 custom-scrollbar" style={{ padding:'14px 18px', display:'flex', flexDirection:'column', gap:14 }}>
+                            {sections.map((sec, si) => (
+                                <div key={si}>
+                                    {sec.label && (
+                                        <div style={{ fontSize:'12px', fontWeight:800, color:'#1e7ac8', borderBottom:'1.5px solid #cfe0f2', padding:'0 2px 4px', marginBottom:7 }}>
+                                            {sec.label}
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                    )}
+                                    <div style={{ display:'grid', gridTemplateColumns: sec.isGroup ? 'repeat(3, minmax(0,1fr))' : 'repeat(2, minmax(0,1fr))', gap:6 }}>
+                                        {sec.cols.map(h => renderField(h))}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
                         {/* 변경 이력 히스토리 박스 */}

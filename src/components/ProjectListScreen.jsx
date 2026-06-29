@@ -13,7 +13,7 @@ import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isDefaultHiddenCol, isProgHiddenCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -172,14 +172,40 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         return () => document.removeEventListener('mousedown', handler);
     }, [openFilter]);
 
+    // 날짜 표시 통일 — 비표준('6/8','5-21' 등)도 기준월 연도를 붙여 YYYY-MM-DD로 표준화.
+    //   표시·클릭편집·미변경판정에 공용. 데이터는 사용자가 수정 저장할 때만 표준값으로 바뀜 (2026-06-29)
+    const displayDate = (val) => {
+        const s = String(val ?? '').trim();
+        if (!s) return '';
+        const std = toDateInputVal(s);                   // YYYY-MM-DD / YYYY.M.D / YYMMDD → 표준
+        if (std) return std;
+        const md = s.match(/^(\d{1,2})[./-](\d{1,2})$/); // 'M/D','M-D','M.D' (연도 없음)
+        if (md) {
+            const yr = (baseDate && /\d{4}/.test(baseDate)) ? baseDate.match(/\d{4}/)[0] : String(new Date().getFullYear());
+            return `${yr}-${md[1].padStart(2,'0')}-${md[2].padStart(2,'0')}`;
+        }
+        return s;
+    };
+
+    // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 편집: % 떼고 숫자만. 데이터는 숫자로 저장 (2026-06-29 팀장님)
+    const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k=>s.includes(k)); };
+    const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
+    // 포인트 칸 — 메인표에서 '실적/만점' 형식. 만점=상세팝업 row['포인트'](고정), 실적=row['포인트실적'](메인표 입력/진행실적) 2026-06-29
+    const isPointCol = (h) => { const s = String(h).replace(/\s/g,''); return s === '포인트' || /^point$/i.test(s); };
+
     const getW = h => {
         if (colWidths[h]) return colWidths[h];
-        // '공사진행' 그룹 내 날짜 열 → 작게, 내용 열 → 크게
+        // 공사진행 % / O체크 칸들 — 그룹 멤버십 누락과 무관하게 60 통일 (헤더 기준).
+        //   도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI·자체/통합시운전·포인트 (2026-06-29 팀장님: 연관 칸 한 번에 통일)
+        const _hsw = String(h).replace(/\s/g, '');
+        const PROG_NARROW = ['도면입수', 'I/OMap', 'IOMap', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '시운전', '포인트', 'POINT'];
+        if (PROG_NARROW.some(k => _hsw.includes(k))) return 60;
+        // '공사진행' 그룹 내 날짜 열 → 80(YYYY-MM-DD 통일표시 수용), 내용 열 → 크게
         const inProgressGrp = activeColGroups.some(g =>
             (g.label?.includes('공사진행') || g.label?.includes('공사 진행')) && g.cols.includes(h)
         );
         if (inProgressGrp) {
-            if (isDateCol(h) || h.includes('날짜') || h.includes('일자')) return 38;
+            if (isDateCol(h) || h.includes('날짜') || h.includes('일자')) return 80;
             if (h.includes('내용') || h.includes('내역') || h.includes('비고')) return 210; // 긴 텍스트
             return 60; // PLC·ETOS·HMI·시운전·포인트 등 짧은 % 값 → 좁게 (2026-06-26)
         }
@@ -191,7 +217,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         if (h.includes('업체') && h.includes('담당자')) return 42;
         if (h.includes('발주처')) return 48;
         if (h.includes('담당자') && !h.includes('업체')) return 48;
-        if ((h.includes('Project') || h.includes('프로젝트')) && !isDateCol(h)) return 225;
+        if ((h.includes('Project') || h.includes('프로젝트')) && !isDateCol(h)) return 280;
         // 헤더 텍스트 기반 최소 폭 (한글 13px, 영문·숫자 8px + 여백 20px)
         const korCnt = (h.match(/[가-힣]/g) || []).length;
         const etcCnt = h.replace(/[가-힣]/g, '').length;
@@ -413,8 +439,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const commitCellEdit = async () => {
         if (!editingCell.id || !editingCell.key) return;
         const srcRow = activeRows.find(r => r._id === editingCell.id);
+        // 날짜 칸: 입력값이 원본(정규화)과 같으면 = 사용자가 안 바꾼 것 → 저장 스킵.
+        //   비표준 날짜('6/8','5/21' 등)는 toDateInputVal이 ''라, 클릭만 해도 빈칸으로 덮어써지던 버그 방지 (2026-06-29)
+        if (isDateCol(editingCell.key) && String(editingCell.value ?? '') === String(displayDate(srcRow?.[editingCell.key] ?? ''))) {
+            setEditingCell({ id: null, key: null, value: '' });
+            return;
+        }
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
-        const patch = { [editingCell.key]: editingCell.value };
+        // 포인트 칸 편집은 '실적'(포인트실적)에만 저장 — 만점(포인트)은 상세팝업 고정값이라 안 건드림 (2026-06-29)
+        const patch = isPointCol(editingCell.key)
+            ? { '포인트실적': editingCell.value }
+            : { [editingCell.key]: editingCell.value };
         const contentChanged = isProgressContentCol(editingCell.key)
             && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
         if (contentChanged) {
@@ -515,6 +550,32 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     };
 
     // ── 상세 화면 저장 ─────────────────────────────────────────────────────
+    // ── 진행실적 '적용하기' → 메인표 행(rows) 갱신 (List 안 동기화. 월간 monthlyData는 보류) 2026-06-29 ──
+    const applyProgressToMainRow = async (rowId, mainTable) => {
+        if (!rowId || !mainTable) return;
+        const srcRow = activeRows.find(r => r._id === rowId);
+        if (!srcRow) return;
+        const patch = {};
+        Object.entries(mainTable).forEach(([h, v]) => { if (v !== null && v !== undefined) patch[h] = String(v); });
+        if (!Object.keys(patch).length) return;
+        const changes = Object.keys(patch).map(k => ({ field: k, from: String(srcRow[k] ?? ''), to: String(patch[k]) })).filter(c => c.from !== c.to);
+        const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
+        try {
+            if (dataSource !== 'firebase') {
+                const updater = rows => rows.map(r => r._id === rowId ? { ...r, ...patch, _changeHistory: pushChangeHist(r, entry) } : r);
+                if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
+                if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
+            } else {
+                const { _id, ...rest } = srcRow;
+                await setDoc(rowDocRef(currentTeam, _id), { ...rest, ...patch, _changeHistory: pushChangeHist(srcRow, entry) });
+            }
+            setAlertMsg('✓ 진행실적이 메인표에 반영되었습니다 (' + Object.keys(patch).length + '개 항목)');
+            setTimeout(() => setAlertMsg(''), 3500);
+        } catch (e) {
+            setAlertMsg('메인표 반영 오류: ' + e.message);
+        }
+    };
+
     const saveDetailRow = async () => {
         if (!detailRow) return;
         // ⑨ 동시수정 보완 + ② 내용↔날짜:
@@ -926,10 +987,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     [activeColGroups, mainVisibleHeaders]);
 
     const hasMainGroups = mainVisibleGroups.some(g => g.label);
-    // '공사 진행' 묶음 범위 — 시인성용 경계선·배경 (2026-06-26)
+    // '공사 진행' 묶음 범위 — 짧은 값 중앙정렬 판정용 (강조 색·경계는 2026-06-29 제거)
     const _progGrp  = mainVisibleGroups.find(g => g.label && (g.label.includes('공사진행') || g.label.includes('공사 진행')));
-    const progFirst = _progGrp?.cols?.[0];
-    const progLast  = _progGrp?.cols?.[_progGrp.cols.length - 1];
     const isProgCol = (h) => !!_progGrp && _progGrp.cols.includes(h);
     const centerCol = (h) => isProgCol(h) && !String(h).replace(/\s/g,'').includes('내용'); // 짧은 % 값 → 중앙정렬
 
@@ -1150,7 +1209,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         return (
             <button onClick={() => requestSort(h)}
                 style={forceColor ? { color: isSortKey ? '#1e7ac8' : forceColor } : undefined}
-                className={`w-full truncate text-left font-bold hover:text-cyan-400 transition-colors leading-none py-0
+                className={`w-full ${small ? 'whitespace-normal break-words leading-tight' : 'truncate leading-none'} text-left font-bold hover:text-cyan-400 transition-colors py-0
                     ${szCls} ${colorCls}`}>
                 {h}
                 {isSortKey && (sortConfig.dir==='asc'
@@ -1164,7 +1223,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const srcBadge = {
         pending:  { bg: 'bg-amber-500/15 border-amber-500/50',  text: 'text-amber-300',  icon: <Clock size={14}/>,       label: '미저장 미리보기' },
         local:    { bg: 'bg-violet-500/15 border-violet-500/50', text: 'text-violet-300', icon: <HardDrive size={14}/>,   label: '로컬 임시 저장' },
-        firebase: { bg: 'bg-cyan-500/10 border-cyan-500/30',    text: 'text-cyan-400',   icon: <Database size={14}/>,    label: 'Firebase 클라우드' },
+        firebase: { bg: 'bg-cyan-500/10 border-cyan-500/30',    text: 'text-cyan-400',   icon: <Database size={14}/>,    label: '' },
     }[dataSource];
 
     // ─── 렌더 ──────────────────────────────────────────────────────────────
@@ -1351,10 +1410,6 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <Edit2 size={16} className="text-[#1e7ac8]"/> 상세/수정
                         </button>
-                        <button onClick={() => { openExecNoModal(contextMenu.row); setContextMenu(null); }}
-                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
-                            <FileText size={16} className="text-[#1e7ac8]"/> 프로젝트 연결 (실행번호+ID)
-                        </button>
                         <button onClick={() => { setProgressRow(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
@@ -1366,6 +1421,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             else { setAlertMsg(execNo ? '해당 실행번호의 월간보고 데이터를 찾을 수 없습니다.' : '먼저 실행번호를 등록해주세요.'); setContextMenu(null); }
                         }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
+                        </button>
+                        <button onClick={() => { openExecNoModal(contextMenu.row); setContextMenu(null); }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <FileText size={16} className="text-[#1e7ac8]"/> 프로젝트 연결 (실행번호+ID)
                         </button>
                         {contextMenu.row[EXEC_NO_COL] && onGoToPms && (
                             <>
@@ -1494,7 +1553,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         team={currentTeam}
                         subRows={subs}
                         baseDate={baseDate}
-                        onApplyToMonthly={(_, data) => onApplyProgressByPid?.(progressRow._pid, data)}
+                        onApplyToMonthly={(rowId, data) => { applyProgressToMainRow(rowId, data?.mainTable); onApplyProgressByPid?.(progressRow._pid, data); }}
                         onProgressSaved={onProgressSaved}
                         onClose={() => setProgressRow(null)}
                     />
@@ -1794,12 +1853,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             <>
                                 <div className="fixed inset-0 z-[55]" onClick={() => setSettingsOpen(false)}/>
                                 <div className="absolute right-0 mt-2 w-56 bg-white border border-[#c4ccd8] rounded-lg shadow-2xl overflow-hidden z-[60] py-2">
-                                    {/* 데이터 소스 표시 */}
+                                    {/* 데이터 소스 표시 — firebase(정상저장)일 땐 숨김, 미저장(pending/local)일 때만 경고용으로 표시 (2026-06-29) */}
+                                    {dataSource !== 'firebase' && (
                                     <div className={`px-4 py-2 border-b border-[#e5eaf3] mb-1 flex items-center gap-2 ${srcBadge.text}`}>
                                         {srcBadge.icon}
                                         <span className="text-[11px] font-bold">{srcBadge.label}</span>
-                                        {dataSource !== 'firebase' && <span className="text-[#aaa] text-[10px] ml-auto">{activeRows.length}행</span>}
+                                        <span className="text-[#aaa] text-[10px] ml-auto">{activeRows.length}행</span>
                                     </div>
+                                    )}
                                     {/* 로컬 임시 저장 (pending) */}
                                     {dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToLocal(); }}
@@ -1969,11 +2030,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         </div>
                     )}
                     <div className="overflow-auto flex-1 custom-scrollbar">
-                        <table className="w-full text-left border-collapse">
+                        <table className="text-left border-collapse" style={{ minWidth:'100%' }}>
                             <colgroup>
-                                <col style={{width:22}}/>
-                                {/* table-auto — 칸 너비는 내용에 맞춰 자동. 항목(칸)이 늘어도 글자 안 짤림 (2026-06-27) */}
-                                {mainVisibleHeaders.map(h => <col key={h} style={{ minWidth: getW(h) || 40 }}/>)}
+                                {/* (2026-06-29) 맨 앞 'No.칸' 잔재 <col width:22> 제거 — 이 빈 col이 모든 칸 너비를 한 칸씩 밀어, 도면입수에 옆 '내용' 칸(210px)이 적용되던 진짜 원인. Chrome 실측 확인(210→60). 칸 너비 = getW(h). */}
+                                {mainVisibleHeaders.map(h => <col key={h} style={{ width: getW(h) || 40, minWidth: getW(h) || 40 }}/>)}
                                 <col style={{width:120}}/>
                             </colgroup>
                             {(() => {
@@ -2017,7 +2077,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
                                                     className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
-                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
+                                                    style={{...(isStatusCol(h)?{}:{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
                                                     onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                                     {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
@@ -2026,15 +2086,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                             );
                                         }
                                         {
-                                            const isProgress = g.label?.includes('공사진행') || g.label?.includes('공사 진행');
                                             return (
                                             <th key={`g-${gi}`} colSpan={g.cols.length}
-                                                className={`${thPx} text-center border-b-2 border-r border-slate-400 ${isProgress?'prog-head':''}`}
-                                                style={isProgress
-                                                    ? { background:'#1e7ac8', borderBottomColor:'#1e3a8a', borderLeft:'4px solid #1e3a8a', borderRight:'4px solid #1e3a8a' }
-                                                    : { background:'var(--head-bg)', borderBottomColor:'var(--brand)' }}>
-                                                <span style={{ fontWeight:700, fontSize:11, letterSpacing:'0.05em',
-                                                    color: isProgress ? '#ffffff' : '#94a3b8' }}>{g.label}</span>
+                                                className={`${thPx} text-center border-b-2 border-r border-slate-400`}
+                                                style={{ background:'var(--head-bg)', borderBottomColor:'var(--brand)' }}>
+                                                <span style={{ fontWeight:700, fontSize:11, letterSpacing:'0.05em' }}>{g.label}</span>
                                             </th>
                                             );
                                         }
@@ -2062,16 +2118,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     <tr className="border-b border-slate-800">
                                         {mainVisibleGroups.map((g,gi) => {
                                             if (!g.label) return null;
-                                            const isProgress = g.label?.includes('공사진행') || g.label?.includes('공사 진행');
-                                            const subBg = isProgress ? '#c7ddf5' : 'var(--head-bg)';
                                             return g.cols.map((h,ci) => (
                                                 <th key={`sub-${gi}-${ci}`}
-                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''} ${isProgCol(h)?'prog-cell':''} ${h===progFirst?'prog-l':''} ${h===progLast?'prog-r':''}`}
-                                                    style={{...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:subBg, ...(centerCol(h)?{textAlign:'center'}:{}), ...(h===progFirst?{borderLeft:'4px solid #1e3a8a'}:{}), ...(h===progLast?{borderRight:'4px solid #1e3a8a'}:{})}}
+                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
                                                     onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
                                                     {isFilterable(h)
                                                         ? <ComboFilter h={h} small/>
-                                                        : <SortHeader h={h} small forceColor={isProgress ? '#1a1a1a' : undefined}/>}
+                                                        : <SortHeader h={h} small/>}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
@@ -2137,12 +2191,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                 <td key={h}
                                                     className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20 transition-colors
                                                         ${isPinH(h)?'border-r-2 border-blue-400/50':'border-r border-slate-400'}
-                                                        ${isProgCol(h)?'prog-cell':''} ${h===progFirst?'prog-l':''} ${h===progLast?'prog-r':''}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
                                                         ${isDateCol(h)?'text-slate-400 text-[11px]':'text-slate-300 text-[11px]'}
                                                         ${isHl?'bg-amber-950/20 text-amber-200':''}
                                                         ${isFrz(h)?'z-10':''}`}
-                                                    style={{...(isProgCol(h)&&!isHl&&!isFrz(h)?{background:'#d4e6f8'}:{}), ...(centerCol(h)?{textAlign:'center'}:{}), ...(h===progFirst?{borderLeft:'4px solid #1e3a8a'}:{}), ...(h===progLast?{borderRight:'4px solid #1e3a8a'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{})}}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{})}}
                                                     title={val||''}
                                                     onClick={e=>{
                                                         e.stopPropagation();
@@ -2164,9 +2217,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setVendorDropdown({ rowId: row._id, col: h, top: rect.bottom, left: rect.left, width: Math.max(rect.width, 140) });
                                                         } else if (isDateCol(h)) {
-                                                            setEditingCell({id:row._id,key:h,value:toDateInputVal(val)});
+                                                            setEditingCell({id:row._id,key:h,value:displayDate(val)});
+                                                        } else if (isPointCol(h)) {
+                                                            // 포인트 칸 클릭 → 만점(row['포인트']) 아닌 '실적'(포인트실적) 편집 (2026-06-29)
+                                                            setEditingCell({id:row._id,key:h,value: String(row['포인트실적'] ?? '')});
                                                         } else {
-                                                            setEditingCell({id:row._id,key:h,value:val||''});
+                                                            setEditingCell({id:row._id,key:h,value: isPctCol(h) ? String(val||'').replace(/%/g,'') : (val||'')});
                                                         }
                                                     }}>
                                                     {isStatusCol(h) && val ? (() => {
@@ -2182,7 +2238,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? (toDateInputVal(val) || val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : (val || <span className="text-slate-700">—</span>)}
+                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span className="text-slate-700">—</span>) : (val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}
@@ -2259,10 +2315,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                         </span>
+                        {dataSource !== 'firebase' && (
                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${srcBadge.bg} ${srcBadge.text}`}>
                             {srcBadge.icon}
                             <span>{srcBadge.label}</span>
                         </div>
+                        )}
                     </div>
                 </div>
             )}
