@@ -1267,9 +1267,9 @@ const TechTeamPMS = () => {
       );
   };
 
-  // ★ 진행실적(progressRecords) 전체 로드 — pms 모드 진입 시
+  // ★ 진행실적(progressRecords) 전체 로드 — pms(월간보고)·projectList(List) 모드 진입 시 (2026-07-06: List 그래프에서도 시운전 데이터 필요)
   useEffect(() => {
-      if (currentMode !== 'pms' || !currentTeam || !db) return;
+      if ((currentMode !== 'pms' && currentMode !== 'projectList') || !currentTeam || !db) return;
       (async () => {
           try {
               const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`));
@@ -1655,6 +1655,56 @@ const TechTeamPMS = () => {
           if (hasVal(md.intPoints))  intg[md.date] = safeNumber(md.intPoints);
       });
       return { self, intg };
+  };
+
+  // 진행실적(progressRecords)에서 월별 공정률(%) — List 진행실적 기반(월간보고 monthlyData 없어도 동작). (2026-07-06, 유닛 4/4 통과)
+  // 공정(plc/etos/hmi)=그 달 최신 누적%, 시운전(internalTest/integratedTest)=누적÷총점×100, applied 평균.
+  const getRecordMonthlyProgress = (p, totalPt) => {
+      const pick = (k) => { const r = k ? progressRecordsMap[k] : undefined; return r && !r._migratedTo ? r : undefined; };
+      const rec = pick(p.pid) || pick(p.execNo) || pick(String(p._id || p.id));
+      const weekly = rec && rec.weekly;
+      if (!weekly) return {};
+      const applied = getAppliedKeys(p);
+      if (!applied.length) return {};
+      const wkSet = new Set();
+      Object.values(weekly).forEach(obj => obj && Object.keys(obj).forEach(w => wkSet.add(w)));
+      const wkList = [...wkSet].filter(w => String(w).split('-').length >= 3).sort((a, b) => {
+          const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
+          return (pa[0]-pb[0]) || (pa[1]-pb[1]) || (pa[2]-pb[2]);
+      });
+      const monthOf = (w) => { const a = w.split('-'); return `${a[0]}-${String(Number(a[1])).padStart(2,'0')}`; };
+      const lastVal = { plc:0, etos:0, hmi:0 };
+      let selfAcc = 0, intAcc = 0;
+      const procByMonth = {}, commByMonth = {};
+      wkList.forEach(w => {
+          ['plc','etos','hmi'].forEach(k => {
+              const v = (weekly[k] || {})[w];
+              if (v !== undefined && v !== null && v !== '') lastVal[k] = Number(v) || 0;
+          });
+          let selfW = Number((weekly['commissioning'] || {})[w]) || 0;
+          let intW  = Number((weekly['intCommissioning'] || {})[w]) || 0;
+          Object.keys(weekly).forEach(key => {
+              if (/^sub_\d+_commissioning$/.test(key))    selfW += Number(weekly[key][w]) || 0;
+              if (/^sub_\d+_intCommissioning$/.test(key)) intW  += Number(weekly[key][w]) || 0;
+          });
+          selfAcc += selfW; intAcc += intW;
+          const mk = monthOf(w);
+          procByMonth[mk] = { plc: lastVal.plc, etos: lastVal.etos, hmi: lastVal.hmi };
+          commByMonth[mk] = { self: selfAcc, int: intAcc };
+      });
+      const result = {};
+      const months = [...new Set([...Object.keys(procByMonth), ...Object.keys(commByMonth)])];
+      months.forEach(mk => {
+          const proc = procByMonth[mk] || { plc:0, etos:0, hmi:0 };
+          const comm = commByMonth[mk] || { self:0, int:0 };
+          const valOf = (k) => {
+              if (k === 'internalTest')   return totalPt > 0 ? Math.min(100, comm.self / totalPt * 100) : 0;
+              if (k === 'integratedTest') return totalPt > 0 ? Math.min(100, comm.int  / totalPt * 100) : 0;
+              return Math.min(100, proc[k] || 0);
+          };
+          result[mk] = Math.round(applied.reduce((s, k) => s + valOf(k), 0) / applied.length);
+      });
+      return result;
   };
 
   // 누적/전월/금월 (자체·통합) — 화면 표, 내보내기, 셀 초기값 전부 이 함수 하나만 사용
@@ -4434,6 +4484,7 @@ const TechTeamPMS = () => {
       const totalPoints = Math.trunc(safeNumber(graphProject.totalCommissioningPoints ?? graphProject.point));
       const md = graphProject.monthlyData || [];
       const mergedSelfPts = getMergedPointsByMonth(graphProject).self; // 통일 계산기 (A→C→B)
+      const recMonthlyProgress = getRecordMonthlyProgress(graphProject, totalPoints); // List 진행실적 기반 공정률 (2026-07-06)
 
       // 시작일/완료일 기반 범위 (없으면 현재월 포함 12개월)
       const now = new Date();
@@ -4481,6 +4532,7 @@ const TechTeamPMS = () => {
                   progressPct = Math.round(applied.reduce((s, k) => s + safeNumber(mdEntry[k]), 0) / applied.length);
               }
           }
+          if (progressPct === 0 && recMonthlyProgress[dStr] != null) progressPct = recMonthlyProgress[dStr]; // List 전용: 진행실적 기반 공정률 (2026-07-06)
           runningAcc += monthPt;
           timeline.push({ date: dStr, showYear, monthPt, accPt: runningAcc, progressPct, hasData: monthPt > 0 || !!mdEntry });
           curr.setMonth(curr.getMonth() + 1);
@@ -4488,7 +4540,8 @@ const TechTeamPMS = () => {
 
       const totalAcc = runningAcc;
       const progressPercent = totalPoints > 0 ? Math.min(Math.round((totalAcc / totalPoints) * 100), 100) : 0;
-      return { timeline, totalPoints, totalAcc, progressPercent, startDateStr, endDateStr };
+      const lastProgress = [...timeline].reverse().find(t => t.hasData && t.progressPct > 0)?.progressPct ?? 0;
+      return { timeline, totalPoints, totalAcc, progressPercent, lastProgress, startDateStr, endDateStr };
   }, [graphProject, teamSettings, currentTeam, progressRecordsMap]);
 
   // ── 팀 전체 실적 그래프 데이터 ───────────────────────────────────────────
@@ -5568,6 +5621,7 @@ const TechTeamPMS = () => {
                   baseDate={baseDate}
                   onApplyProgressByPid={applyProgressByPid}
                   onProgressSaved={handleProgressSaved}
+                  teamSettings={teamSettings}
                   onShowGraph={(p) => setGraphProject(p)}
                   weeklyLinks={weeklyLinks}
                   weeklyPanel={weeklyPanel}
@@ -7287,11 +7341,11 @@ const TechTeamPMS = () => {
 
       {/* ── 실적 그래프 모달 ── */}
       {graphProject && graphData && (() => {
-          const { timeline, totalPoints, totalAcc, progressPercent, startDateStr, endDateStr } = graphData;
+          const { timeline, totalPoints, totalAcc, progressPercent, lastProgress, startDateStr, endDateStr } = graphData;
           const BAR_H = 260;
           const colW  = Math.max(56, Math.round(80 * chartZoom));
           const totalW = colW * timeline.length;
-          const _dataMax = Math.max(...timeline.map(t => t.accPt), 10);
+          const _dataMax = Math.max(...timeline.map(t => t.accPt), totalPoints, 10);
           const _unit = _dataMax <= 250 ? 50 : _dataMax <= 1000 ? 200 : _dataMax <= 5000 ? 1000 : 2000;
           const maxY = Math.ceil(_dataMax * 1.1 / _unit) * _unit;
 
@@ -7326,31 +7380,54 @@ const TechTeamPMS = () => {
                           </div>
                       </div>
 
-                      {/* 요약 배지 */}
-                      <div style={{display:'flex',gap:12,padding:'8px 16px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,flexWrap:'wrap',alignItems:'center'}}>
-                          {[
-                              {l:'총 Point',   v:`${totalPoints.toLocaleString()} pt`, c:'var(--brand)'},
-                              {l:'누적 실적',  v:`${totalAcc.toLocaleString()} pt`,    c:'#059669'},
-                              {l:'잔여',       v:`${Math.max(totalPoints-totalAcc,0).toLocaleString()} pt`, c:'#d97706'},
-                              {l:'달성률',     v:`${progressPercent}%`,                c: progressPercent>=100?'#dc2626':'var(--brand)'},
-                          ].map(({l,v,c}) => (
-                              <div key={l} style={{display:'flex',alignItems:'center',gap:6,padding:'3px 12px',border:`1px solid ${c}30`,background:`${c}08`}}>
-                                  <span style={{fontSize:11,color:'#888',fontWeight:600}}>{l}</span>
-                                  <span style={{fontSize:13,fontWeight:900,color:c}}>{v}</span>
+                      {/* 요약 대시보드 (인포그래픽) */}
+                      <div style={{display:'flex',gap:20,padding:'12px 20px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,alignItems:'center'}}>
+                          {/* 달성률 도넛 */}
+                          <div style={{position:'relative',width:92,height:92,flexShrink:0}}>
+                              <svg width="92" height="92" viewBox="0 0 92 92">
+                                  <circle cx="46" cy="46" r="38" fill="none" stroke="#e8eef4" strokeWidth="11"/>
+                                  <circle cx="46" cy="46" r="38" fill="none" stroke={progressPercent>=100?'#dc2626':'var(--brand)'} strokeWidth="11" strokeLinecap="round"
+                                      strokeDasharray={`${Math.min(progressPercent,100)/100*238.76} 238.76`} transform="rotate(-90 46 46)"/>
+                              </svg>
+                              <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+                                  <span style={{fontSize:21,fontWeight:800,color:progressPercent>=100?'#dc2626':'var(--brand)',lineHeight:1}}>{progressPercent}%</span>
+                                  <span style={{fontSize:10,color:'#8aa0b4',marginTop:2}}>달성률</span>
                               </div>
-                          ))}
-                          {/* 날짜 범위 */}
-                          {(startDateStr || endDateStr) && (
-                              <div style={{display:'flex',alignItems:'center',gap:6,padding:'3px 14px',border:'1px solid #64748b40',background:'#64748b0a',marginLeft:8}}>
-                                  <span style={{fontSize:11,color:'#888',fontWeight:600}}>기간</span>
-                                  <span style={{fontSize:13,fontWeight:900,color:'#1e3a5f'}}>
-                                      {startDateStr || '—'} ~ {endDateStr || '진행중'}
-                                  </span>
-                                  <span style={{fontSize:10,color:'#94a3b8',fontWeight:600,marginLeft:2}}>
-                                      ({timeline.length}개월)
-                                  </span>
+                          </div>
+                          {/* 진행 바 + 지표 */}
+                          <div style={{flex:1,minWidth:0}}>
+                              <div style={{marginBottom:10}}>
+                                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:700,color:'#5b6b7a',marginBottom:4}}>
+                                      <span>총점 대비 진행</span>
+                                      <span style={{color:'#dc2626'}}>총점 {totalPoints.toLocaleString()} pt</span>
+                                  </div>
+                                  <div style={{position:'relative',height:22,borderRadius:11,background:'#eef3f8',overflow:'hidden'}}>
+                                      <div style={{height:'100%',width:`${Math.min(progressPercent,100)}%`,borderRadius:11,background:progressPercent>=100?'#dc2626':'var(--brand)',display:'flex',alignItems:'center',paddingLeft:10,minWidth:44,boxSizing:'border-box'}}>
+                                          <span style={{fontSize:11,fontWeight:800,color:'#fff',whiteSpace:'nowrap'}}>{totalAcc.toLocaleString()} pt</span>
+                                      </div>
+                                  </div>
                               </div>
-                          )}
+                              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#f0f9f2'}}>
+                                      <div style={{fontSize:10,color:'#5b7a63',fontWeight:600}}>누적 실적</div>
+                                      <div style={{fontSize:15,fontWeight:800,color:'#059669'}}>{totalAcc.toLocaleString()} <span style={{fontSize:10,fontWeight:600}}>pt</span></div>
+                                  </div>
+                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#fff7ed'}}>
+                                      <div style={{fontSize:10,color:'#7a5b16',fontWeight:600}}>잔여</div>
+                                      <div style={{fontSize:15,fontWeight:800,color:'#d97706'}}>{Math.max(totalPoints-totalAcc,0).toLocaleString()} <span style={{fontSize:10,fontWeight:600}}>pt</span></div>
+                                  </div>
+                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#f0f6fb'}}>
+                                      <div style={{fontSize:10,color:'#3b6182',fontWeight:600}}>공정률 (금월)</div>
+                                      <div style={{fontSize:15,fontWeight:800,color:'#1e7ac8'}}>{lastProgress} <span style={{fontSize:10,fontWeight:600}}>%</span></div>
+                                  </div>
+                                  {(startDateStr || endDateStr) && (
+                                      <div style={{flex:'2 1 160px',padding:'5px 12px',borderRadius:8,background:'#f0f6fb'}}>
+                                          <div style={{fontSize:10,color:'#3b6182',fontWeight:600}}>기간 ({timeline.length}개월)</div>
+                                          <div style={{fontSize:13,fontWeight:800,color:'#1e3a5f'}}>{startDateStr || '—'} ~ {endDateStr || '진행중'}</div>
+                                      </div>
+                                  )}
+                              </div>
+                          </div>
                       </div>
 
                       {/* 범례 */}
@@ -7409,12 +7486,25 @@ const TechTeamPMS = () => {
                                                   fill="none" stroke="rgba(30,122,200,0.7)" strokeWidth={2} strokeDasharray="5,2"
                                               />
                                           )}
-                                          {timeline.length > 1 && (
-                                              <polyline
-                                                  points={timeline.map((t,i) => `${i*colW + colW/2},${yTick((t.progressPct/100)*maxY)}`).join(' ')}
-                                                  fill="none" stroke="rgba(5,150,105,0.7)" strokeWidth={2}
-                                              />
-                                          )}
+                                          {(() => {
+                                              const pts = timeline.map((t,i) => ({i,t})).filter(o => o.t.progressPct > 0);
+                                              if (pts.length === 0) return null;
+                                              const cx = o => o.i*colW + colW/2;
+                                              const cy = o => yTick((o.t.progressPct/100)*maxY);
+                                              return (
+                                                  <g>
+                                                      {pts.length >= 2 && (
+                                                          <polyline points={pts.map(o => `${cx(o)},${cy(o)}`).join(' ')} fill="none" stroke="rgba(5,150,105,0.85)" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"/>
+                                                      )}
+                                                      {pts.map(o => (
+                                                          <g key={o.i}>
+                                                              <circle cx={cx(o)} cy={cy(o)} r={4.5} fill="#059669" stroke="#fff" strokeWidth={2}/>
+                                                              <text x={cx(o)} y={cy(o)-9} fontSize="10" fontWeight="800" fill="#059669" textAnchor="middle">{o.t.progressPct}%</text>
+                                                          </g>
+                                                      ))}
+                                                  </g>
+                                              );
+                                          })()}
                                       </svg>
 
                                       {/* 월별 컬럼 */}
@@ -7457,7 +7547,7 @@ const TechTeamPMS = () => {
                               {/* 총 Point 기준선 레이블 */}
                               {totalPoints > 0 && (
                                   <div style={{minWidth:totalW+96,padding:'4px 16px 8px 72px',fontSize:11,color:'#dc2626',fontWeight:700}}>
-                                      ── 총 Point 기준: {totalPoints.toLocaleString()} pt (초과 시 빨간 막대)
+                                      ── 총점 기준: {totalPoints.toLocaleString()} pt (초과 시 빨간 막대)
                                   </div>
                               )}
                           </div>

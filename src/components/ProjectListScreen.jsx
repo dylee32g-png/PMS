@@ -23,7 +23,13 @@ const VERSION = 'v6.8.7';
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
-    baseDate = '', onApplyProgressByPid, onProgressSaved }) => {
+    baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings }) => {
+    // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선, 없으면 하드코딩 폴백. List 상태는 월간보고 status와 별개 (2026-07-06 2단계: 구조 정정)
+    const _teamCfg = currentTeam ? (teamSettings?.[currentTeam] || null) : null;
+    const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : DEFAULT_STATUS_OPTIONS;
+    const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : ASSIGNEE_LIST;
+    const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ...STATUS_CHIP_COLORS, ..._teamCfg.listStatusColors } : STATUS_CHIP_COLORS;
+    const [statusMgr, setStatusMgr] = useState(null); // 진행현황 관리 모달 — 편집 중 상태이름 배열(null=닫힘) (2026-07-06 2단계)
     // ── Firebase 데이터 ──
     const [fbHeaders,   setFbHeaders]   = useState([]);
     const [fbColGroups, setFbColGroups] = useState([]);
@@ -198,6 +204,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         // 공사진행 % / O체크 칸들 — 그룹 멤버십 누락과 무관하게 60 통일 (헤더 기준).
         //   도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI·자체/통합시운전·포인트 (2026-06-29 팀장님: 연관 칸 한 번에 통일)
         const _hsw = String(h).replace(/\s/g, '');
+        if (_hsw.includes('포인트') || /POINT/i.test(_hsw)) return 88;
         const PROG_NARROW = ['도면입수', 'I/OMap', 'IOMap', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '시운전', '포인트', 'POINT'];
         if (PROG_NARROW.some(k => _hsw.includes(k))) return 60;
         // '공사진행' 그룹 내 날짜 열 → 80(YYYY-MM-DD 통일표시 수용), 내용 열 → 크게
@@ -576,6 +583,52 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         }
     };
 
+    // 진행실적 백지 초기화 — progressRecords 주차값 + 메인표(List 행) 반영 필드 모두 비움 (2026-07-06)
+    const PROGRESS_RESET_FIELDS = ['자체시운전','통합시운전','포인트실적','포인트소스','도면입수','I/O Map','화면작성','기준정보','PLC','ETOS','HMI'];
+    const handleResetProgress = async (row) => {
+        if (!row) return;
+        const nm = row['프로젝트명'] || row['프로젝트'] || row['Project'] || row['공사명'] || '이 프로젝트';
+        if (!window.confirm(`[${nm}]\n\n진행실적(주차 입력)과 메인표 반영값(공정률·시운전·포인트)을 모두 지워 백지로 만듭니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+        const _id = row._id;
+        const pid = row._pid;
+        try {
+            if (pid) {
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, pid), { weekly: {}, updatedAt: new Date().toISOString(), _clearedAt: new Date().toISOString() });
+                // 연결된 월간보고(projects)의 monthlyData도 비움 — 그래프가 여기서도 시운전/공정 포인트를 읽기 때문 (2026-07-06)
+                const linkedM = allProjects ? allProjects.find(p => p.pid === pid) : null;
+                if (linkedM && linkedM.id != null) {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', String(linkedM.id)), { monthlyData: [], monthlyPoints: [] }, { merge: true });
+                }
+            }
+            if (dataSource !== 'firebase') {
+                const updater = rows => rows.map(r => { if (r._id !== _id) return r; const c = { ...r }; PROGRESS_RESET_FIELDS.forEach(f => delete c[f]); return c; });
+                if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
+                if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
+            } else {
+                const { _id: _drop, ...rest } = row;
+                PROGRESS_RESET_FIELDS.forEach(f => delete rest[f]);
+                await setDoc(rowDocRef(currentTeam, _id), rest);
+            }
+            setAlertMsg('✓ 진행실적을 백지로 초기화했습니다 — ' + nm);
+            setTimeout(() => setAlertMsg(''), 3500);
+        } catch (e) {
+            setAlertMsg('초기화 오류: ' + e.message);
+        }
+    };
+
+    // 진행현황 관리 저장 — List 전용 상태목록을 teamSettings[팀].listStatus로 저장(onSnapshot이 App.js 자동 갱신) (2026-07-06 2단계)
+    const saveStatusMgr = async () => {
+        if (!statusMgr || !currentTeam) return;
+        const labels = statusMgr.map(s => String(s).trim()).filter(Boolean);
+        if (!labels.length) { setAlertMsg('진행현황을 1개 이상 남겨주세요'); return; }
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: { listStatus: labels } }, { merge: true });
+            setAlertMsg('✓ 진행현황 목록 저장됨 (' + labels.length + '개)');
+            setStatusMgr(null);
+            setTimeout(() => setAlertMsg(''), 3000);
+        } catch (e) { setAlertMsg('저장 오류: ' + e.message); }
+    };
+
     const saveDetailRow = async () => {
         if (!detailRow) return;
         // ⑨ 동시수정 보완 + ② 내용↔날짜:
@@ -875,8 +928,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             if (v) countMap[v] = (countMap[v] || 0) + 1;
         });
         return Object.entries(countMap).sort((a, b) => {
-            const ai = DEFAULT_STATUS_OPTIONS.indexOf(a[0]);
-            const bi = DEFAULT_STATUS_OPTIONS.indexOf(b[0]);
+            const ai = STATUS_OPTIONS.indexOf(a[0]);
+            const bi = STATUS_OPTIONS.indexOf(b[0]);
             if (ai === -1 && bi === -1) return b[1] - a[1];
             if (ai === -1) return 1;
             if (bi === -1) return -1;
@@ -1016,15 +1069,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         let entries;
         if (isAssigneeH) {
             // 담당자: ASSIGNEE_LIST 순서로, 이름 기준 카운트
-            entries = ASSIGNEE_LIST
+            entries = ASSIGNEES
                 .map(name => [name, assigneeCountMap[extractName(name)] || 0])
                 .filter(([, cnt]) => cnt > 0);
         } else {
             const countMap = uniqueVals[h] || {};
             entries = Object.entries(countMap).sort((a, b) => {
                 if (isStatusH) {
-                    const ai = DEFAULT_STATUS_OPTIONS.indexOf(a[0]);
-                    const bi = DEFAULT_STATUS_OPTIONS.indexOf(b[0]);
+                    const ai = STATUS_OPTIONS.indexOf(a[0]);
+                    const bi = STATUS_OPTIONS.indexOf(b[0]);
                     if (ai !== -1 || bi !== -1) {
                         if (ai === -1) return 1;
                         if (bi === -1) return -1;
@@ -1293,9 +1346,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8' }}>
                         {(() => {
                             const colVals = [...new Set(activeRows.map(r => String(r[statusDropdown.col]||'').trim()).filter(Boolean))];
-                            const merged  = [...new Set([...DEFAULT_STATUS_OPTIONS, ...colVals])];
+                            const merged  = [...new Set([...STATUS_OPTIONS, ...colVals])];
                             return merged.map(s => {
-                                const c = STATUS_CHIP_COLORS[s] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)', activeBg:'#475569' };
+                                const c = STATUS_COLORS[s] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)', activeBg:'#475569' };
                                 const isCur = String(activeRows.find(r=>r._id===statusDropdown.rowId)?.[statusDropdown.col]||'') === s;
                                 return (
                                     <button key={s}
@@ -1323,7 +1376,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
                         style={{ top: assigneeDropdown.top + 2, left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 160),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
-                        {ASSIGNEE_LIST.map(name => {
+                        {ASSIGNEES.map(name => {
                             const curRaw = activeRows.find(r=>r._id===assigneeDropdown.rowId)?.[assigneeDropdown.col]||'';
                             const isCur = extractName(normalizeAssignee(curRaw)) === extractName(name);
                             return (
@@ -1415,17 +1468,36 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
                         </button>
                         <button onClick={() => {
-                            const execNo = contextMenu.row[EXEC_NO_COL];
-                            const match = execNo && allProjects ? allProjects.find(p => String(p.execNo) === String(execNo)) : null;
-                            if (match && onShowGraph) { onShowGraph(match); setContextMenu(null); }
-                            else { setAlertMsg(execNo ? '해당 실행번호의 월간보고 데이터를 찾을 수 없습니다.' : '먼저 실행번호를 등록해주세요.'); setContextMenu(null); }
+                            const row = contextMenu.row;
+                            const pid = row._pid;
+                            const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '프로젝트';
+                            if (!pid) { setAlertMsg('이 프로젝트는 내부 ID가 없어 그래프를 열 수 없습니다. (상세/수정에서 한 번 저장하면 발급됩니다)'); setContextMenu(null); return; }
+                            // pid 전환(2026-07-06): 실행번호 대신 pid로. 연결된 월간보고가 있으면 그 월별데이터(공정률)까지,
+                            //   없으면 List 행 + 진행실적(pid)으로 시운전 포인트 추이를 그림.
+                            const linked = allProjects ? allProjects.find(p => p.pid === pid) : null;
+                            const graphObj = {
+                                ...(linked || {}),
+                                pid,
+                                execNo: row[EXEC_NO_COL] || linked?.execNo,
+                                project: nm,
+                                totalCommissioningPoints: Number(row['포인트']) || linked?.totalCommissioningPoints || linked?.point || 0,
+                                point: Number(row['포인트']) || linked?.point || 0,
+                                monthlyData: linked?.monthlyData || [],
+                            };
+                            if (onShowGraph) onShowGraph(graphObj);
+                            setContextMenu(null);
                         }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
+                        {/* 프로젝트 연결 — '월간보고로 넘기기'가 기본 경로가 되면서 평소엔 숨김.
+                            옛 월간보고 잇기·끊긴 연결 복구용으로 기능(openExecNoModal/saveExecNo)은 보관.
+                            관리자에게 노출하려면 아래 false를 조건으로 교체 (2026-07-06) */}
+                        {false && (
                         <button onClick={() => { openExecNoModal(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <FileText size={16} className="text-[#1e7ac8]"/> 프로젝트 연결 (실행번호+ID)
                         </button>
+                        )}
                         {contextMenu.row[EXEC_NO_COL] && onGoToPms && (
                             <>
                                 <div className="border-t border-[#e5eaf3] my-1"/>
@@ -1437,6 +1509,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 </button>
                             </>
                         )}
+                        {/* 진행실적 초기화(백지) — TODO: 로그인 등급 구현 후 '관리자만' 표시. 삭제 말고 유지(테스트값 정리·잘못입력 리셋에도 유용), 일반 로그인엔 안 보이게 (2026-07-06 팀장님 방향) */}
+                        <div className="border-t border-[#e5eaf3] my-1"/>
+                        <button onClick={() => { handleResetProgress(contextMenu.row); setContextMenu(null); }}
+                            className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-[#dc2626] transition-colors">
+                            <Trash2 size={16}/> 진행실적 초기화 (백지)
+                        </button>
                     </div>
                 </>
             )}
@@ -1637,14 +1715,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     input = (
                                         <select value={val} onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))} style={inSt}>
                                             <option value="">-- 선택 --</option>
-                                            {DEFAULT_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
                                     );
                                 } else if (isAssigneeCol(h)) {
                                     input = (
                                         <select value={val} onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))} style={inSt}>
                                             <option value="">-- 선택 --</option>
-                                            {ASSIGNEE_LIST.map(a => <option key={a} value={a}>{a}</option>)}
+                                            {ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
                                         </select>
                                     );
                                 } else if (isDateCol(h)) {
@@ -1731,6 +1809,36 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 </div>
             )}
 
+            {/* 진행현황 관리 모달 (2026-07-06 2단계) */}
+            {statusMgr && (
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setStatusMgr(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-[420px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-5 py-3" style={{background:'#1e7ac8',color:'#fff'}}>
+                            <span className="font-bold text-sm flex items-center gap-2"><ListChecks size={16}/> 진행현황 관리</span>
+                            <button onClick={() => setStatusMgr(null)} style={{background:'none',border:'none',color:'#fff',cursor:'pointer'}}><X size={16}/></button>
+                        </div>
+                        <div className="px-4 py-2 text-[11px] text-slate-500 bg-slate-50 border-b border-slate-200">칩·필터·드롭다운에 쓰이는 List 진행현황 목록 (월간보고와 별개). 위아래 순서 = 표시 순서.</div>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            {statusMgr.map((s, i) => (
+                                <div key={i} className="flex items-center gap-1.5">
+                                    <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
+                                    <input value={s} onChange={e => setStatusMgr(arr => arr.map((x,j) => j===i ? e.target.value : x))}
+                                        className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none focus:border-[#1e7ac8]" placeholder="상태 이름"/>
+                                    <button onClick={() => setStatusMgr(arr => { if(i<=0) return arr; const a=[...arr]; const t=a[i-1]; a[i-1]=a[i]; a[i]=t; return a; })} disabled={i===0} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↑</button>
+                                    <button onClick={() => setStatusMgr(arr => { if(i>=arr.length-1) return arr; const a=[...arr]; const t=a[i+1]; a[i+1]=a[i]; a[i]=t; return a; })} disabled={i===statusMgr.length-1} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↓</button>
+                                    <button onClick={() => setStatusMgr(arr => arr.filter((_,j) => j!==i))} className="px-1.5 text-rose-500 font-bold">✕</button>
+                                </div>
+                            ))}
+                            <button onClick={() => setStatusMgr(arr => [...arr, ''])}
+                                className="w-full border border-dashed border-[#1e7ac8] text-[#1e7ac8] rounded py-1.5 text-xs font-bold hover:bg-blue-50">+ 새 진행현황 추가</button>
+                        </div>
+                        <div className="flex gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
+                            <button onClick={saveStatusMgr} className="flex-1 bg-emerald-600 text-white rounded py-2 text-sm font-bold hover:bg-emerald-700">저장</button>
+                            <button onClick={() => setStatusMgr(null)} className="px-5 bg-slate-200 text-slate-700 rounded py-2 text-sm font-bold hover:bg-slate-300">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
@@ -1744,26 +1852,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
                             {currentTeam} 프로젝트 List
                         </h1>
-                        {/* 월별 보기 — 월간보고 기준월과 동일 형식 (연도 드롭다운 대체) */}
+                        {/* 연도 선택 — 월선택기·그달만/이전전체 토글을 연도 선택기로 단순화 (2026-07-06, List 실제 필터는 연도만) */}
                         <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0">
                             <Calendar size={11} className="text-[#1e7ac8] mr-1" />
-                            <span className="text-[11px] font-bold text-gray-500 mr-1">기준월:</span>
-                            <input
-                                type="month"
-                                value={viewMonth}
-                                onChange={e => { const v = e.target.value; setViewMonth(v); const y = v.slice(0, 4); if (y && y !== selectedYear) { setSelectedYear(y); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); } }}
-                                className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer"
-                            />
-                        </div>
-                        <div className="flex items-center rounded-md overflow-hidden border border-[#1e7ac8]/40 text-[11px] font-bold shrink-0">
-                            <button onClick={() => setMonthMode('single')}
-                                className={`px-2 py-1 transition-all ${monthMode === 'single' ? 'bg-[#1e7ac8] text-white' : 'text-[#1e7ac8] hover:bg-[#1e7ac8]/10'}`}>
-                                그 달만
-                            </button>
-                            <button onClick={() => setMonthMode('cumul')}
-                                className={`px-2 py-1 transition-all border-l border-[#1e7ac8]/40 ${monthMode === 'cumul' ? 'bg-[#1e7ac8] text-white' : 'text-[#1e7ac8] hover:bg-[#1e7ac8]/10'}`}>
-                                이전 전체
-                            </button>
+                            <span className="text-[11px] font-bold text-gray-500 mr-1">기준연도:</span>
+                            <select
+                                value={selectedYear}
+                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); }}
+                                className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer">
+                                {(availableYears.length ? availableYears : [selectedYear]).map(y => <option key={y} value={y}>{y}년</option>)}
+                            </select>
                         </div>
                         <span className="text-[11px] text-slate-500 whitespace-nowrap">
                             <span className="text-emerald-400 font-bold">{sortedRows.length}</span>
@@ -1907,6 +2005,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
+                                    {/* 진행현황 관리 (2026-07-06 2단계) */}
+                                    <button onClick={() => { setSettingsOpen(false); setStatusMgr([...STATUS_OPTIONS]); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
+                                    </button>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 열 표시/숨기기 */}
                                     <button onClick={() => setColDropOpen(v=>!v)}
                                         className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenCols.size>0?'text-rose-600':'text-[#333]'}`}>
@@ -1935,7 +2039,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         </div>
                                     )}
                                     <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 디버그 */}
+                                    {/* 디버그 모드 — TODO: 로그인 등급(관리자/일반) 구현 후 '관리자만' 표시. 지금은 유지, 일반 로그인엔 안 보이게 (2026-07-06 팀장님) */}
                                     <button onClick={() => { setSettingsOpen(false); setShowDebug(v=>!v); }}
                                         className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors border-b border-[#e5eaf3] ${showDebug?'text-emerald-600':'text-[#333]'}`}>
                                         <TerminalSquare size={14}/> 디버그 모드
@@ -1985,7 +2089,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             </button>
                             {statusChipData.map(([status, count]) => {
                                 const isActive = activeStatusChips.has(status);
-                                const c = STATUS_CHIP_COLORS[status] || { bg: 'rgba(100,116,139,0.12)', text: '#475569', border: 'rgba(100,116,139,0.4)', activeBg: '#475569', activeText: '#fff' };
+                                const c = STATUS_COLORS[status] || { bg: 'rgba(100,116,139,0.12)', text: '#475569', border: 'rgba(100,116,139,0.4)', activeBg: '#475569', activeText: '#fff' };
                                 return (
                                     <button key={status}
                                         onClick={() => setActiveStatusChips(prev => { const next = new Set(prev); if (next.has(status)) next.delete(status); else next.add(status); return next; })}
@@ -2009,7 +2113,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     style={{ padding: '3px 8px', fontSize: '11px', fontWeight: activeAssignees.size === 0 ? 800 : 600, backgroundColor: activeAssignees.size === 0 ? 'rgba(30,122,200,0.12)' : '#fff', color: activeAssignees.size === 0 ? '#1358a0' : '#888', border: activeAssignees.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer' }}>
                                     전체
                                 </button>
-                                {ASSIGNEE_LIST.map(name => {
+                                {ASSIGNEES.map(name => {
                                     const isActive = activeAssignees.has(name);
                                     return (
                                         <button key={name}
@@ -2228,7 +2332,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                     {isStatusCol(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;
-                                                        const c = STATUS_CHIP_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
+                                                        const c = STATUS_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
                                                         const _m = mapLegacyStatus(nv);
                                                         return (
                                                             <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
@@ -2238,7 +2342,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span className="text-slate-700">—</span>) : (val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
+                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? ((Number(row['포인트실적'])||0) > (Number(val)||0) ? <span title={`총점 ${val} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span>) : <span className="text-slate-700">—</span>) : (val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}

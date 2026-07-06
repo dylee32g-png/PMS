@@ -715,7 +715,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     );
                 })}
                 <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color: total>0?color:'var(--line)', background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
-                    {total > 0 ? (useMax ? `${total}%` : total) : (useMax ? '' : 0)}
+                    {total > 0 ? ((!useMax && totalPt > 0 && total > totalPt)
+                        ? <span title={`총점 ${totalPt} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{ color:'#dc2626', background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:4, padding:'0 5px', fontWeight:800, whiteSpace:'nowrap' }}>⚠ {total}</span>
+                        : (useMax ? `${total}%` : total)) : (useMax ? '' : 0)}
                 </td>
             </tr>
         );
@@ -828,7 +830,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 })}
                 <td style={{ ...TD, padding:'0 8px', fontWeight:800, fontSize:14, color: grandTotal>0?color:'var(--line)',
                     background: bgHead, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
-                    {grandTotal > 0 ? grandTotal : ''}
+                    {grandTotal > 0 ? ((totalPt > 0 && grandTotal > totalPt)
+                        ? <span title={`총점 ${totalPt} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{ color:'#dc2626', background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:4, padding:'0 5px', fontWeight:800, whiteSpace:'nowrap' }}>⚠ {grandTotal}</span>
+                        : grandTotal) : ''}
                 </td>
             </tr>
         );
@@ -1064,6 +1068,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
                     <input type="file" accept=".xlsx,.xls" ref={weeklyFileRef} style={{ display:'none' }} onChange={handleWeeklyFile}/>
+                    {/* 주간보고 적용 — 주간보고 라인 사용 미정(보류)이라 숨김. 기능(handleWeeklyLinked/handleWeeklyFile 등)은 보관.
+                        주간보고 사용 확정 시 아래 false를 조건으로 교체 (2026-07-06) */}
+                    {false && (
                     <button
                         onClick={() => setShowWPanel(p => !p)}
                         style={{ background: showWPanel ? '#dbeafe' : '#f1f5f9', border:'1px solid #c7d2fe',
@@ -1072,13 +1079,14 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         title="주간보고 Excel에서 실적 가져오기">
                         주간보고 적용
                     </button>
+                    )}
                     <button onClick={() => setMinimized(p => !p)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', padding:2, display:'flex' }}><Minus size={13}/></button>
                     <button onClick={onClose}                     style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', padding:2, display:'flex' }}><X size={13}/></button>
                 </div>
             </div>
 
-            {/* 주간보고 적용 컨트롤 패널 */}
-            {showWPanel && (
+            {/* 주간보고 적용 컨트롤 패널(기간·파일선택) — 버튼과 함께 숨김 (2026-07-06, 주간보고 보류) */}
+            {false && showWPanel && (
                 <div style={{ flexShrink:0, background:'#eff6ff', borderBottom:'2px solid #bfdbfe',
                     padding:'8px 18px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
                     <span style={{ fontSize:11, fontWeight:800, color:'var(--brand)' }}>기간</span>
@@ -1307,15 +1315,19 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             <span style={{ color:'#b45309', fontSize:11 }}>적용할 데이터가 없습니다 ({applyConfirm.month}월 입력값 확인)</span>
                         )}
                     </div>
-                    {(applyConfirm.selfPts > 0 || applyConfirm.intPts > 0) && (
+                    {(applyConfirm.selfPts > 0 || applyConfirm.intPts > 0) && (() => {
+                        const _v = pointSource==='int' ? (applyConfirm.accIntPts||0) : (applyConfirm.accSelfPts||0);
+                        const _over = totalPt>0 && _v>totalPt;
+                        return (
                         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap' }}>
                             <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>메인표 포인트(왼쪽 실적):</span>
-                            <span style={{ background:'#16a34a', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 12px', borderRadius:5 }}>
-                                {pointSource==='int' ? '통합' : '자체'}시운전 {pointSource==='int' ? (applyConfirm.accIntPts||0) : (applyConfirm.accSelfPts||0)}pt
+                            <span style={{ background: _over?'#dc2626':'#16a34a', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 12px', borderRadius:5 }}>
+                                {_over?'⚠ ':''}{pointSource==='int' ? '통합' : '자체'}시운전 {_v}pt{_over?` / 총점 ${totalPt} 초과`:''}
                             </span>
                             <span style={{ fontSize:10, color:'#92400e' }}>(아래 [자체]/[통합] 버튼으로 변경)</span>
                         </div>
-                    )}
+                        );
+                    })()}
                     <div style={{ display:'flex', gap:8 }}>
                         <button onClick={handleApplyConfirm} disabled={applying}
                             style={{ background: applying?'#16a34a99':'#16a34a', border:'none', borderRadius:6, color:'#fff', fontSize:12, fontWeight:800, padding:'5px 20px', cursor: applying?'default':'pointer' }}>
@@ -1328,6 +1340,23 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     </div>
                 </div>
             )}
+
+            {onApplyToMonthly && (() => {
+                const _sum = (base) => subRows.length > 0
+                    ? subRows.reduce((s,_,i)=>s+Object.values(weeklyData[`sub_${i}_${base}`]||{}).reduce((a,v)=>a+(Number(v)||0),0),0)
+                    : Object.values(weeklyData[base]||{}).reduce((a,v)=>a+(Number(v)||0),0);
+                const _self = _sum('commissioning'), _int = _sum('intCommissioning');
+                const _so = totalPt>0 && _self>totalPt, _io = totalPt>0 && _int>totalPt;
+                if (!_so && !_io) return null;
+                const _p = [];
+                if (_so) _p.push(`자체시운전 ${_self}`);
+                if (_io) _p.push(`통합시운전 ${_int}`);
+                return (
+                    <div style={{ flexShrink:0, padding:'8px 18px', background:'#fef2f2', borderTop:'2px solid #dc2626', display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ fontSize:12, fontWeight:800, color:'#b91c1c', lineHeight:1.4 }}>⚠ {_p.join(' · ')} 포인트가 총점 {totalPt}을(를) 초과했습니다 — 주차값 또는 총점 설정을 확인하세요.</span>
+                    </div>
+                );
+            })()}
 
             {/* 푸터 */}
             <div style={{ flexShrink:0, padding:'10px 18px', borderTop:BORDER, background:'#f8fafc', borderRadius:'0 0 14px 14px', display:'flex', alignItems:'center', gap:8 }}>
