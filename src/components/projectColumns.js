@@ -64,7 +64,10 @@ export const ASSIGNEE_NORMALIZE = {
     '김수민K':'김수민C','김윤재CJ':'김윤재C',
 };
 export const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] || String(v||'');
-export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim();
+// 순수 한글 이름만 추출 — 목록↔데이터 꼬리표 통일용 (2026-07-07).
+//   뒤 영문코드 떼기(김준혁TL→김준혁) + 띄어쓰기 앞부분만(김준혁 팀장→김준혁, 최영환 담당→최영환).
+//   목록 '김준혁TL'과 데이터 '김준혁 팀장'을 같은 '김준혁'으로 맞춰 필터·카운트·잠금이 동작하게 함.
+export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim().split(/\s+/)[0] || '';
 
 // 진행현황 표기 통일 (HOLD → Hold). 표시·필터에서 대소문자 통일용 (데이터는 안 바꿈)
 export const normalizeStatus = v => String(v ?? '').toUpperCase() === 'HOLD' ? 'Hold' : String(v ?? '');

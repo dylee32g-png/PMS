@@ -6,7 +6,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off
+    PanelRight, Link, Link2Off, Users
 } from 'lucide-react';
 import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -30,6 +30,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : ASSIGNEE_LIST;
     const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ...STATUS_CHIP_COLORS, ..._teamCfg.listStatusColors } : STATUS_CHIP_COLORS;
     const [statusMgr, setStatusMgr] = useState(null); // 진행현황 관리 모달 — 편집 중 상태이름 배열(null=닫힘) (2026-07-06 2단계)
+    const [statusMgrOrig, setStatusMgrOrig] = useState([]); // 열 때의 원본 이름들 — '기존 이름 잠금' 판별용 (2026-07-07 안전안: 이름수정 금지, 추가·삭제만)
+    const [managerMgr, setManagerMgr] = useState(null); // 담당자 관리 모달 — 편집 중 이름 배열(null=닫힘) (2026-07-07 3단계)
+    const [managerMgrOrig, setManagerMgrOrig] = useState([]); // 열 때의 원본 담당자들 — 잠금 판별용 (2026-07-07 3단계)
     // ── Firebase 데이터 ──
     const [fbHeaders,   setFbHeaders]   = useState([]);
     const [fbColGroups, setFbColGroups] = useState([]);
@@ -53,7 +56,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const [activeStatusChips, setActiveStatusChips] = useState(new Set(['진행중', '추진중']));
     const [activeAssignees, setActiveAssignees]     = useState(new Set());
     const [settingsOpen, setSettingsOpen]           = useState(false);
-    const [compactMode, setCompactMode]             = useState(1); // 0=기본(월간보고 동일) 1=컴팩트 2=초소형
+    const [compactMode, setCompactMode]             = useState(() => {
+        try { const raw = localStorage.getItem('pms_list_compactMode'); const v = Number(raw); return (raw !== null && (v === 0 || v === 1 || v === 2)) ? v : 1; } catch (e) { return 1; }
+    }); // 0=기본 1=컴팩트 2=초소형 — 마지막 선택 기억(localStorage) (2026-07-07)
     const [confirmClearOpen, setConfirmClearOpen]   = useState(false);
     const [confirmDialog, setConfirmDialog]         = useState(null); // { message, onConfirm }
     const [execNoModal, setExecNoModal]             = useState(null); // { row, candidates, selected, loading }
@@ -619,7 +624,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     // 진행현황 관리 저장 — List 전용 상태목록을 teamSettings[팀].listStatus로 저장(onSnapshot이 App.js 자동 갱신) (2026-07-06 2단계)
     const saveStatusMgr = async () => {
         if (!statusMgr || !currentTeam) return;
-        const labels = statusMgr.map(s => String(s).trim()).filter(Boolean);
+        // 중복 제거(같은 이름 두 번 방지) + 앞뒤 공백 제거 + 빈칸 제외
+        const labels = [...new Set(statusMgr.map(s => String(s).trim()).filter(Boolean))];
         if (!labels.length) { setAlertMsg('진행현황을 1개 이상 남겨주세요'); return; }
         try {
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: { listStatus: labels } }, { merge: true });
@@ -627,6 +633,46 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             setStatusMgr(null);
             setTimeout(() => setAlertMsg(''), 3000);
         } catch (e) { setAlertMsg('저장 오류: ' + e.message); }
+    };
+    // 진행현황 관리 안전장치 (2026-07-07): 기존 이름은 잠그고(수정 불가), 추가·삭제만 허용.
+    //   - statusMgrOrigSet: 모달 열 때의 원본 이름들 → 여기 있으면 '기존'(잠금)
+    //   - countStatusUse: 그 상태값을 실제로 쓰는 행 수(삭제 시 안내용) — 목록에서만 빼며 행 데이터는 안 지움
+    const statusMgrOrigSet = new Set(statusMgrOrig);
+    const countStatusUse = (name) => {
+        if (!statusFilterCol || !name) return 0;
+        const target = String(name).toUpperCase() === 'HOLD' ? 'Hold' : String(name);
+        return activeRows.filter(r => {
+            let v = String(r[statusFilterCol] || '').trim();
+            if (v.toUpperCase() === 'HOLD') v = 'Hold';
+            return v === target;
+        }).length;
+    };
+    // 담당자 관리 저장 — List 전용 담당자 목록을 teamSettings[팀].listManager로 저장 (2026-07-07 3단계)
+    const saveManagerMgr = async () => {
+        if (!managerMgr || !currentTeam) return;
+        const names = [...new Set(managerMgr.map(s => String(s).trim()).filter(Boolean))];
+        if (!names.length) { setAlertMsg('담당자를 1명 이상 남겨주세요'); return; }
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: { listManager: names } }, { merge: true });
+            setAlertMsg('✓ 담당자 목록 저장됨 (' + names.length + '명)');
+            setManagerMgr(null);
+            setTimeout(() => setAlertMsg(''), 3000);
+        } catch (e) { setAlertMsg('저장 오류: ' + e.message); }
+    };
+    // 담당자 관리 안전장치 (2026-07-07 3단계): 기존 이름 잠금 + 배정 0명일 때만 삭제. 카운트는 담당자열 이름(직책 제외) 기준 — 필터와 동일.
+    const managerMgrOrigSet = new Set(managerMgrOrig);
+    const countManagerUse = (name) => {
+        // 상단 담당자 탭과 '같은 기준(기준연도)'으로 셈 = assigneeCountMap 재사용. 탭이 0이면 삭제 잠금도 풀림 (2026-07-07)
+        const key = extractName(normalizeAssignee(name));
+        return key ? (assigneeCountMap[key] || 0) : 0;
+    };
+    // 인라인 드롭다운 위치 — 아래 공간이 부족하면 위로 펼침. 위로 펼 땐 '클릭한 지점(cy)' 기준이라 셀이 높아도 가깝게 뜸 (2026-07-07). maxH 넘으면 스크롤
+    const dropAnchor = (rect, clientY) => {
+        const cy = (clientY == null ? rect.bottom : clientY);
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        const up = spaceBelow < 260 && spaceAbove > spaceBelow;
+        return { top: rect.bottom, upBottom: window.innerHeight - cy, up, maxH: Math.max(140, (up ? cy : spaceBelow) - 12) };
     };
 
     const saveDetailRow = async () => {
@@ -1342,8 +1388,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 <>
                     <div className="fixed inset-0 z-[350]" onClick={() => setStatusDropdown(null)}/>
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
-                        style={{ top: statusDropdown.top + 2, left: statusDropdown.left, minWidth: Math.max(statusDropdown.width, 120),
-                                 backgroundColor:'#fff', border:'1.5px solid #c4ccd8' }}>
+                        style={{ ...(statusDropdown.up ? { bottom: statusDropdown.upBottom + 2 } : { top: statusDropdown.top + 2 }), left: statusDropdown.left, minWidth: Math.max(statusDropdown.width, 120),
+                                 backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight: statusDropdown.maxH, overflowY:'auto' }}>
                         {(() => {
                             const colVals = [...new Set(activeRows.map(r => String(r[statusDropdown.col]||'').trim()).filter(Boolean))];
                             const merged  = [...new Set([...STATUS_OPTIONS, ...colVals])];
@@ -1374,7 +1420,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 <>
                     <div className="fixed inset-0 z-[350]" onClick={() => setAssigneeDropdown(null)}/>
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
-                        style={{ top: assigneeDropdown.top + 2, left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 160),
+                        style={{ ...(assigneeDropdown.up ? { bottom: assigneeDropdown.upBottom + 2 } : { top: assigneeDropdown.top + 2 }), left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 160),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
                         {ASSIGNEES.map(name => {
                             const curRaw = activeRows.find(r=>r._id===assigneeDropdown.rowId)?.[assigneeDropdown.col]||'';
@@ -1400,7 +1446,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 <>
                     <div className="fixed inset-0 z-[350]" onClick={() => setClientDropdown(null)}/>
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
-                        style={{ top: clientDropdown.top + 2, left: clientDropdown.left, minWidth: Math.max(clientDropdown.width, 140),
+                        style={{ ...(clientDropdown.up ? { bottom: clientDropdown.upBottom + 2 } : { top: clientDropdown.top + 2 }), left: clientDropdown.left, minWidth: Math.max(clientDropdown.width, 140),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
                         {[...new Set(activeRows.map(r => String(r[clientDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {
                             const curRaw = String(activeRows.find(r=>r._id===clientDropdown.rowId)?.[clientDropdown.col]||'').trim();
@@ -1426,7 +1472,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 <>
                     <div className="fixed inset-0 z-[350]" onClick={() => setVendorDropdown(null)}/>
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
-                        style={{ top: vendorDropdown.top + 2, left: vendorDropdown.left, minWidth: Math.max(vendorDropdown.width, 140),
+                        style={{ ...(vendorDropdown.up ? { bottom: vendorDropdown.upBottom + 2 } : { top: vendorDropdown.top + 2 }), left: vendorDropdown.left, minWidth: Math.max(vendorDropdown.width, 140),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
                         {[...new Set(activeRows.map(r => String(r[vendorDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {
                             const curRaw = String(activeRows.find(r=>r._id===vendorDropdown.rowId)?.[vendorDropdown.col]||'').trim();
@@ -1817,24 +1863,89 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                             <span className="font-bold text-sm flex items-center gap-2"><ListChecks size={16}/> 진행현황 관리</span>
                             <button onClick={() => setStatusMgr(null)} style={{background:'none',border:'none',color:'#fff',cursor:'pointer'}}><X size={16}/></button>
                         </div>
-                        <div className="px-4 py-2 text-[11px] text-slate-500 bg-slate-50 border-b border-slate-200">칩·필터·드롭다운에 쓰이는 List 진행현황 목록 (월간보고와 별개). 위아래 순서 = 표시 순서.</div>
+                        <div className="px-4 py-2 text-[11px] text-slate-500 bg-slate-50 border-b border-slate-200">칩·필터·드롭다운에 쓰이는 List 진행현황 목록 (월간보고와 별개). <b className="text-slate-600">기존 이름은 원본 엑셀 기준이라 고정</b> — 추가·삭제만 됩니다. 위아래 순서 = 표시 순서.</div>
                         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                            {statusMgr.map((s, i) => (
+                            {statusMgr.map((s, i) => {
+                                const locked = statusMgrOrigSet.has(s); // 원본에 있던 기존 이름 → 잠금(수정 불가)
+                                return (
                                 <div key={i} className="flex items-center gap-1.5">
                                     <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
-                                    <input value={s} onChange={e => setStatusMgr(arr => arr.map((x,j) => j===i ? e.target.value : x))}
-                                        className="flex-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none focus:border-[#1e7ac8]" placeholder="상태 이름"/>
+                                    {locked ? (
+                                        <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded">
+                                            <span className="text-sm text-slate-700">{s}</span>
+                                            <span className="text-[10px] text-slate-400 ml-auto">🔒 기존 · 이름 고정</span>
+                                        </div>
+                                    ) : (
+                                        <input value={s} onChange={e => setStatusMgr(arr => arr.map((x,j) => j===i ? e.target.value : x))}
+                                            className="flex-1 border border-[#1e7ac8] rounded px-2 py-1 text-sm outline-none focus:border-[#1e7ac8]" placeholder="새 진행현황 이름"/>
+                                    )}
                                     <button onClick={() => setStatusMgr(arr => { if(i<=0) return arr; const a=[...arr]; const t=a[i-1]; a[i-1]=a[i]; a[i]=t; return a; })} disabled={i===0} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↑</button>
                                     <button onClick={() => setStatusMgr(arr => { if(i>=arr.length-1) return arr; const a=[...arr]; const t=a[i+1]; a[i+1]=a[i]; a[i]=t; return a; })} disabled={i===statusMgr.length-1} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↓</button>
-                                    <button onClick={() => setStatusMgr(arr => arr.filter((_,j) => j!==i))} className="px-1.5 text-rose-500 font-bold">✕</button>
+                                    {(() => {
+                                        const used = countStatusUse(s);
+                                        const canDel = !locked || used === 0; // 잠긴(기존) 이름은 사용 0개일 때만 삭제 가능
+                                        return (
+                                            <button
+                                                title={canDel ? '목록에서 빼기' : `${used}개 행에서 사용 중 — 먼저 그 프로젝트들의 진행현황을 바꿔야 지울 수 있어요`}
+                                                disabled={!canDel}
+                                                onClick={() => { if (!canDel) return; setStatusMgr(arr => arr.filter((_,j) => j!==i)); }}
+                                                className={`px-1.5 font-bold ${canDel ? 'text-rose-500' : 'text-slate-300 cursor-not-allowed'}`}>✕</button>
+                                        );
+                                    })()}
                                 </div>
-                            ))}
+                                );
+                            })}
                             <button onClick={() => setStatusMgr(arr => [...arr, ''])}
                                 className="w-full border border-dashed border-[#1e7ac8] text-[#1e7ac8] rounded py-1.5 text-xs font-bold hover:bg-blue-50">+ 새 진행현황 추가</button>
                         </div>
                         <div className="flex gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
                             <button onClick={saveStatusMgr} className="flex-1 bg-emerald-600 text-white rounded py-2 text-sm font-bold hover:bg-emerald-700">저장</button>
                             <button onClick={() => setStatusMgr(null)} className="px-5 bg-slate-200 text-slate-700 rounded py-2 text-sm font-bold hover:bg-slate-300">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* 담당자 관리 모달 (2026-07-07 3단계) */}
+            {managerMgr && (
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setManagerMgr(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-[420px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-5 py-3" style={{background:'#1e7ac8',color:'#fff'}}>
+                            <span className="font-bold text-sm flex items-center gap-2"><Users size={16}/> 담당자 관리</span>
+                            <button onClick={() => setManagerMgr(null)} style={{background:'none',border:'none',color:'#fff',cursor:'pointer'}}><X size={16}/></button>
+                        </div>
+                        <div className="px-4 py-2 text-[11px] text-slate-500 bg-slate-50 border-b border-slate-200">필터·드롭다운에 쓰이는 List 담당자 목록. <b className="text-slate-600">기존 이름은 고정</b> — 추가·삭제만 됩니다. 위아래 순서 = 표시 순서.</div>
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            {managerMgr.map((s, i) => {
+                                const locked = managerMgrOrigSet.has(s); // 원본에 있던 기존 담당자 → 잠금(수정 불가)
+                                const used = countManagerUse(s);
+                                const canDel = !locked || used === 0; // 잠긴(기존) 이름은 배정 0명일 때만 삭제 가능
+                                return (
+                                <div key={i} className="flex items-center gap-1.5">
+                                    <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
+                                    {locked ? (
+                                        <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded">
+                                            <span className="text-sm text-slate-700">{s}</span>
+                                            <span className="text-[10px] text-slate-400 ml-auto">🔒 기존 · 이름 고정</span>
+                                        </div>
+                                    ) : (
+                                        <input value={s} onChange={e => setManagerMgr(arr => arr.map((x,j) => j===i ? e.target.value : x))}
+                                            className="flex-1 border border-[#1e7ac8] rounded px-2 py-1 text-sm outline-none focus:border-[#1e7ac8]" placeholder="새 담당자 이름"/>
+                                    )}
+                                    <button onClick={() => setManagerMgr(arr => { if(i<=0) return arr; const a=[...arr]; const t=a[i-1]; a[i-1]=a[i]; a[i]=t; return a; })} disabled={i===0} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↑</button>
+                                    <button onClick={() => setManagerMgr(arr => { if(i>=arr.length-1) return arr; const a=[...arr]; const t=a[i+1]; a[i+1]=a[i]; a[i]=t; return a; })} disabled={i===managerMgr.length-1} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↓</button>
+                                    <button title={canDel ? '목록에서 빼기' : `${used}명이 배정돼 있어요 — 먼저 그 프로젝트들의 담당자를 바꿔야 지울 수 있어요`}
+                                        disabled={!canDel}
+                                        onClick={() => { if (!canDel) return; setManagerMgr(arr => arr.filter((_,j) => j!==i)); }}
+                                        className={`px-1.5 font-bold ${canDel ? 'text-rose-500' : 'text-slate-300 cursor-not-allowed'}`}>✕</button>
+                                </div>
+                                );
+                            })}
+                            <button onClick={() => setManagerMgr(arr => [...arr, ''])}
+                                className="w-full border border-dashed border-[#1e7ac8] text-[#1e7ac8] rounded py-1.5 text-xs font-bold hover:bg-blue-50">+ 새 담당자 추가</button>
+                        </div>
+                        <div className="flex gap-2 px-4 py-3 border-t border-slate-200 bg-slate-50">
+                            <button onClick={saveManagerMgr} className="flex-1 bg-emerald-600 text-white rounded py-2 text-sm font-bold hover:bg-emerald-700">저장</button>
+                            <button onClick={() => setManagerMgr(null)} className="px-5 bg-slate-200 text-slate-700 rounded py-2 text-sm font-bold hover:bg-slate-300">닫기</button>
                         </div>
                     </div>
                 </div>
@@ -1889,16 +2000,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
 
                     {/* 표시 모드 — 컴팩트 */}
                     <button
-                        onClick={() => setCompactMode(v => (v + 1) % 3)}
-                        title={['기본 보기 → 컴팩트', '컴팩트 → 초소형', '초소형 → 기본'][compactMode]}
-                        className={`flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0 ${
-                            compactMode === 0 ? 'bg-slate-100 border-slate-300'
-                          : compactMode === 1 ? 'bg-blue-100 border-blue-400'
-                          : 'bg-blue-200 border-blue-500'
-                        }`}
+                        onClick={() => setCompactMode(v => { const nv = (v + 1) % 3; try { localStorage.setItem('pms_list_compactMode', String(nv)); } catch (e) {} return nv; })}
+                        title={['보통 → 컴팩트', '컴팩트 → 초소형', '초소형 → 보통'][compactMode]}
+                        style={{ background: compactMode === 0 ? '#eef2f7' : compactMode === 1 ? '#dbeafe' : '#bfdbfe', borderColor: compactMode === 0 ? '#cbd5e1' : compactMode === 1 ? '#60a5fa' : '#3b82f6', color: '#111827' }}
+                        className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0"
                     >
                         <AlignJustify size={14} style={{ color: '#111827' }} />
-                        <span style={{ color: '#111827' }}>컴팩트</span>
+                        <span style={{ color: '#111827' }}>{['보통','컴팩트','초소형'][compactMode]}</span>
                     </button>
 
                     {/* 프로젝트 추가 */}
@@ -2006,9 +2114,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 진행현황 관리 (2026-07-06 2단계) */}
-                                    <button onClick={() => { setSettingsOpen(false); setStatusMgr([...STATUS_OPTIONS]); }}
+                                    <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
+                                    </button>
+                                    <button onClick={() => { setSettingsOpen(false); setManagerMgrOrig([...ASSIGNEES]); setManagerMgr([...ASSIGNEES]); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 열 표시/숨기기 */}
@@ -2307,19 +2419,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                         if (isStatusCol(h)) {
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
-                                                            setStatusDropdown({ rowId: row._id, col: h, top: rect.bottom, left: rect.left, width: Math.max(rect.width, 120) });
+                                                            setStatusDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 120), ...dropAnchor(rect, e.clientY) });
                                                         } else if (isAssigneeCol(h)) {
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
-                                                            setAssigneeDropdown({ rowId: row._id, col: h, top: rect.bottom, left: rect.left, width: Math.max(rect.width, 160) });
+                                                            setAssigneeDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 160), ...dropAnchor(rect, e.clientY) });
                                                         } else if (isClientCol(h)) {
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
-                                                            setClientDropdown({ rowId: row._id, col: h, top: rect.bottom, left: rect.left, width: Math.max(rect.width, 140) });
+                                                            setClientDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 140), ...dropAnchor(rect, e.clientY) });
                                                         } else if (isVendorAssCol(h)) {
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
-                                                            setVendorDropdown({ rowId: row._id, col: h, top: rect.bottom, left: rect.left, width: Math.max(rect.width, 140) });
+                                                            setVendorDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 140), ...dropAnchor(rect, e.clientY) });
                                                         } else if (isDateCol(h)) {
                                                             setEditingCell({id:row._id,key:h,value:displayDate(val)});
                                                         } else if (isPointCol(h)) {
