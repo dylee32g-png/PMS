@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutList, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업
@@ -12,11 +12,20 @@ import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STAT
 //   · 묶음 없는 단독 항목은 모아서 2열, 묶음(공사진행 등)은 3열 + 제목 줄.
 //   · colGroups에 안 잡힌 항목은 '기타'로 모아 누락 방지.
 // ─────────────────────────────────────────────────────────────────────────
-export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups, hiddenCols, onToggleCol }) {
+export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups, hiddenCols, onToggleCol, currentTeam }) {
+    const [copiedRef, setCopiedRef] = React.useState(false);
     if (!detailRow) return null;
+    // ⑥ 참조 UNC 경로 복사 — 폴더명 앞에 팀 서버주소를 붙여 클립보드로. 탐색기 주소창 붙여넣기용 (2026-07-08)
+    const copyUncPath = (folderName) => {
+        const path = buildUncPath(currentTeam, folderName);
+        if (!path) return;
+        const done = () => { setCopiedRef(true); setTimeout(() => setCopiedRef(false), 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(path).then(done).catch(done);
+        else done();
+    };
 
     // ── 전체폭(한 줄 통째) 차지 판정: 내용·내역·비고·참조·프로젝트명 = 긴 텍스트 ──
-    const isWideField = (h) => !isDateCol(h) && (/내용|내역|비고|참조/.test(h) || /project|프로젝트/i.test(h));
+    const isWideField = (h) => { const s = String(h).replace(/\s/g, ''); return !isDateCol(h) && (/내용|내역|비고|참조/.test(s) || /project|프로젝트/i.test(s)); };
     const isInternal  = (h) => String(h).startsWith('_'); // _pid 등 내부 필드는 화면에서 제외
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 입력: 숫자만. 메인표와 동일 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k => s.includes(k)); };
@@ -96,6 +105,22 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                 onFocus={e => e.target.parentElement.style.backgroundColor='#fffde7'}
                                 onBlur={e => e.target.parentElement.style.backgroundColor='transparent'}/>
                             {String(val).trim() !== '' && <span style={{ paddingRight:8, fontSize:'12px', color:'#888' }}>%</span>}
+                        </div>
+                    ) : isRefCol(h) ? (
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:6 }}>
+                            <input type="text" value={val}
+                                onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                                placeholder="폴더명"
+                                style={{ flex:1, minWidth:0, border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}
+                                onFocus={e => e.target.parentElement.style.backgroundColor='#fffde7'}
+                                onBlur={e => e.target.parentElement.style.backgroundColor='transparent'}/>
+                            <button type="button" onClick={() => copyUncPath(val)}
+                                disabled={!String(val).trim() || !buildUncPath(currentTeam, val)}
+                                title={buildUncPath(currentTeam, val) ? '폴더 전체경로(UNC)를 클립보드에 복사 — 탐색기 주소창에 붙여넣기' : (String(val).trim() ? currentTeam + '는 경로가 아직 등록 안 됨' : '폴더명을 먼저 입력하세요')}
+                                style={{ flexShrink:0, marginRight:6, padding:'3px 8px', fontSize:'11px', fontWeight:700, borderRadius:5, border:'1px solid', cursor:'pointer',
+                                    ...(copiedRef ? {background:'#059669',color:'#fff',borderColor:'#059669'} : (!String(val).trim() || !buildUncPath(currentTeam, val)) ? {background:'#f1f5f9',color:'#aebbc9',borderColor:'#e2e8f0',cursor:'not-allowed'} : {background:'#eaf2fb',color:'#1358a0',borderColor:'#bcd6f0'}) }}>
+                                {copiedRef ? '✓ 복사됨' : '경로 복사'}
+                            </button>
                         </div>
                     ) : (
                         <textarea value={val}

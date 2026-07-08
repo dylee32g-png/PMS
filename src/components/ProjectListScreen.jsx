@@ -13,7 +13,7 @@ import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -33,6 +33,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const [statusMgrOrig, setStatusMgrOrig] = useState([]); // 열 때의 원본 이름들 — '기존 이름 잠금' 판별용 (2026-07-07 안전안: 이름수정 금지, 추가·삭제만)
     const [managerMgr, setManagerMgr] = useState(null); // 담당자 관리 모달 — 편집 중 이름 배열(null=닫힘) (2026-07-07 3단계)
     const [managerMgrOrig, setManagerMgrOrig] = useState([]); // 열 때의 원본 담당자들 — 잠금 판별용 (2026-07-07 3단계)
+    // 색 선택·삭제 경고 (2026-07-08 ②)
+    const [statusMgrColors, setStatusMgrColors] = useState({}); // {상태명: 색객체} — 진행현황 관리 모달 편집 중 색
+    const [statusColorOpenIdx, setStatusColorOpenIdx] = useState(null); // 색 팔레트가 펼쳐진 행(null=닫힘)
+    const [statusDelIdx, setStatusDelIdx] = useState(null); // 진행현황 삭제 확인 대기 행
+    const [managerDelIdx, setManagerDelIdx] = useState(null); // 담당자 삭제 확인 대기 행
     // ── Firebase 데이터 ──
     const [fbHeaders,   setFbHeaders]   = useState([]);
     const [fbColGroups, setFbColGroups] = useState([]);
@@ -627,8 +632,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         // 중복 제거(같은 이름 두 번 방지) + 앞뒤 공백 제거 + 빈칸 제외
         const labels = [...new Set(statusMgr.map(s => String(s).trim()).filter(Boolean))];
         if (!labels.length) { setAlertMsg('진행현황을 1개 이상 남겨주세요'); return; }
+        // 색 맵 — 남은 상태들의 편집 색만 모아 저장(안 건드린 색은 원본 유지) (2026-07-08 ②)
+        const colorMap = {};
+        labels.forEach(name => { if (statusMgrColors[name]) colorMap[name] = statusMgrColors[name]; });
         try {
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: { listStatus: labels } }, { merge: true });
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: { listStatus: labels, listStatusColors: colorMap } }, { merge: true });
             setAlertMsg('✓ 진행현황 목록 저장됨 (' + labels.length + '개)');
             setStatusMgr(null);
             setTimeout(() => setAlertMsg(''), 3000);
@@ -1695,6 +1703,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     activeColGroups={activeColGroups}
                     hiddenCols={hiddenCols}
                     onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); return n; })}
+                    currentTeam={currentTeam}
                 />
             )}
 
@@ -1867,8 +1876,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         <div className="flex-1 overflow-y-auto p-3 space-y-2">
                             {statusMgr.map((s, i) => {
                                 const locked = statusMgrOrigSet.has(s); // 원본에 있던 기존 이름 → 잠금(수정 불가)
+                                const curColor = statusMgrColors[s] || STATUS_COLOR_PRESETS[8];
+                                const used = countStatusUse(s);
+                                const canDel = !locked || used === 0; // 잠긴(기존) 이름은 사용 0개일 때만 삭제 가능
+                                const confirming = statusDelIdx === i;
                                 return (
-                                <div key={i} className="flex items-center gap-1.5">
+                                <div key={i} className="rounded" style={confirming ? {background:'#fef2f2',border:'1px solid #fecaca',padding:'6px'} : {}}>
+                                  <div className="flex items-center gap-1.5">
                                     <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
                                     {locked ? (
                                         <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded">
@@ -1879,19 +1893,40 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                         <input value={s} onChange={e => setStatusMgr(arr => arr.map((x,j) => j===i ? e.target.value : x))}
                                             className="flex-1 border border-[#1e7ac8] rounded px-2 py-1 text-sm outline-none focus:border-[#1e7ac8]" placeholder="새 진행현황 이름"/>
                                     )}
+                                    <button type="button" title="색 바꾸기" onClick={() => { setStatusColorOpenIdx(statusColorOpenIdx===i?null:i); setStatusDelIdx(null); }}
+                                        className="shrink-0 rounded-full border border-slate-300 hover:border-slate-500" style={{width:'20px',height:'20px',background:curColor.activeBg}}/>
                                     <button onClick={() => setStatusMgr(arr => { if(i<=0) return arr; const a=[...arr]; const t=a[i-1]; a[i-1]=a[i]; a[i]=t; return a; })} disabled={i===0} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↑</button>
                                     <button onClick={() => setStatusMgr(arr => { if(i>=arr.length-1) return arr; const a=[...arr]; const t=a[i+1]; a[i+1]=a[i]; a[i]=t; return a; })} disabled={i===statusMgr.length-1} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↓</button>
-                                    {(() => {
-                                        const used = countStatusUse(s);
-                                        const canDel = !locked || used === 0; // 잠긴(기존) 이름은 사용 0개일 때만 삭제 가능
-                                        return (
-                                            <button
-                                                title={canDel ? '목록에서 빼기' : `${used}개 행에서 사용 중 — 먼저 그 프로젝트들의 진행현황을 바꿔야 지울 수 있어요`}
-                                                disabled={!canDel}
-                                                onClick={() => { if (!canDel) return; setStatusMgr(arr => arr.filter((_,j) => j!==i)); }}
-                                                className={`px-1.5 font-bold ${canDel ? 'text-rose-500' : 'text-slate-300 cursor-not-allowed'}`}>✕</button>
-                                        );
-                                    })()}
+                                    <button
+                                        title={canDel ? '목록에서 빼기' : `${used}개 행에서 사용 중 — 먼저 그 프로젝트들의 진행현황을 바꿔야 지울 수 있어요`}
+                                        disabled={!canDel}
+                                        onClick={() => { if (!canDel) return; setStatusDelIdx(i); setStatusColorOpenIdx(null); }}
+                                        className={`px-1.5 font-bold ${canDel ? 'text-rose-500' : 'text-slate-300 cursor-not-allowed'}`}>✕</button>
+                                  </div>
+                                  {confirming && (
+                                    <div className="flex items-center gap-2 mt-1.5 pl-7">
+                                        <span className="text-[12px] text-rose-700 mr-auto">'{s}'{used>0?` (${used}개 사용)`:''}를 목록에서 뺄까요?</span>
+                                        <button onClick={() => { setStatusMgr(arr => arr.filter((_,j) => j!==i)); setStatusDelIdx(null); }}
+                                            className="text-[12px] px-3 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700">예</button>
+                                        <button onClick={() => setStatusDelIdx(null)}
+                                            className="text-[12px] px-3 py-0.5 bg-slate-200 text-slate-600 rounded font-bold hover:bg-slate-300">아니오</button>
+                                    </div>
+                                  )}
+                                  {statusColorOpenIdx === i && (
+                                    <div className="flex flex-wrap gap-2 mt-2 pl-7">
+                                        {STATUS_COLOR_PRESETS.map((p, pi) => {
+                                            const sel = p.activeBg === curColor.activeBg;
+                                            return (
+                                                <button key={pi} type="button" title={p.label}
+                                                    onClick={() => { setStatusMgrColors(m => ({...m, [s]: p})); setStatusColorOpenIdx(null); }}
+                                                    className="rounded-full flex items-center justify-center"
+                                                    style={{width: sel?'26px':'22px', height: sel?'26px':'22px', background:p.activeBg, border: sel?'2px solid #1e293b':'1px solid rgba(0,0,0,0.15)'}}>
+                                                    {sel && <span style={{color:'#fff',fontSize:'13px',lineHeight:1}}>✓</span>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                  )}
                                 </div>
                                 );
                             })}
@@ -1919,8 +1954,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                 const locked = managerMgrOrigSet.has(s); // 원본에 있던 기존 담당자 → 잠금(수정 불가)
                                 const used = countManagerUse(s);
                                 const canDel = !locked || used === 0; // 잠긴(기존) 이름은 배정 0명일 때만 삭제 가능
+                                const confirming = managerDelIdx === i;
                                 return (
-                                <div key={i} className="flex items-center gap-1.5">
+                                <div key={i} className="rounded" style={confirming ? {background:'#fef2f2',border:'1px solid #fecaca',padding:'6px'} : {}}>
+                                  <div className="flex items-center gap-1.5">
                                     <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
                                     {locked ? (
                                         <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded">
@@ -1935,8 +1972,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     <button onClick={() => setManagerMgr(arr => { if(i>=arr.length-1) return arr; const a=[...arr]; const t=a[i+1]; a[i+1]=a[i]; a[i]=t; return a; })} disabled={i===managerMgr.length-1} className="px-1 text-slate-500 disabled:opacity-30 font-bold">↓</button>
                                     <button title={canDel ? '목록에서 빼기' : `${used}명이 배정돼 있어요 — 먼저 그 프로젝트들의 담당자를 바꿔야 지울 수 있어요`}
                                         disabled={!canDel}
-                                        onClick={() => { if (!canDel) return; setManagerMgr(arr => arr.filter((_,j) => j!==i)); }}
+                                        onClick={() => { if (!canDel) return; setManagerDelIdx(i); }}
                                         className={`px-1.5 font-bold ${canDel ? 'text-rose-500' : 'text-slate-300 cursor-not-allowed'}`}>✕</button>
+                                  </div>
+                                  {confirming && (
+                                    <div className="flex items-center gap-2 mt-1.5 pl-7">
+                                        <span className="text-[12px] text-rose-700 mr-auto">'{s}'를 목록에서 뺄까요?</span>
+                                        <button onClick={() => { setManagerMgr(arr => arr.filter((_,j) => j!==i)); setManagerDelIdx(null); }}
+                                            className="text-[12px] px-3 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700">예</button>
+                                        <button onClick={() => setManagerDelIdx(null)}
+                                            className="text-[12px] px-3 py-0.5 bg-slate-200 text-slate-600 rounded font-bold hover:bg-slate-300">아니오</button>
+                                    </div>
+                                  )}
                                 </div>
                                 );
                             })}
@@ -2114,11 +2161,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 진행현황 관리 (2026-07-06 2단계) */}
-                                    <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); }}
+                                    <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); setStatusMgrColors(Object.fromEntries(STATUS_OPTIONS.map(s => [s, STATUS_COLORS[s] || STATUS_COLOR_PRESETS[8]]))); setStatusColorOpenIdx(null); setStatusDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
                                     </button>
-                                    <button onClick={() => { setSettingsOpen(false); setManagerMgrOrig([...ASSIGNEES]); setManagerMgr([...ASSIGNEES]); }}
+                                    <button onClick={() => { setSettingsOpen(false); setManagerMgrOrig([...ASSIGNEES]); setManagerMgr([...ASSIGNEES]); setManagerDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
                                     </button>

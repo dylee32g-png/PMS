@@ -54,6 +54,20 @@ export const STATUS_CHIP_COLORS = {
     'sub':     { bg:'rgba(139,92,246,0.12)',   text:'#5b21b6', border:'rgba(139,92,246,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
     '검토중':  { bg:'rgba(124,58,237,0.12)',   text:'#5b21b6', border:'rgba(124,58,237,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
 };
+// 진행현황 색 프리셋 — 진행현황 관리 모달에서 상태별 색을 고르는 팔레트 (2026-07-08 색선택)
+//   각 항목은 칩/필터/드롭다운이 그대로 쓰는 {bg,text,border,activeBg,activeText} 세트.
+//   label=고를 때 표시용. 저장은 teamSettings[팀].listStatusColors[상태명]=이 세트로.
+export const STATUS_COLOR_PRESETS = [
+    { label:'파랑', bg:'rgba(30,122,200,0.12)',  text:'#1358a0', border:'rgba(30,122,200,0.45)', activeBg:'#1e7ac8', activeText:'#fff' },
+    { label:'청록', bg:'rgba(13,148,136,0.12)',  text:'#0f766e', border:'rgba(13,148,136,0.45)', activeBg:'#0d9488', activeText:'#fff' },
+    { label:'초록', bg:'rgba(5,150,105,0.16)',   text:'#047857', border:'rgba(5,150,105,0.5)',  activeBg:'#047857', activeText:'#fff' },
+    { label:'앰버', bg:'rgba(245,158,11,0.16)',  text:'#92400e', border:'rgba(245,158,11,0.5)', activeBg:'#f59e0b', activeText:'#fff' },
+    { label:'주황', bg:'rgba(217,119,6,0.12)',   text:'#92400e', border:'rgba(217,119,6,0.45)', activeBg:'#d97706', activeText:'#fff' },
+    { label:'빨강', bg:'rgba(220,38,38,0.12)',   text:'#991b1b', border:'rgba(220,38,38,0.45)', activeBg:'#dc2626', activeText:'#fff' },
+    { label:'보라', bg:'rgba(124,58,237,0.12)',  text:'#5b21b6', border:'rgba(124,58,237,0.45)', activeBg:'#7c3aed', activeText:'#fff' },
+    { label:'분홍', bg:'rgba(219,39,119,0.12)',  text:'#9d174d', border:'rgba(219,39,119,0.45)', activeBg:'#db2777', activeText:'#fff' },
+    { label:'회색', bg:'rgba(107,114,128,0.12)', text:'#374151', border:'rgba(107,114,128,0.4)', activeBg:'#6b7280', activeText:'#fff' },
+];
 export const DEFAULT_STATUS_OPTIONS = ['진행중','추진중','완료','취소','삭제','Hold','이전'];
 
 // ─── 담당자 목록 & 이름 정규화 ───────────────────────────────────────────
@@ -90,3 +104,18 @@ export const isDefaultHiddenCol = (h) => DEFAULT_HIDDEN_COLS.includes(String(h ?
 // ③ 공사진행 중 메인표에서 숨길 칸 (2026-06-27 팀장님 지정: 날짜·내용·포인트는 표에서 빼고 상세팝업에서만 보기)
 //   공백 제거 후 부분일치 — '포인트'는 한글/영문(POINT) 모두 대응. 상세팝업·설정 '열 표시/숨기기'엔 그대로 노출.
 export const isProgHiddenCol = (h) => { const s = String(h ?? '').replace(/\s/g, ''); return s.includes('날짜') || s.includes('내용') || s.includes('포인트') || /point/i.test(s); };
+
+// ⑥ 참조 UNC 경로 — 참조 폴더명 앞에 붙는 팀별 공용서버 주소 (2026-07-08).
+//   기술2팀만 확정(원본 샘플 기준). 해외·구미팀은 지역이 달라 경로 확보 후 한 줄씩 추가.
+//   경로 끝 역슬래시 필수(폴더명이 바로 이어붙음). JS 문자열이라 역슬래시는 \\ 로 씀.
+export const UNC_PREFIX_BY_TEAM = {
+    '기술2팀': '\\\\neconsys_pj\\001 Project\\001 파주\\107 기술3팀 2026년 Project\\',
+};
+// 팀 + 폴더명 → UNC 전체경로. 미등록 팀이거나 폴더명 없으면 '' (버튼 비활성 판단용).
+export const buildUncPath = (team, folderName) => {
+    const prefix = UNC_PREFIX_BY_TEAM[team];
+    const name = String(folderName ?? '').trim();
+    return (prefix && name) ? prefix + name : '';
+};
+// 참조 칸 판별 — 헤더에 '참조' 포함
+export const isRefCol = (h) => String(h ?? '').replace(/\s/g, '').includes('참조');
