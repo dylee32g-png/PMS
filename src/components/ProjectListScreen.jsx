@@ -20,6 +20,11 @@ const VERSION = 'v6.8.7';
 
 // 데이터 도구 함수(Firebase경로·IDB·엑셀파싱·병합)는 ./projectListData.js 로 분리 (2026-06-25 코드분리 2조각)
 
+// (2026-07-09) 열 숨김 설정을 브라우저에 기억 — 팀별 키. 새로고침해도 유지. localStorage만 사용(이 PC 한정, 공유 아님).
+const hiddenColsKey  = (team) => `pms_list_hiddenCols_${team || 'default'}`;
+const loadHiddenCols = (team) => { try { const raw = localStorage.getItem(hiddenColsKey(team)); const arr = raw ? JSON.parse(raw) : []; return new Set(Array.isArray(arr) ? arr : []); } catch (e) { return new Set(); } };
+const saveHiddenCols = (team, set) => { try { localStorage.setItem(hiddenColsKey(team), JSON.stringify([...set])); } catch (e) {} };
+
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
@@ -56,7 +61,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
     const [sortConfig, setSortConfig]       = useState({ key: null, dir: 'asc' });
     const [columnFilters, setColumnFilters] = useState({});
     const [openFilter, setOpenFilter]       = useState(null);
-    const [hiddenCols, setHiddenCols]         = useState(new Set());
+    const [hiddenCols, setHiddenCols]         = useState(() => loadHiddenCols(currentTeam)); // 브라우저 기억 로드 (2026-07-09)
     const [colDropOpen, setColDropOpen]       = useState(false);
     const [activeStatusChips, setActiveStatusChips] = useState(new Set(['진행중', '추진중']));
     const [activeAssignees, setActiveAssignees]     = useState(new Set());
@@ -121,6 +126,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             }
         }).catch(err => addLog(`[로컬DB 오류] ${err.message}`));
     }, [currentTeam]);
+
+    // ── 열 숨김 설정: 팀 바뀌면 그 팀 저장값으로 다시 로드 (2026-07-09) ──
+    useEffect(() => { setHiddenCols(loadHiddenCols(currentTeam)); }, [currentTeam]);
 
     // ── Firebase 구독 ────────────────────────────────────────────────────
     useEffect(() => {
@@ -1702,7 +1710,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
                     hiddenCols={hiddenCols}
-                    onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); return n; })}
+                    onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); saveHiddenCols(currentTeam, n); return n; })}
                     currentTeam={currentTeam}
                 />
             )}
@@ -2180,7 +2188,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                     {colDropOpen && (
                                         <div className="px-3 pb-2">
                                             <div className="flex justify-end mb-1.5">
-                                                <button onClick={() => setHiddenCols(new Set())} className="text-[11px] text-emerald-600 hover:text-emerald-600 font-bold px-2 py-0.5 bg-emerald-50">모두 표시</button>
+                                                <button onClick={() => { const n = new Set(); saveHiddenCols(currentTeam, n); setHiddenCols(n); }} className="text-[11px] text-emerald-600 hover:text-emerald-600 font-bold px-2 py-0.5 bg-emerald-50">모두 표시</button>
                                             </div>
                                             {detailOnlyHeaders.length > 0 && (
                                                 <p className="text-[10px] text-[#aaa] mb-1 px-1">※ 나머지 {detailOnlyHeaders.length}개 열은 우클릭 → 상세 화면에서 확인</p>
@@ -2189,7 +2197,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                                                 {allMainCols.map(h => (
                                                     <label key={h} className="flex items-center gap-2 cursor-pointer group py-1 px-2 hover:bg-blue-50 transition-colors">
                                                         <input type="checkbox" checked={!hiddenCols.has(h)}
-                                                            onChange={() => setHiddenCols(p => { const n=new Set(p); n.has(h)?n.delete(h):n.add(h); return n; })}
+                                                            onChange={() => setHiddenCols(p => { const n=new Set(p); n.has(h)?n.delete(h):n.add(h); saveHiddenCols(currentTeam, n); return n; })}
                                                             className="w-3 h-3 accent-emerald-500 cursor-pointer"/>
                                                         <span className={`text-[12px] font-medium ${hiddenCols.has(h)?'text-[#999]':'text-[#222] group-hover:text-[#1e7ac8]'}`}>{h}</span>
                                                     </label>

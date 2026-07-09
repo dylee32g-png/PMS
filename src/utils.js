@@ -142,9 +142,19 @@ export const safeRender = (val) => {
 };
 
 // ── A-4a: 프로젝트 고유 ID(pid) 발급기 (기준문서 A3 확정) ──────────────────
-// 형식: P-{발급시각 36진수}-{난수 3자리}. 한 번 발급되면 불변, 재사용·재발급 금지.
-export const generatePid = () =>
-    `P-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
+// 형식: P-{랜덤 32자리 hex}. 한 번 발급되면 불변, 재사용·재발급 금지.
+// (2026-07-09) 대량 발급 충돌 방지 — crypto 난수로 교체(구형/비보안 환경은 폴백).
+export const generatePid = () => {
+    try {
+        const g = (typeof globalThis !== 'undefined' && globalThis.crypto) ? globalThis.crypto : null;
+        if (g && g.randomUUID) return 'P-' + g.randomUUID().replace(/-/g, '');
+        if (g && g.getRandomValues) {
+            const a = new Uint8Array(16); g.getRandomValues(a);
+            return 'P-' + Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+        }
+    } catch (e) {}
+    return 'P-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+};
 
 // ── 상태 2단계(C·2차): 기존 한 칸 progressStatus → 계약현황·작업현황 자동 매핑 ──
 // 자료기준_v1.0 §1-C 기준. 기존 progressStatus는 그대로 두고(호환), 두 칸을 보조로 채운다.
