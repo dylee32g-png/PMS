@@ -146,7 +146,7 @@ export const safeRender = (val) => {
 // (2026-07-09) 대량 발급 충돌 방지 — crypto 난수로 교체(구형/비보안 환경은 폴백).
 export const generatePid = () => {
     try {
-        const g = (typeof globalThis !== 'undefined' && globalThis.crypto) ? globalThis.crypto : null;
+        const g = (typeof window !== 'undefined' && window.crypto) ? window.crypto : null;
         if (g && g.randomUUID) return 'P-' + g.randomUUID().replace(/-/g, '');
         if (g && g.getRandomValues) {
             const a = new Uint8Array(16); g.getRandomValues(a);

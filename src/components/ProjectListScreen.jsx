@@ -2301,7 +2301,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         </div>
                     )}
                     <div className="overflow-auto flex-1 custom-scrollbar">
-                        <table className="text-left border-collapse" style={{ minWidth:'100%' }}>
+                        <table className="text-left border-collapse list-oneline" style={{ minWidth:'100%' }}>
                             <colgroup>
                                 {/* (2026-06-29) 맨 앞 'No.칸' 잔재 <col width:22> 제거 — 이 빈 col이 모든 칸 너비를 한 칸씩 밀어, 도면입수에 옆 '내용' 칸(210px)이 적용되던 진짜 원인. Chrome 실측 확인(210→60). 칸 너비 = getW(h). */}
                                 {mainVisibleHeaders.map(h => <col key={h} style={{ width: getW(h) || 40, minWidth: getW(h) || 40 }}/>)}

@@ -402,3 +402,9 @@ tbody td:first-child {
   position: absolute; inset: 0; width: 100%; height: 100%;
   margin: 0; padding: 0; opacity: 0; cursor: pointer;
 }
+
+/* ── List 메인표: 각 셀 내용을 한 줄로 펼침(줄바꿈 없이 전부 표시) — 2026-07-09 팀장님 ── */
+/*    좁은 열에서 2·3·4줄로 접히던 문제 해결. 내용에 맞춰 열이 넓어지고 가로 스크롤로 확인. */
+/*    상태칸(칩+보조줄)은 flex 세로배치라 영향 없음. */
+.list-oneline th,
+.list-oneline td { white-space: nowrap !important; max-width: none !important; }
