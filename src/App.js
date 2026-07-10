@@ -24,6 +24,8 @@ import ProjectListScreen from './components/ProjectListScreen';
 import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
 import WeeklyReportScreen from './components/WeeklyReportScreen';
+import BacklogScreen from './components/BacklogScreen';
+import { logAudit, AUDIT_ACTIONS, pickProjectName } from './auditLog';
 import WeeklyPanelViewer from './components/WeeklyPanelViewer';
 import WeeklyInputScreen from './components/WeeklyInputScreen';
 import WeeklySummaryScreen from './components/WeeklySummaryScreen';
@@ -385,6 +387,7 @@ const TechTeamPMS = () => {
   const [currentTeam, setCurrentTeam] = useState(null);
   
   const [currentMode, setCurrentMode] = useState(null); // ★ 'pms' (월간보고) 또는 'projectList' 또는 'estimate' 상태 추가
+  const [backlogReturn, setBacklogReturn] = useState(null); // 백로그를 어디서 열었는지 기억 → 뒤로가기 복귀용 (2026-07-10)
   const [expandedTeam, setExpandedTeam] = useState(null); // ★ 아코디언 펼침 상태 관리용 (selectingTeamMode 대체)
 
   // ── 견적 메뉴 패스워드 ──
@@ -3190,6 +3193,15 @@ const TechTeamPMS = () => {
               _deletedAt: new Date().toISOString(),
               _deletedBy: user?.email || user?.uid || '',
           }, { merge: true });
+          logAudit(target?.team || currentTeam, {   // 백로그: 월간보고 삭제(삭제 도장)
+              who: user?.email || '',
+              action: AUDIT_ACTIONS.DELETE,
+              projectId: String(confirmDeleteId),
+              projectName: pickProjectName(target) || target?.projectName || '',
+              execNo: target?.execNo || target?.['실행번호'] || '',
+              pid: target?.pid || target?._pid || '',
+              changes: [],
+          });
           addLog(`[삭제 도장] ${confirmDeleteId} 상태='삭제' 표시 (데이터 보존)`);
           setConfirmDeleteId(null);
       } catch (error) {
@@ -5387,7 +5399,7 @@ const TechTeamPMS = () => {
                       </div>
                   </div>
               </div>
-          ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary') ? (
+          ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary' && currentMode !== 'backlog') ? (
               <div className="h-screen bg-gray-50 text-gray-800 flex flex-col items-center justify-center p-3 relative overflow-hidden">
 
                   {/* 팀 선택 화면 상단 우측 — 사용자 정보 + 관리 버튼 */}
@@ -5587,7 +5599,13 @@ const TechTeamPMS = () => {
                               </div>
                           </div>
 
-                          <div className="flex justify-center pt-1">
+                          <div className="flex justify-center items-center gap-2 pt-1">
+                              <button
+                                  onClick={() => { setBacklogReturn(null); setCurrentMode('backlog'); }}
+                                  className="flex items-center gap-1.5 px-3 py-1 border border-[#1e7ac8]/40 bg-white text-[#1e7ac8] hover:bg-blue-50 hover:border-[#1e7ac8]/60 text-xs font-bold transition-all rounded-lg"
+                              >
+                                  작업 백로그
+                              </button>
                               <button
                                   onClick={() => { setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
                                   className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
@@ -5606,6 +5624,8 @@ const TechTeamPMS = () => {
               <WeeklySummaryScreen db={db} teamId={currentTeam} onBack={() => setCurrentMode(null)} />
           ) : currentMode === 'estimate' ? (
               <EstimateScreen onBack={() => setCurrentMode(null)} />
+          ) : currentMode === 'backlog' ? (
+              <BacklogScreen teams={currentTeam ? [currentTeam] : ['기술1팀', '기술2팀', '기술3팀', 'Software팀']} onBack={() => setCurrentMode(backlogReturn)} />
           ) : currentMode === 'projectList' ? (
               <ProjectListScreen
                   currentTeam={currentTeam}
@@ -5616,6 +5636,7 @@ const TechTeamPMS = () => {
                       if (execNo) setHighlightExecNoInReport(String(execNo));
                       setHighlightExecNoInList(null);
                   }}
+                  onGoToBacklog={() => { setBacklogReturn('projectList'); setCurrentMode('backlog'); }}
                   highlightExecNo={highlightExecNoInList}
                   allProjects={allProjects}
                   baseDate={baseDate}

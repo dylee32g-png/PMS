@@ -58,21 +58,14 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
         const isCheck = isCheckCol(h);
         const hidden = hiddenCols?.has(h);
         return (
-            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, display:'flex', border:'1px solid #e5eaf3', backgroundColor:'#fff', minWidth:0 }}>
-                <div style={{ minWidth:'56px', flexShrink:0, backgroundColor: hidden ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 9px', fontSize:'11px', fontWeight:700, color: hidden ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
-                    <span style={{ whiteSpace:'nowrap' }} title={h}>{h}</span>
-                    {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800 }}>▼</span>}
-                    {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800 }}>▼</span>}
-                    {onToggleCol && (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
-                            title={hidden ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
-                            style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
-                                backgroundColor: hidden ? '#cbd5e1' : '#1e7ac8' }}>
-                            <span style={{ position:'absolute', top:'2px', left: hidden ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
-                        </button>
-                    )}
+            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, display:'flex', alignItems:'stretch', minHeight:'34px', border:'1px solid #e5eaf3', backgroundColor:'#fff', minWidth:0 }}>
+                {/* 라벨(고정폭·한 줄). 메인표 토글은 행 오른쪽 끝으로 이동 → 라벨이 좁아도 이름이 한 줄에 들어가 행 높이 일정 (2026-07-10) */}
+                <div style={{ width:'116px', minWidth:'116px', maxWidth:'116px', flexShrink:0, backgroundColor: hidden ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 9px', fontSize:'11px', fontWeight:700, color: hidden ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, minWidth:0 }} title={h}>{h}</span>
+                    {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800, flexShrink:0 }}>▼</span>}
+                    {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800, flexShrink:0 }}>▼</span>}
                 </div>
-                <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'stretch' }}>
+                <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'center' }}>
                     {isCheck ? (
                         <button type="button"
                             onClick={() => setDetailRow(p => ({...p, [h]: (String(val).toUpperCase()==='O' ? '' : 'O')}))}
@@ -125,12 +118,23 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                     ) : (
                         <textarea value={val}
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                            rows={wide ? 2 : 1}
+                            rows={1}
                             style={{ width:'100%', border:'none', outline:'none', resize:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', lineHeight:1.5 }}
                             onFocus={e => e.target.style.backgroundColor='#fffde7'}
                             onBlur={e => e.target.style.backgroundColor='transparent'}/>
                     )}
                 </div>
+                {/* 메인표 표시 토글 — 행 오른쪽 끝(2026-07-10) */}
+                {onToggleCol && (
+                    <div style={{ flexShrink:0, display:'flex', alignItems:'center', padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
+                            title={hidden ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
+                            style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
+                                backgroundColor: hidden ? '#cbd5e1' : '#1e7ac8' }}>
+                            <span style={{ position:'absolute', top:'2px', left: hidden ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                        </button>
+                    </div>
+                )}
             </div>
         );
     };
@@ -196,7 +200,8 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                             {sec.label}
                                         </div>
                                     )}
-                                    <div style={{ display:'grid', gridTemplateColumns: sec.isGroup ? 'repeat(3, minmax(0,1fr))' : 'repeat(2, minmax(0,1fr))', gap:6 }}>
+                                    {/* 모든 섹션 2열 통일 (2026-07-10) — 칸 폭 일관성. 긴 항목(내용·Project·참조)만 renderField에서 한 줄 전체 차지 */}
+                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap:6 }}>
                                         {sec.cols.map(h => renderField(h))}
                                     </div>
                                 </div>

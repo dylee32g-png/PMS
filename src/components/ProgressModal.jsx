@@ -413,7 +413,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     };
 
     const updateWeekly = (itemKey, wKey, val) => {
-        const parsed = val === '' ? undefined : Math.max(0, Number(val));
+        // 0 입력 = 빈칸으로 처리 (2026-07-10 팀장님 결정): 공정률은 빈칸=직전값 이월(회색 힌트) 유지, 시운전은 0=빈칸 동일이라 무해.
+        const n = Number(val);
+        const parsed = (val === '' || n === 0) ? undefined : Math.max(0, n);
         setWeeklyData(prev => {
             const next = { ...(prev[itemKey]||{}), [wKey]: parsed };
             if (parsed === undefined) delete next[wKey];
@@ -1172,6 +1174,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                 진행실적 <span style={{ fontWeight:400, color:'var(--line)' }}>· 셀 클릭으로 직접 입력</span>
                             </div>
                             <div style={{ display:'flex', gap:6 }}>
+                                {/* 이전·금주·다음 = 표를 좌우로 스크롤하는 버튼. 기본 2개월 보기에선 표가 다 보여 스크롤이 없어 무의미 → '전체 기간 보기'일 때만 노출 (2026-07-10) */}
+                                {showAllMonths && (<>
                                 <button onClick={() => scrollMonths(-1)}
                                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:6, color:'#64748b', cursor:'pointer', padding:'4px 10px', display:'flex', alignItems:'center', gap:3, fontSize:12, fontWeight:700 }}>
                                     <ChevronLeft size={13}/> 이전
@@ -1189,6 +1193,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:6, color:'#64748b', cursor:'pointer', padding:'4px 10px', display:'flex', alignItems:'center', gap:3, fontSize:12, fontWeight:700 }}>
                                     다음 <ChevronRight size={13}/>
                                 </button>
+                                </>)}
                                 <button onClick={() => setShowAllMonths(v => !v)}
                                     style={{ background: showAllMonths ? '#dbeafe' : '#f1f5f9', border: showAllMonths ? '1px solid #93c5fd' : BORDER, borderRadius:6, color: showAllMonths ? 'var(--brand)' : '#64748b', cursor:'pointer', padding:'4px 10px', fontSize:12, fontWeight:700 }}>
                                     {showAllMonths ? '이번 기간만' : '전체 기간 보기'}
@@ -1366,12 +1371,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         ? <span style={{ fontSize:11, color:'#f59e0b', marginRight:'auto', fontWeight:700 }}>저장하지 않은 변경사항</span>
                         : <span style={{ fontSize:11, color:'var(--line)', marginRight:'auto' }}>변경사항 없음</span>
                 }
+                {/* 새로고침 숨김 (2026-07-10): 팝업은 열 때마다 자동으로 최신 로드 → 중복. 게다가 저장 안 한 입력을 경고 없이 되돌려 위험. 되살리려면 false→true. */}
+                {false && (
                 <button onClick={handleReload} disabled={saving || reloading}
                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:7, color:'#374151', fontSize:12, fontWeight:700, padding:'6px 10px', cursor: reloading ? 'default' : 'pointer', display:'flex', alignItems:'center', gap:4 }}
                     title="Firestore에서 최신 데이터를 다시 불러오기">
                     <RefreshCw size={13} style={{ animation: reloading ? 'spin 0.8s linear infinite' : 'none' }}/>
                     {reloading ? '로딩...' : '새로고침'}
                 </button>
+                )}
                 {onApplyToMonthly && (
                     <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:700 }}>
                         <span style={{ color:'#64748b' }}>메인표 시운전:</span>

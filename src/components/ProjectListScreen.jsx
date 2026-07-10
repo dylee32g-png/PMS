@@ -12,6 +12,7 @@ import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeB
 import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
+import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
@@ -26,7 +27,7 @@ const loadHiddenCols = (team) => { try { const raw = localStorage.getItem(hidden
 const saveHiddenCols = (team, set) => { try { localStorage.setItem(hiddenColsKey(team), JSON.stringify([...set])); } catch (e) {} };
 
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
-const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExecNo, allProjects, onShowGraph,
+const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
     baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings }) => {
     // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선, 없으면 하드코딩 폴백. List 상태는 월간보고 status와 별개 (2026-07-06 2단계: 구조 정정)
@@ -486,6 +487,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             .map(k => ({ field: k, from: String(srcRow?.[k] ?? ''), to: String(patch[k] ?? '') }))
             .filter(c => c.from !== c.to);
         const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
+        // ★ 역방향 동기화(2026-07-10): 공정률 7개 셀이면 진행실적 주차장부에도 반영 → 팝업 합계와 양방향 일치.
+        //    (progItemKeyOf가 공정률 7개만 통과시키므로 포인트·시운전·날짜·상태는 자동 제외)
+        syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
         if (dataSource !== 'firebase') {
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
@@ -505,6 +509,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 ...patch,
                 _changeHistory: pushChangeHist(row, entry)
             });
+            if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...row, ...patch }, entry.changes);   // 백로그: 표 셀 수정
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
         setEditingCell({ id: null, key: null, value: '' });
@@ -546,6 +551,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 _statusHistory: appendStatusHistory(row, key, value),
                 _changeHistory: pushChangeHist(row, entry)
             });
+            if (entry) {   // 백로그: 상태/담당자 변경. 상태를 '보류'·'삭제'로 바꾸면 해당 동작으로 구분 기록
+                const v = String(value).replace(/\s/g, '').toUpperCase();
+                let act = AUDIT_ACTIONS.EDIT;
+                if (isStatusCol(key)) {
+                    if (v === 'HOLD' || v === '보류') act = AUDIT_ACTIONS.HOLD;
+                    else if (v === '삭제' || v === 'DELETE') act = AUDIT_ACTIONS.DELETE;
+                }
+                recordAudit(act, { ...row, [key]: value }, entry.changes);
+            }
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
@@ -593,12 +607,55 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             } else {
                 const { _id, ...rest } = srcRow;
                 await setDoc(rowDocRef(currentTeam, _id), { ...rest, ...patch, _changeHistory: pushChangeHist(srcRow, entry) });
+                if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...srcRow, ...patch }, entry.changes);   // 백로그: 진행실적 적용
             }
             setAlertMsg('✓ 진행실적이 메인표에 반영되었습니다 (' + Object.keys(patch).length + '개 항목)');
             setTimeout(() => setAlertMsg(''), 3500);
         } catch (e) {
             setAlertMsg('메인표 반영 오류: ' + e.message);
         }
+    };
+
+    // ── 메인표 공정률 셀 편집 → 진행실적(주차장부) 역방향 동기화 (2026-07-10) ───────────────
+    //   양방향 동기화: 팝업→메인표 = '적용하기'(applyProgressToMainRow), 메인표→팝업 = 이 함수.
+    //   대상 = 공정률 7개(도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI)뿐. %(누적)이라 되돌리기가 깔끔·안전.
+    //   제외 = 시운전·포인트(단위가 포인트+주차별 합산 → 거꾸로 흩뿌리면 주차 기록 손상). progItemKeyOf가 자동으로 걸러냄.
+    //   쓰는 위치 = 오늘이 속한 '현재 주차' 칸 (기준월 마지막 주 아님) — 메인표 수정은 '지금' 벌어진 일이므로.
+    //   ★ HEADER_MAP(ProgressModal)의 정확한 역매핑 — 공백/대소문자 무시 후 대조.
+    const PROG_COL_TO_KEY = { '도면입수':'drawing', 'I/OMAP':'iomap', '화면작성':'screen', '기준정보':'baseinfo', 'PLC':'plc', 'ETOS':'etos', 'HMI':'hmi' };
+    const progItemKeyOf = (header) => PROG_COL_TO_KEY[String(header ?? '').replace(/\s+/g, '').toUpperCase()];
+    const syncProgressCellToLedger = async (row, header, value) => {
+        const itemKey = progItemKeyOf(header);
+        if (!itemKey || !row) return;                                   // 공정률 7개가 아니면 무시(포인트·시운전·날짜·상태 등)
+        if (String(value ?? '').trim() === '') return;                  // 빈칸은 주차장부 안 건드림
+        const num = Math.max(0, Number(value));
+        if (!Number.isFinite(num)) return;                             // 숫자가 아니면 무시
+        // docKey = ProgressModal과 동일 규칙: pid 우선 → 실행번호 → 행ID
+        const docKey = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || row.id || '');
+        if (!docKey) return;
+        // ★ 오늘이 속한 '현재 주차'에 기록 — 앱 규칙과 동일(1주=1~7·2주=8~14·3주=15~21·4주=22~28·5주=29~).
+        //   예: 오늘 7/10 → 7월 2주차('2026-7-2'). 월은 0채움 없음(ProgressModal wKey와 동일).
+        const now = new Date();
+        const cy = now.getFullYear(), cm = now.getMonth() + 1;
+        const curW = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
+        const curWKey = `${cy}-${cm}-${curW}`;
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, docKey);
+        try {
+            // 읽어서 고쳐 쓰기 — 중첩 맵의 특정 주차를 지우려면 필요. 다른 항목·과거 주차 값은 그대로 보존.
+            const snap = await getDoc(ref);
+            const data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') };
+            const weekly = { ...(data.weekly || {}) };
+            const itemWeeks = { ...(weekly[itemKey] || {}) };
+            // 이번 달에서 '현재 주차보다 뒤(미래)' 주차값 제거 → 현재 주차가 '누적 최신값'이 되어 팝업 합계와 일치.
+            //   (지난 버전이 기준월 마지막주에 넣어둔 잔재도 여기서 함께 정리됨)
+            Object.keys(itemWeeks).forEach(wk => {
+                const parts = String(wk).split('-').map(Number);
+                if (parts[0] === cy && parts[1] === cm && parts[2] > curW) delete itemWeeks[wk];
+            });
+            itemWeeks[curWKey] = num;                                    // 현재 주차에 값 기록
+            weekly[itemKey] = itemWeeks;
+            await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+        } catch (e) { console.warn('[reverseSync] progressRecords 반영 실패:', e); }
     };
 
     // 진행실적 백지 초기화 — progressRecords 주차값 + 메인표(List 행) 반영 필드 모두 비움 (2026-07-06)
@@ -691,6 +748,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         return { top: rect.bottom, upBottom: window.innerHeight - cy, up, maxH: Math.max(140, (up ? cy : spaceBelow) - 12) };
     };
 
+    // ── 작업 백로그 기록 (2026-07-10) — 누가·언제·무엇을. who=회사 이메일(백로그 화면에서 명단의 이름으로 변환) ──
+    //   실데이터(firebase) 저장만 기록 — 엑셀 미리보기(pending)·로컬은 제외해 노이즈 방지.
+    const recordAudit = (action, row, changes) => {
+        if (dataSource !== 'firebase') return;
+        logAudit(currentTeam, {
+            who: user?.email || '',
+            action,
+            projectId: String(row?._id || row?.id || ''),
+            projectName: pickProjectName(row),
+            execNo: row?.['실행번호'] || row?.execNo || '',
+            pid: row?._pid || row?.pid || '',
+            changes: changes || [],
+        });
+    };
+
     const saveDetailRow = async () => {
         if (!detailRow) return;
         // ⑨ 동시수정 보완 + ② 내용↔날짜:
@@ -720,6 +792,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
         const { _id, ...data } = updatedRow;
         try {
             await setDoc(rowDocRef(currentTeam, _id), data);
+            if (entry) recordAudit(AUDIT_ACTIONS.EDIT, working, entry.changes);   // 백로그: 상세팝업 수정
             setDetailRow(null); setDetailRowOriginal(null);
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
@@ -901,7 +974,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             setAddingRow(null); return;
         }
         const { _id, ...data } = addingRow;
-        try { await setDoc(rowDocRef(currentTeam, _id), data); setAddingRow(null); }
+        try { await setDoc(rowDocRef(currentTeam, _id), data); recordAudit(AUDIT_ACTIONS.ADD, addingRow, []); setAddingRow(null); }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
@@ -912,7 +985,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
             if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
             return;
         }
-        try { await deleteDoc(rowDocRef(currentTeam, id)); }
+        const delRow = fbRows.find(r => r._id === id);   // 삭제 전 정보 확보(백로그용)
+        try {
+            await deleteDoc(rowDocRef(currentTeam, id));
+            recordAudit(AUDIT_ACTIONS.DELETE, delRow || { _id: id }, []);   // 백로그: 프로젝트 삭제
+        }
         catch (err) { setAlertMsg(`삭제 오류: ${err.message}`); }
     };
 
@@ -1353,9 +1430,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                 </div>
             )}
 
-            {/* 알림 (모달리스) */}
+            {/* 알림 (모달리스) — 화면 정중앙 + 진행실적 팝업(z-9500)보다 위로 띄움(z-10000) 2026-07-10 */}
             {alertMsg && (
-                <div className="fixed z-[400] flex items-end justify-center pointer-events-none" style={{ inset:0, paddingBottom:'56px' }}>
+                <div className="fixed z-[10000] flex items-center justify-center pointer-events-none" style={{ inset:0 }}>
                     <div className="pointer-events-auto shadow-2xl" style={{ backgroundColor:'#fff', border:'1.5px solid #c4ccd8', minWidth:'280px', maxWidth:'400px', overflow:'hidden' }}>
                         <div style={{ backgroundColor:'#1e7ac8', padding:'8px 16px', color:'#fff', fontSize:'12px', fontWeight:700 }}>알림</div>
                         <div style={{ padding:'16px 20px' }}>
@@ -2100,6 +2177,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, highlightExec
                         <button onClick={() => onGoToPms()} title="월간 업무 보고"
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-blue-700 bg-blue-100 hover:bg-blue-600 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
                             <FileText size={13}/> 월간보고
+                        </button>
+                    )}
+
+                    {/* 작업 백로그 이동 (2026-07-10) */}
+                    {onGoToBacklog && (
+                        <button onClick={() => onGoToBacklog()} title="작업 백로그 — 누가·언제·무엇을 바꿨는지"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-[#1e7ac8] bg-white hover:bg-[#1e7ac8] text-[#1e7ac8] hover:text-white transition-all shrink-0 text-xs font-bold">
+                            <Clock size={13}/> 백로그
                         </button>
                     )}
 
