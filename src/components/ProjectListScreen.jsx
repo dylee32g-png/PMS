@@ -6,7 +6,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw
 } from 'lucide-react';
 import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -25,6 +25,17 @@ const VERSION = 'v6.8.7';
 const hiddenColsKey  = (team) => `pms_list_hiddenCols_${team || 'default'}`;
 const loadHiddenCols = (team) => { try { const raw = localStorage.getItem(hiddenColsKey(team)); const arr = raw ? JSON.parse(raw) : []; return new Set(Array.isArray(arr) ? arr : []); } catch (e) { return new Set(); } };
 const saveHiddenCols = (team, set) => { try { localStorage.setItem(hiddenColsKey(team), JSON.stringify([...set])); } catch (e) {} };
+
+// (2026-07-13) 개인 화면 설정 — '이 PC(브라우저)'에만 저장. 계정·서버와 무관 → 사람마다 각자 화면, 서로 영향 없음.
+//   · 표 배율(%)  : 모니터 크기에 맞춘 전체 확대/축소. 팀 공통(내 PC 한정)
+//   · 열 너비     : 마우스로 끌어 맞춘 폭 / 더블클릭 자동맞춤. 팀별로 따로 기억
+const SCALE_KEY = 'pms_list_scale';
+const SCALE_OPTIONS = [70, 80, 90, 100, 110, 125, 150];
+const loadScale = () => { try { const v = Number(localStorage.getItem(SCALE_KEY)); return SCALE_OPTIONS.includes(v) ? v : 100; } catch (e) { return 100; } };
+const saveScale = (v) => { try { localStorage.setItem(SCALE_KEY, String(v)); } catch (e) {} };
+const colWidthsKey = (team) => `pms_list_colWidths_${team || 'default'}`;
+const loadColWidths = (team) => { try { const raw = localStorage.getItem(colWidthsKey(team)); const o = raw ? JSON.parse(raw) : {}; return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } catch (e) { return {}; } };
+const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(team), JSON.stringify(obj || {})); } catch (e) {} };
 
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
@@ -87,11 +98,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [addingRow, setAddingRow]         = useState(null);
     const [selectedRowId, setSelectedRowId] = useState(null);
     const [editingCell, setEditingCell]     = useState({ id: null, key: null, value: '' });
-    const [colWidths, setColWidths]         = useState({});
+    const [colWidths, setColWidths]         = useState(() => loadColWidths(currentTeam)); // 이 PC에 기억된 열 너비 (2026-07-13)
+    const [tableScale, setTableScale]       = useState(loadScale);                        // 표 배율(%) — 이 PC에 기억 (2026-07-13)
     const resizeRef                          = useRef({ col: null, startX: 0, startWidth: 0 });
+    useEffect(() => { setColWidths(loadColWidths(currentTeam)); }, [currentTeam]);   // 팀 전환 시 그 팀 열 너비 복원 (2026-07-13)
     const [logs, setLogs]                   = useState([]);
     const [showDebug, setShowDebug]         = useState(false);
     const [selectedYear, setSelectedYear]   = useState(String(new Date().getFullYear()));
+    // 기준월 필터 (2026-07-13) — 기준 날짜 = 메인표 '공사 계약' 칸.
+    //   'all'=전체(모든 월) | '01'~'12'=해당 월만 | 'etc'=기타(년·월·일 중 하나라도 없으면. 빈칸 포함)
+    const [selectedMonth, setSelectedMonth] = useState('all');
     // ── 월별 보기 (월간보고식 월 선택기 + 그달만/이전전체 토글) — 1단계: UI 뼈대 ──
     const [viewMonth, setViewMonth] = useState(() => {
         const d = new Date();
@@ -254,18 +270,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const startResize = (h, e) => {
         e.preventDefault();
         e.stopPropagation();
+        // 배율(zoom) 보정 — 화면에서 잰 px ÷ 배율 = 실제 열 너비 (2026-07-13)
+        const z = (tableScale || 100) / 100;
         // 실제 렌더링된 너비를 DOM에서 직접 읽음 (getW와 불일치 방지)
         const th = e.currentTarget.closest('th');
-        const startWidth = th ? Math.round(th.getBoundingClientRect().width) : getW(h);
+        const startWidth = th ? Math.round(th.getBoundingClientRect().width / z) : getW(h);
         resizeRef.current = { col: h, startX: e.clientX, startWidth };
         const onMove = ev => {
             if (!ev.buttons) { onUp(); return; }
             const { col, startX, startWidth } = resizeRef.current;
             if (!col) return;
-            setColWidths(p => ({ ...p, [col]: Math.max(40, startWidth + ev.clientX - startX) }));
+            setColWidths(p => ({ ...p, [col]: Math.max(40, Math.round(startWidth + (ev.clientX - startX) / z)) }));
         };
         const onUp = () => {
             resizeRef.current = { col: null, startX: 0, startWidth: 0 };
+            setColWidths(p => { saveColWidths(currentTeam, p); return p; });   // 끌기 끝 → 이 PC에 기억 (2026-07-13)
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
         };
@@ -285,7 +304,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         };
         const headerW = measure(h) + 20; // 정렬 아이콘 여유
         const dataW   = activeRows.reduce((mx, row) => Math.max(mx, measure(row[h] ?? '')), 0);
-        setColWidths(p => ({ ...p, [h]: Math.min(500, Math.max(40, Math.max(headerW, dataW))) }));
+        setColWidths(p => {
+            const next = { ...p, [h]: Math.min(500, Math.max(40, Math.max(headerW, dataW))) };
+            saveColWidths(currentTeam, next);   // 이 PC에 기억 (2026-07-13)
+            return next;
+        });
     };
 
     // ── 엑셀 업로드 → 전체 시트 파싱 → pendingData (미저장 미리보기) ────
@@ -960,8 +983,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const baseRow = selectedRowId
             ? activeRows.find(r => r._id === selectedRowId)
             : null;
-        const newRow = { _id: newId, _pid: newPid, _year: newYear };
-        activeHeaders.forEach(h => { newRow[h] = baseRow ? (baseRow[h] || '') : ''; });
+        // 등록일(_regDate) — 프로젝트 추가 시점 자동 기입. 내부 필드·읽기전용·불변 (2026-07-13)
+        const _d = new Date();
+        const regDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+        const newRow = { _id: newId, _pid: newPid, _year: newYear, _regDate: regDate };
+        activeHeaders.forEach(h => { newRow[h] = baseRow ? (baseRow[h] || '') : ''; });   // 엑셀 항목만 복사(_ 내부필드는 복사 안 됨)
         setAddingRow(newRow);
     };
 
@@ -1053,6 +1079,41 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return activeRows.filter(r => !r._year || r._year === selectedYear);
     }, [activeRows, availableYears, selectedYear]);
 
+    // ── 기준월 필터 (2026-07-13) — 기준 날짜 = '공사 계약' 칸 ─────────────
+    const contractDateCol = useMemo(() =>
+        activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사계약')),
+    [activeHeaders]);
+
+    // '기준연도 + 완전한 날짜(년·월·일 전부)'만 그 달로 인정 (2026-07-13 팀장님: 연도까지 따짐).
+    //   → 기타 = 기준연도의 어느 달에도 못 들어가는 나머지 전부
+    //     (빈칸 · '2022년' · '2025-10' 같은 불완전 날짜 + 기준연도와 다른 해의 날짜)
+    //   덕분에 1~12월 건수 + 기타 건수 = 전체 건수 로 딱 맞음(빠지는 행 없음).
+    const contractMonthOf = (row) => {
+        if (!contractDateCol) return null;
+        const std = toDateInputVal(row[contractDateCol]);           // 'YYYY-MM-DD' 또는 ''
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(std)) return null;         // 불완전 날짜 → 기타
+        if (selectedYear && std.slice(0, 4) !== String(selectedYear)) return null;  // 다른 해 → 기타
+        return std.slice(5, 7);                                     // 'MM'
+    };
+
+    const MONTHS = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+
+    // 드롭다운에 보여줄 월별 건수 (기준연도 안에서)
+    const monthCountMap = useMemo(() => {
+        const m = { etc: 0 };
+        yearFilteredRows.forEach(r => {
+            const mm = contractMonthOf(r);
+            if (mm) m[mm] = (m[mm] || 0) + 1; else m.etc += 1;
+        });
+        return m;
+    }, [yearFilteredRows, contractDateCol, selectedYear]); // eslint-disable-line
+
+    const monthFilteredRows = useMemo(() => {
+        if (selectedMonth === 'all' || !contractDateCol) return yearFilteredRows;
+        if (selectedMonth === 'etc') return yearFilteredRows.filter(r => !contractMonthOf(r));
+        return yearFilteredRows.filter(r => contractMonthOf(r) === selectedMonth);
+    }, [yearFilteredRows, selectedMonth, contractDateCol, selectedYear]); // eslint-disable-line
+
     // ── 진행현황 칩 필터 ─────────────────────────────────────────────────
     const statusFilterCol = useMemo(() =>
         activeHeaders.find(h => ['진행현황', '현황', '진행'].some(k => h.includes(k))),
@@ -1061,7 +1122,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const statusChipData = useMemo(() => {
         if (!statusFilterCol) return [];
         const countMap = {};
-        yearFilteredRows.forEach(r => {
+        monthFilteredRows.forEach(r => {
             let v = String(r[statusFilterCol] || '').trim();
             if (v.toUpperCase() === 'HOLD') v = 'Hold';
             if (v) countMap[v] = (countMap[v] || 0) + 1;
@@ -1074,7 +1135,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (bi === -1) return -1;
             return ai - bi;
         });
-    }, [yearFilteredRows, statusFilterCol]);
+    }, [monthFilteredRows, statusFilterCol]);
 
     const assigneeFilterCol = useMemo(() =>
         activeHeaders.find(h => h.includes('담당자') && !h.includes('업체')),
@@ -1083,12 +1144,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const assigneeCountMap = useMemo(() => {
         if (!assigneeFilterCol) return {};
         const map = {};
-        yearFilteredRows.forEach(r => {
+        monthFilteredRows.forEach(r => {
             const name = extractName(normalizeAssignee(r[assigneeFilterCol] || ''));
             if (name) map[name] = (map[name] || 0) + 1;
         });
         return map;
-    }, [yearFilteredRows, assigneeFilterCol]);
+    }, [monthFilteredRows, assigneeFilterCol]);
 
     // ── 필터 고유값 + 카운트 맵 (연도 필터 적용 후 기준) ─────────────────
     const uniqueVals = useMemo(() => {
@@ -1096,7 +1157,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         activeHeaders.forEach(h => {
             if (!isFilterable(h)) return;
             const cm = {};
-            yearFilteredRows.forEach(r => {
+            monthFilteredRows.forEach(r => {
                 let v = String(r[h]||'').trim();
                 if (isStatusCol(h) && v.toUpperCase() === 'HOLD') v = 'Hold';
                 if (v) cm[v] = (cm[v] || 0) + 1;
@@ -1104,11 +1165,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             res[h] = cm; // { val: count }
         });
         return res;
-    }, [yearFilteredRows, activeHeaders]);
+    }, [monthFilteredRows, activeHeaders]);
 
     // ── 검색·컬럼필터·정렬 (연도 필터 이후 적용) ─────────────────────────
     const sortedRows = useMemo(() => {
-        let out = yearFilteredRows;
+        let out = monthFilteredRows;
         if (activeStatusChips.size > 0 && statusFilterCol) {
             out = out.filter(r => {
                 let v = String(r[statusFilterCol] || '').trim();
@@ -1143,7 +1204,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const bv = String(b[sortConfig.key]||'').toLowerCase();
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         });
-    }, [yearFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]);
+    }, [monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]);
 
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
@@ -1167,6 +1228,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     const EXEC_NO_COL = '실행번호';
     // 실행번호(EXEC_NO_COL)는 표에서 숨김 — 데이터·연결 기능은 유지 (2026-06-26 팀장님 요청, 복원하려면 예전처럼 splice로 삽입)
+    // 발주처·업체담당자 자동완성 목록 — 기존 입력값 모음 (추가·상세 팝업 공용, 2026-07-13)
+    const fieldSuggestions = useMemo(() => {
+        const out = {};
+        (activeHeaders || []).forEach(h => {
+            if (isClientCol(h) || isVendorAssCol(h)) {
+                out[h] = [...new Set(activeRows.map(r => String(r[h] || '').trim()).filter(Boolean))].sort();
+            }
+        });
+        return out;
+    }, [activeHeaders, activeRows]);
+
     const mainVisibleHeaders = useMemo(() =>
         allMainCols.filter(h => !hiddenCols.has(h) && h !== EXEC_NO_COL),
     [allMainCols, hiddenCols]);
@@ -1614,6 +1686,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             // pid 전환(2026-07-06): 실행번호 대신 pid로. 연결된 월간보고가 있으면 그 월별데이터(공정률)까지,
                             //   없으면 List 행 + 진행실적(pid)으로 시운전 포인트 추이를 그림.
                             const linked = allProjects ? allProjects.find(p => p.pid === pid) : null;
+                            // 그래프 기간 = List의 '공사 계약'(시작) ~ '공사 완료'(끝). 없으면 월간보고 값 → 그래프쪽 폴백 규칙 (2026-07-13)
+                            const _contractCol = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사계약'));
+                            const _doneCol     = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사완료'));
+                            const _sd = _contractCol ? toDateInputVal(row[_contractCol]) : '';
+                            const _ed = _doneCol     ? toDateInputVal(row[_doneCol])     : '';
                             const graphObj = {
                                 ...(linked || {}),
                                 pid,
@@ -1622,6 +1699,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 totalCommissioningPoints: Number(row['포인트']) || linked?.totalCommissioningPoints || linked?.point || 0,
                                 point: Number(row['포인트']) || linked?.point || 0,
                                 monthlyData: linked?.monthlyData || [],
+                                startDate: _sd || linked?.startDate || '',
+                                endDate:   _ed || linked?.endDate   || '',
                             };
                             if (onShowGraph) onShowGraph(graphObj);
                             setContextMenu(null);
@@ -1789,6 +1868,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     hiddenCols={hiddenCols}
                     onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); saveHiddenCols(currentTeam, n); return n; })}
                     currentTeam={currentTeam}
+                    statusOptions={STATUS_OPTIONS}
+                    assignees={ASSIGNEES}
+                    suggestions={fieldSuggestions}
                 />
             )}
 
@@ -1808,122 +1890,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             )}
 
 
-            {/* 행 추가 팝업 — 월간보고 Excel 라이트 테마 */}
-            {addingRow && (() => {
-                const rowSt = { display:'flex', borderBottom:'1px solid #c4ccd8' };
-                const lbSt  = { backgroundColor:'#dce3ec', color:'#1a1a1a', fontWeight:700, fontSize:12,
-                                 padding:'6px 10px', borderRight:'2px solid #9aa8b8',
-                                 minWidth:110, flexShrink:0, display:'flex', alignItems:'center' };
-                const valSt = { flex:1, backgroundColor:'#ffffff', padding:0 };
-                const inSt  = { width:'100%', border:'none', backgroundColor:'transparent', fontSize:12,
-                                 padding:'6px 8px', outline:'none', color:'#000', boxSizing:'border-box' };
-                return (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ backgroundColor:'rgba(2,6,23,0.75)' }}>
-                    <div style={{ backgroundColor:'#fff', border:'1.5px solid #9aa8b8', width:640, maxWidth:'95vw',
-                                  maxHeight:'88vh', display:'flex', flexDirection:'column',
-                                  boxShadow:'0 8px 40px rgba(0,0,0,0.45)' }}>
-
-                        {/* 타이틀 바 */}
-                        <div style={{ backgroundColor:'#1e7ac8', borderBottom:'2px solid #1565a0',
-                                      padding:'8px 14px', display:'flex', justifyContent:'space-between',
-                                      alignItems:'center', flexShrink:0 }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                                <Plus size={14} style={{ color:'#ffffff' }}/>
-                                <span style={{ fontSize:13, fontWeight:800, color:'#ffffff' }}>프로젝트 추가</span>
-                            </div>
-                            <button onClick={() => setAddingRow(null)}
-                                style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.85)',
-                                         display:'flex', alignItems:'center', padding:2 }}>
-                                <X size={16}/>
-                            </button>
-                        </div>
-
-                        {/* 선택 행 복사 안내 */}
-                        {selectedRowId && (
-                            <div style={{ backgroundColor:'#e8f0fe', borderBottom:'1px solid #b8cfe8',
-                                          padding:'5px 14px', fontSize:11, color:'#1e7ac8', fontWeight:700 }}>
-                                선택한 행의 데이터를 초기값으로 복사했습니다. 수정 후 저장하세요.
-                            </div>
-                        )}
-
-                        {/* 필드 폼 — Excel 라벨|값 행 구조 */}
-                        <div style={{ flex:1, overflowY:'auto' }} className="custom-scrollbar">
-                            {activeHeaders.filter(h => !h.startsWith('_')).map(h => {
-                                const val = addingRow[h] ?? '';
-                                let input;
-                                if (isStatusCol(h)) {
-                                    input = (
-                                        <select value={val} onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))} style={inSt}>
-                                            <option value="">-- 선택 --</option>
-                                            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                    );
-                                } else if (isAssigneeCol(h)) {
-                                    input = (
-                                        <select value={val} onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))} style={inSt}>
-                                            <option value="">-- 선택 --</option>
-                                            {ASSIGNEES.map(a => <option key={a} value={a}>{a}</option>)}
-                                        </select>
-                                    );
-                                } else if (isDateCol(h)) {
-                                    input = (
-                                        <input type="date" value={toDateInputVal(val)}
-                                            onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))}
-                                            style={inSt}/>
-                                    );
-                                } else if (isClientCol(h) || isVendorAssCol(h)) {
-                                    const listId = `addrow-dl-${h}`;
-                                    const opts = [...new Set(activeRows.map(r => String(r[h]||'').trim()).filter(Boolean))].sort();
-                                    input = (
-                                        <>
-                                            <input list={listId} value={val}
-                                                onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))}
-                                                style={inSt} placeholder={h}/>
-                                            <datalist id={listId}>{opts.map(o => <option key={o} value={o}/>)}</datalist>
-                                        </>
-                                    );
-                                } else if (h.includes('내용') || h.includes('비고') || h.includes('참조') || h.toLowerCase().includes('spec')) {
-                                    input = (
-                                        <textarea value={val}
-                                            onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))}
-                                            style={{...inSt, resize:'vertical', minHeight:56}}/>
-                                    );
-                                } else {
-                                    input = (
-                                        <input value={val}
-                                            onChange={e => setAddingRow(p => ({...p, [h]: e.target.value}))}
-                                            style={inSt} placeholder={h}/>
-                                    );
-                                }
-                                return (
-                                    <div key={h} style={rowSt}>
-                                        <div style={lbSt}>{h}</div>
-                                        <div style={valSt}>{input}</div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        {/* 하단 버튼 바 */}
-                        <div style={{ padding:'10px 14px', borderTop:'2px solid #9aa8b8',
-                                      backgroundColor:'#dce3ec', display:'flex', gap:8, flexShrink:0 }}>
-                            <button onClick={() => setAddingRow(null)}
-                                style={{ flex:1, padding:'8px', backgroundColor:'#ebebeb',
-                                         border:'1px solid #c0c0c0', fontWeight:700, fontSize:13,
-                                         cursor:'pointer', color:'#333' }}>
-                                취소
-                            </button>
-                            <button onClick={saveAddingRow}
-                                style={{ flex:2, padding:'8px', backgroundColor:'#059669', color:'#fff',
-                                         fontWeight:700, fontSize:13, cursor:'pointer', border:'none',
-                                         display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                                <Save size={14}/> 저장
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                );
-            })()}
+            {/* ── 프로젝트 추가 팝업 — 상세 팝업(DetailModal)과 같은 틀·같은 폭 (2026-07-13 통합) ──
+                 옛 1열 640px 폼 폐기. 항목 순서·묶음·2열 그리드·입력 컨트롤 전부 상세 팝업과 동일.
+                 onToggleCol은 넘기지 않음 → 추가 화면에는 '메인표 표시' 토글 없음(추가에는 불필요). */}
+            {addingRow && (
+                <DetailModal
+                    mode="add"
+                    detailRow={addingRow}
+                    setDetailRow={setAddingRow}
+                    onSave={saveAddingRow}
+                    activeHeaders={activeHeaders}
+                    activeColGroups={activeColGroups}
+                    hiddenCols={hiddenCols}
+                    currentTeam={currentTeam}
+                    statusOptions={STATUS_OPTIONS}
+                    assignees={ASSIGNEES}
+                    suggestions={fieldSuggestions}
+                    copiedFromRow={!!selectedRowId}
+                />
+            )}
 
             {/* 디버그 */}
             {showDebug && (
@@ -2106,9 +2091,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 {(availableYears.length ? availableYears : [selectedYear]).map(y => <option key={y} value={y}>{y}년</option>)}
                             </select>
                         </div>
+                        {/* 기준월 (2026-07-13) — 기준 날짜 = 메인표 '공사 계약' 칸.
+                            전체=모든 월 / N월=그 달만 / 기타=년·월·일 하나라도 없는 행(빈칸 포함) */}
+                        <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0"
+                             title="기준 날짜 = 공사 계약. 월은 기준연도의 그 달만. '기타' = 년·월·일이 하나라도 없는 행(빈칸 포함) + 다른 해의 날짜">
+                            <span className="text-[11px] font-bold text-gray-500 mr-1">기준월:</span>
+                            <select
+                                value={selectedMonth}
+                                onChange={e => setSelectedMonth(e.target.value)}
+                                className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer">
+                                <option value="all">전체 ({yearFilteredRows.length})</option>
+                                {MONTHS.map(mm => <option key={mm} value={mm}>{selectedYear}년 {Number(mm)}월 ({monthCountMap[mm] || 0})</option>)}
+                                <option value="etc">기타 ({monthCountMap.etc || 0})</option>
+                            </select>
+                        </div>
                         <span className="text-[11px] text-slate-500 whitespace-nowrap">
                             <span className="text-emerald-400 font-bold">{sortedRows.length}</span>
-                            <span className="text-slate-600">/{yearFilteredRows.length}행</span>
+                            <span className="text-slate-600">/{monthFilteredRows.length}행</span>
                             {activeFilterCount > 0 && <span className="text-amber-400 font-bold"> · 필터 {activeFilterCount}</span>}
                         </span>
                         {/* 데이터 소스 인디케이터 */}
@@ -2140,6 +2139,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <AlignJustify size={14} style={{ color: '#111827' }} />
                         <span style={{ color: '#111827' }}>{['보통','컴팩트','초소형'][compactMode]}</span>
                     </button>
+
+                    {/* 표 배율 — 내 PC에만 저장(개인별). 모니터에 맞춰 한 번 고르면 계속 유지 (2026-07-13) */}
+                    <div className="flex items-center gap-1 px-2 py-1 rounded border border-[#cbd5e1] bg-[#eef2f7] shrink-0"
+                         title="표 전체 확대/축소 — 이 컴퓨터에만 저장됩니다(다른 사람 화면에 영향 없음)">
+                        <ZoomIn size={13} className="text-[#1e7ac8]" />
+                        <select
+                            value={tableScale}
+                            onChange={e => { const v = Number(e.target.value); setTableScale(v); saveScale(v); }}
+                            className="bg-transparent border-none text-[#111827] text-xs font-bold outline-none cursor-pointer">
+                            {SCALE_OPTIONS.map(v => <option key={v} value={v}>{v}%</option>)}
+                        </select>
+                    </div>
 
                     {/* 프로젝트 추가 */}
                     <button onClick={handleOpenAddRow}
@@ -2261,6 +2272,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     <button onClick={() => { setSettingsOpen(false); setManagerMgrOrig([...ASSIGNEES]); setManagerMgr([...ASSIGNEES]); setManagerDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
+                                    </button>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
+                                    <button onClick={() => { setSettingsOpen(false); setTableScale(100); saveScale(100); setColWidths({}); saveColWidths(currentTeam, {}); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <RotateCcw size={14} className="text-[#1e7ac8]"/> 내 화면 설정 초기화 <span className="text-[10px] text-[#999] font-normal">(배율·열너비)</span>
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 열 표시/숨기기 */}
@@ -2385,7 +2402,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </>)}
                         </div>
                     )}
-                    <div className="overflow-auto flex-1 custom-scrollbar">
+                    {/* zoom = 개인 배율. 표만 확대/축소되고 위 버튼·헤더는 그대로 (2026-07-13) */}
+                    <div className="overflow-auto flex-1 custom-scrollbar" style={{ zoom: (tableScale || 100) / 100 }}>
                         <table className="text-left border-collapse list-oneline" style={{ minWidth:'100%' }}>
                             <colgroup>
                                 {/* (2026-06-29) 맨 앞 'No.칸' 잔재 <col width:22> 제거 — 이 빈 col이 모든 칸 너비를 한 칸씩 밀어, 도면입수에 옆 '내용' 칸(210px)이 적용되던 진짜 원인. Chrome 실측 확인(210→60). 칸 너비 = getW(h). */}
@@ -2667,7 +2685,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs shrink-0">
                         <span className="text-slate-600">
                             표시 <span className="text-slate-300 font-bold">{sortedRows.length}</span> /
-                            전체 <span className="text-slate-300 font-bold">{yearFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''} ·
+                            전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''} ·
                             주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                         </span>

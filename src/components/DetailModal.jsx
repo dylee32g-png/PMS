@@ -1,20 +1,41 @@
 import React from 'react';
-import { LayoutList, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isDateCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
+import { LayoutList, Plus, X, Clock } from 'lucide-react';
+import { isStatusCol, isAssigneeCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
-// 프로젝트 List — 상세 보기 / 수정 팝업
+// 프로젝트 List — 상세 보기 / 수정 팝업  +  프로젝트 추가 팝업 (2026-07-13 통합)
 // ProjectListScreen.jsx에서 분리 (2026-06-25, 코드 분리 3조각 = 상세팝업)
-// 저장 로직(saveDetailRow)은 부모에 그대로 두고 onSave 로 받음. 이 파일은 화면만 그림.
+// 저장 로직(saveDetailRow / saveAddingRow)은 부모에 두고 onSave 로 받음. 이 파일은 화면만 그림.
 // ⑧ Hold/HOLD 표기 통일: 상태 표시에 normalizeStatus 적용 (표시만, 데이터 불변)
 // 2026-06-29: 묶음(activeColGroups)별 섹션 재구성 — 묶음 제목 줄 + 같은 묶음 가로 배치 + 라벨 너비 정리.
 //   · 항목 순서는 엑셀(activeColGroups) 그대로 유지 (엑셀 우선 원칙).
-//   · 묶음 없는 단독 항목은 모아서 2열, 묶음(공사진행 등)은 3열 + 제목 줄.
-//   · colGroups에 안 잡힌 항목은 '기타'로 모아 누락 방지.
+// 2026-07-10: 모든 섹션 2열 통일 + 라벨 고정폭 + 행높이 통일(토글은 행 오른쪽).
+// 2026-07-13: mode='add' 지원 — 프로젝트 추가 팝업이 같은 틀·같은 폭을 쓰도록 통합(옛 1열 640px 폼 폐기).
+//   · 진행현황/담당자 목록은 부모(teamSettings 마스터)에서 props로 받음 — 추가·수정 팝업 모두 팀 설정 반영.
+//   · 등록일(_regDate): 프로젝트 추가 시 자동 기입되는 내부 필드. 두 팝업 모두 '등록 정보' 섹션에 읽기전용 표시.
 // ─────────────────────────────────────────────────────────────────────────
-export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisibleHeaders, activeHeaders, activeColGroups, hiddenCols, onToggleCol, currentTeam }) {
+export default function DetailModal({
+    detailRow, setDetailRow, onSave,
+    mainVisibleHeaders = [], activeHeaders, activeColGroups,
+    hiddenCols, onToggleCol, currentTeam,
+    mode = 'edit',            // 'edit' = 상세 보기/수정, 'add' = 프로젝트 추가
+    statusOptions, assignees, // 팀 마스터 목록(없으면 기본값 폴백)
+    copiedFromRow = false,    // 추가 모드: 선택 행 복사로 열렸는지
+    suggestions = {},         // { 항목명: [기존값들] } — 발주처·업체담당자 자동완성 목록
+}) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     if (!detailRow) return null;
+    const isAdd = mode === 'add';
+
+    // 팀 마스터 목록 우선(진행현황 관리 / 담당자 관리) — 없으면 기본 상수
+    const STATUS_OPTS   = (statusOptions && statusOptions.length) ? statusOptions : DEFAULT_STATUS_OPTIONS;
+    const ASSIGNEE_OPTS = (assignees && assignees.length) ? assignees : ASSIGNEE_LIST;
+    // 목록에 없는 기존 값도 사라지지 않게 현재 값을 합쳐서 보여줌 (데이터 보존)
+    const withCurrent = (list, val) => {
+        const v = String(val ?? '').trim();
+        return (!v || list.includes(v)) ? list : [...list, v];
+    };
+
     // ⑥ 참조 UNC 경로 복사 — 폴더명 앞에 팀 서버주소를 붙여 클립보드로. 탐색기 주소창 붙여넣기용 (2026-07-08)
     const copyUncPath = (folderName) => {
         const path = buildUncPath(currentTeam, folderName);
@@ -26,13 +47,12 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
 
     // ── 전체폭(한 줄 통째) 차지 판정: 내용·내역·비고·참조·프로젝트명 = 긴 텍스트 ──
     const isWideField = (h) => { const s = String(h).replace(/\s/g, ''); return !isDateCol(h) && (/내용|내역|비고|참조/.test(s) || /project|프로젝트/i.test(s)); };
-    const isInternal  = (h) => String(h).startsWith('_'); // _pid 등 내부 필드는 화면에서 제외
+    const isInternal  = (h) => String(h).startsWith('_'); // _pid·_regDate 등 내부 필드는 일반 필드 목록에서 제외
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 입력: 숫자만. 메인표와 동일 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k => s.includes(k)); };
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
 
     // ── 묶음 섹션 빌드 (엑셀 순서 그대로) ──
-    //   label 있는 묶음 = 제목 줄 + 3열, 묶음 없는 단독들은 모아 2열.
     const sections = [];
     let soloBuf = [];
     const flushSolo = () => { if (soloBuf.length) { sections.push({ label: null, isGroup: false, cols: soloBuf }); soloBuf = []; } };
@@ -43,11 +63,16 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
         else soloBuf.push(...cols);
     });
     flushSolo();
-    // colGroups에 안 잡힌 항목 누락 방지 → '기타'로 모음 (묶음 정보가 아예 없으면 제목 없이 2열)
+    // colGroups에 안 잡힌 항목 누락 방지 → '기타'로 모음
     const covered = new Set();
     (activeColGroups || []).forEach(g => (g.cols || []).forEach(c => covered.add(c)));
     const leftovers = (activeHeaders || []).filter(h => !isInternal(h) && !covered.has(h));
     if (leftovers.length) sections.push({ label: sections.length ? '기타' : null, isGroup: false, cols: leftovers });
+
+    // ── 공통 스타일 (한 필드 = 라벨칸 + 값칸, 높이 34px 고정) ──
+    const fieldBox = { display:'flex', alignItems:'stretch', minHeight:'34px', border:'1px solid #e5eaf3', backgroundColor:'#fff', minWidth:0 };
+    const labelBox = (hidden) => ({ width:'116px', minWidth:'116px', maxWidth:'116px', flexShrink:0, backgroundColor: hidden ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 9px', fontSize:'11px', fontWeight:700, color: hidden ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 });
+    const grid2    = { display:'grid', gridTemplateColumns:'repeat(2, minmax(0,1fr))', gap:6 };
 
     // ── 한 필드(라벨 + 입력칸 + 메인표 표시토글) 렌더 ──
     const renderField = (h) => {
@@ -58,9 +83,9 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
         const isCheck = isCheckCol(h);
         const hidden = hiddenCols?.has(h);
         return (
-            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, display:'flex', alignItems:'stretch', minHeight:'34px', border:'1px solid #e5eaf3', backgroundColor:'#fff', minWidth:0 }}>
-                {/* 라벨(고정폭·한 줄). 메인표 토글은 행 오른쪽 끝으로 이동 → 라벨이 좁아도 이름이 한 줄에 들어가 행 높이 일정 (2026-07-10) */}
-                <div style={{ width:'116px', minWidth:'116px', maxWidth:'116px', flexShrink:0, backgroundColor: hidden ? '#f1f5f9' : '#eef2fb', borderRight:'1px solid #d8dfee', padding:'6px 9px', fontSize:'11px', fontWeight:700, color: hidden ? '#9aa6bb' : '#4a5a80', display:'flex', alignItems:'center', gap:4 }}>
+            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, ...fieldBox }}>
+                {/* 라벨(고정폭·한 줄). 메인표 토글은 행 오른쪽 끝 → 라벨이 좁아도 이름이 한 줄에 들어가 행 높이 일정 (2026-07-10) */}
+                <div style={labelBox(hidden)}>
                     <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, minWidth:0 }} title={h}>{h}</span>
                     {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800, flexShrink:0 }}>▼</span>}
                     {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800, flexShrink:0 }}>▼</span>}
@@ -77,14 +102,14 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
                             style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
                             <option value="">—</option>
-                            {DEFAULT_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                            {withCurrent(STATUS_OPTS, normalizeStatus(val)).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     ) : isAssignee ? (
                         <select value={val}
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
                             style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
                             <option value="">—</option>
-                            {ASSIGNEE_LIST.map(a => <option key={a} value={a}>{a}</option>)}
+                            {withCurrent(ASSIGNEE_OPTS, val).map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
                     ) : isDateCol(h) ? (
                         <input type="date" value={toDateInputVal(val)}
@@ -115,6 +140,18 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                 {copiedRef ? '✓ 복사됨' : '경로 복사'}
                             </button>
                         </div>
+                    ) : (isClientCol(h) || isVendorAssCol(h)) && (suggestions[h] || []).length ? (
+                        // 발주처·업체담당자 — 기존 입력값 자동완성(직접 입력도 가능). 옛 추가 팝업 기능 유지 (2026-07-13)
+                        <div style={{ width:'100%', display:'flex', alignItems:'center' }}>
+                            <input type="text" list={`dm-dl-${h}`} value={val}
+                                onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                                style={{ flex:1, minWidth:0, border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}
+                                onFocus={e => e.target.parentElement.style.backgroundColor='#fffde7'}
+                                onBlur={e => e.target.parentElement.style.backgroundColor='transparent'}/>
+                            <datalist id={`dm-dl-${h}`}>
+                                {(suggestions[h] || []).map(o => <option key={o} value={o}/>)}
+                            </datalist>
+                        </div>
                     ) : (
                         <textarea value={val}
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
@@ -124,7 +161,7 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                             onBlur={e => e.target.style.backgroundColor='transparent'}/>
                     )}
                 </div>
-                {/* 메인표 표시 토글 — 행 오른쪽 끝(2026-07-10) */}
+                {/* 메인표 표시 토글 — 행 오른쪽 끝(2026-07-10). 추가 모드에서는 부모가 onToggleCol을 안 넘겨 표시 안 됨 */}
                 {onToggleCol && (
                     <div style={{ flexShrink:0, display:'flex', alignItems:'center', padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
                         <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
@@ -139,6 +176,29 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
         );
     };
 
+    // ── 등록 정보 섹션 — 등록일(_regDate): 프로젝트 추가 시 자동 기입, 읽기전용 (2026-07-13) ──
+    const regDate = String(detailRow._regDate || '').trim();
+    const renderRegSection = () => (
+        <div>
+            <div style={{ fontSize:'12px', fontWeight:800, color:'#1e7ac8', borderBottom:'1.5px solid #cfe0f2', padding:'0 2px 4px', marginBottom:7 }}>
+                등록 정보
+            </div>
+            <div style={grid2}>
+                <div style={fieldBox}>
+                    <div style={labelBox(false)}>
+                        <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, minWidth:0 }}>등록일</span>
+                    </div>
+                    <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:6, padding:'4px 8px', fontSize:'12px', color: regDate ? '#222' : '#9aa6bb' }}>
+                        <span>{regDate || '—'}</span>
+                        <span style={{ fontSize:'10px', fontWeight:700, color:'#9aa6bb', backgroundColor:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:4, padding:'0 5px' }}>
+                            {isAdd ? '자동 기입 · 수정 불가' : '수정 불가'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4"
                      onClick={() => setDetailRow(null)}>
@@ -149,9 +209,9 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                         {/* 타이틀 바 */}
                         <div style={{ backgroundColor:'#1e7ac8', padding:'10px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                                <LayoutList size={15} style={{ color:'#fff' }}/>
-                                <span style={{ color:'#fff', fontWeight:800, fontSize:'14px' }}>상세 보기 / 수정</span>
-                                {(detailRow['번호'] || detailRow['Project'] || detailRow['프로젝트']) && (
+                                {isAdd ? <Plus size={15} style={{ color:'#fff' }}/> : <LayoutList size={15} style={{ color:'#fff' }}/>}
+                                <span style={{ color:'#fff', fontWeight:800, fontSize:'14px' }}>{isAdd ? '프로젝트 추가' : '상세 보기 / 수정'}</span>
+                                {!isAdd && (detailRow['번호'] || detailRow['Project'] || detailRow['프로젝트']) && (
                                     <span style={{ color:'rgba(255,255,255,0.75)', fontSize:'12px', marginLeft:4 }}>
                                         — {detailRow['번호'] || detailRow['Project'] || detailRow['프로젝트']}
                                     </span>
@@ -169,30 +229,39 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                             </button>
                         </div>
 
-                        {/* 요약 바 — 주요 열 값 */}
-                        <div style={{ backgroundColor:'#f0f4fa', borderBottom:'1.5px solid #c4ccd8', padding:'7px 18px', display:'flex', flexWrap:'wrap', gap:'4px 16px', flexShrink:0 }}>
-                            {mainVisibleHeaders.filter(h => detailRow[h]).map(h => {
-                                const val = detailRow[h];
-                                if (isStatusCol(h)) {
-                                    const sv = normalizeStatus(val);
+                        {/* 안내 바 — 추가: 선택 행 복사 안내 / 수정: 주요 열 요약 */}
+                        {isAdd ? (
+                            copiedFromRow && (
+                                <div style={{ backgroundColor:'#e8f0fe', borderBottom:'1.5px solid #c4ccd8', padding:'7px 18px', fontSize:'11px', color:'#1e7ac8', fontWeight:700, flexShrink:0 }}>
+                                    선택한 행의 데이터를 초기값으로 복사했습니다. 수정 후 저장하세요.
+                                </div>
+                            )
+                        ) : (
+                            <div style={{ backgroundColor:'#f0f4fa', borderBottom:'1.5px solid #c4ccd8', padding:'7px 18px', display:'flex', flexWrap:'wrap', gap:'4px 16px', flexShrink:0 }}>
+                                {mainVisibleHeaders.filter(h => detailRow[h]).map(h => {
+                                    const val = detailRow[h];
+                                    if (isStatusCol(h)) {
+                                        const sv = normalizeStatus(val);
+                                        return (
+                                            <span key={h} style={{ fontSize:'11px' }}>
+                                                <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
+                                                <span style={{ color:'#222' }}>{sv}</span>
+                                            </span>
+                                        );
+                                    }
                                     return (
                                         <span key={h} style={{ fontSize:'11px' }}>
                                             <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
-                                            <span style={{ color:'#222' }}>{sv}</span>
+                                            <span style={{ color:'#222' }}>{pctDisplay(h, val)}</span>
                                         </span>
                                     );
-                                }
-                                return (
-                                    <span key={h} style={{ fontSize:'11px' }}>
-                                        <span style={{ fontWeight:700, color:'#666' }}>{h}: </span>
-                                        <span style={{ color:'#222' }}>{pctDisplay(h, val)}</span>
-                                    </span>
-                                );
-                            })}
-                        </div>
+                                })}
+                            </div>
+                        )}
 
-                        {/* 전체 필드 편집 — 묶음별 섹션 (제목 줄 + 같은 묶음 가로 배치) */}
+                        {/* 전체 필드 편집 — 등록 정보 + 묶음별 섹션 (제목 줄 + 2열 통일) */}
                         <div className="overflow-y-auto flex-1 custom-scrollbar" style={{ padding:'14px 18px', display:'flex', flexDirection:'column', gap:14 }}>
+                            {renderRegSection()}
                             {sections.map((sec, si) => (
                                 <div key={si}>
                                     {sec.label && (
@@ -201,15 +270,15 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                                         </div>
                                     )}
                                     {/* 모든 섹션 2열 통일 (2026-07-10) — 칸 폭 일관성. 긴 항목(내용·Project·참조)만 renderField에서 한 줄 전체 차지 */}
-                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap:6 }}>
+                                    <div style={grid2}>
                                         {sec.cols.map(h => renderField(h))}
                                     </div>
                                 </div>
                             ))}
                         </div>
 
-                        {/* 변경 이력 히스토리 박스 */}
-                        {(() => {
+                        {/* 변경 이력 히스토리 박스 (추가 모드에는 없음) */}
+                        {!isAdd && (() => {
                             const changeHist = Array.isArray(detailRow._changeHistory) ? detailRow._changeHistory : [];
                             const statusHist = Array.isArray(detailRow._statusHistory) ? detailRow._statusHistory : [];
                             if (!changeHist.length && !statusHist.length) return null;
@@ -268,7 +337,7 @@ export default function DetailModal({ detailRow, setDetailRow, onSave, mainVisib
                         <div style={{ borderTop:'1.5px solid #c4ccd8', padding:'10px 18px', display:'flex', justifyContent:'flex-end', gap:8, flexShrink:0, backgroundColor:'#f8fafc' }}>
                             <button onClick={() => setDetailRow(null)}
                                 style={{ padding:'8px 22px', backgroundColor:'#f1f5f9', border:'1px solid #c4ccd8', fontSize:'13px', fontWeight:700, color:'#555', cursor:'pointer' }}>
-                                닫기
+                                {isAdd ? '취소' : '닫기'}
                             </button>
                             <button onClick={onSave}
                                 style={{ padding:'8px 22px', backgroundColor:'#1e7ac8', border:'none', fontSize:'13px', fontWeight:700, color:'#fff', cursor:'pointer' }}>
