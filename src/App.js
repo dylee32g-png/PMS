@@ -64,10 +64,8 @@ try {
 
 const appId = (typeof window !== 'undefined' && typeof window.__app_id !== 'undefined') ? window.__app_id : 'tech-team-pms-app';
 
-// 로그인/견적암호 스킵 — 로컬(개발 PC)에서만 자동 적용. 배포 도메인에선 정상 로그인.
-// (이 조건이라 커밋·push 해도 안전 — 배포판은 스킵 안 됨)
-const SKIP_LOGIN = (typeof window !== 'undefined') &&
-    /^(localhost$|127\.|192\.168\.|10\.|0\.0\.0\.0$)/.test(window.location.hostname);
+// 로그인 스킵 (개발용) — 배포 전 false로 변경
+const SKIP_LOGIN = false;
 const GUEST_USER = { email: 'guest@local', displayName: '게스트' };
 const GUEST_REGISTERED = { email: 'guest@local', displayName: '게스트', role: 'admin', active: true };
 
@@ -506,6 +504,11 @@ const TechTeamPMS = () => {
   const [highlightExecNoInList,   setHighlightExecNoInList]   = useState(null); // List화면에서 하이라이트할 execNo
   const [highlightExecNoInReport, setHighlightExecNoInReport] = useState(null); // 업무현황에서 하이라이트할 execNo
   const [graphProject, setGraphProject] = useState(null);
+  const [openProgressPid, setOpenProgressPid] = useState(null); // ★ 그래프 → 진행실적 등록 팝업 이동 (List 화면) (2026-07-14)
+  // ★ 실적 그래프: 차트와 하단 표의 가로 스크롤 동기화 (줌으로 넓어져도 월 열이 어긋나지 않게) (2026-07-14)
+  const gChartScrollRef = useRef(null);
+  const gTableScrollRef = useRef(null);
+  const syncScroll = (from, to) => { if (from.current && to.current && to.current.scrollLeft !== from.current.scrollLeft) to.current.scrollLeft = from.current.scrollLeft; };
   const [chartZoom, setChartZoom] = useState(1.0);
   const [showTeamGraph, setShowTeamGraph] = useState(false);
   const [teamChartZoom, setTeamChartZoom] = useState(1.0);
@@ -604,7 +607,6 @@ const TechTeamPMS = () => {
       if (savedEmail) {
         // ★ 로그인 유지 (2026-07-14): 링크로 열린 이 탭에서 '어디에 로그인 상태를 저장할지'를 먼저 정한다.
         //    browserLocalPersistence = 이 PC(브라우저)에 보관 → 창을 닫았다 켜도 로그인 유지 = 재인증 불필요.
-        //    (사용자가 로그인 화면에서 '로그인 유지'를 껐다면 그 창에서만 유지 = session)
         const stay = localStorage.getItem(LS_STAY_LOGGED_IN) !== '0';   // 기본값 = 유지
         setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence)
           .catch(() => {})   // 저장소 지정 실패해도 로그인 자체는 진행
@@ -1803,7 +1805,7 @@ const TechTeamPMS = () => {
       try {
           const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
           await setPersistence(auth, persistence);
-          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // ★ 링크 탭에서 같은 방식으로 저장하도록 전달 (2026-07-14)
+          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // ★ 링크 탭이 같은 방식으로 저장하도록 전달 (2026-07-14)
           await sendSignInLinkToEmail(auth, email, {
               url: window.location.origin + window.location.pathname,
               handleCodeInApp: true,
@@ -4515,9 +4517,9 @@ const TechTeamPMS = () => {
       //   기준 = List의 '공사 계약'(=startDate) ~ '공사 완료'(=endDate).
       //   빈칸이면 아래 규칙으로 대체하고, 실적이 기간 밖이면 잘리지 않게 자동으로 넓힌다.
       //     · 계약 O / 완료 O → 계약월 ~ 완료월
-      //     · 계약 O / 완료 X → 계약월 ~ 이번 달 (진행중)
+      //     · 계약 O / 완료 X → 계약월 ~ 그해 연말(12월)   ★2026-07-14 변경: 예전엔 '이번 달'까지라 남은 기간이 안 보였음
       //     · 계약 X / 완료 O → 첫 실적 달 ~ 완료월 (실적도 없으면 완료월 기준 12개월)
-      //     · 둘 다 X        → 첫 실적 달 ~ 이번 달 (실적도 없으면 최근 12개월 + 안내)
+      //     · 둘 다 X        → 첫 실적 달 ~ 그해 연말 (실적도 없으면 올해 1~12월 + 안내)
       const now = new Date();
       const nowMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const keyToDate = (k) => { const [y, m] = String(k).split('-').map(Number); return new Date(y, m - 1, 1); };
@@ -4541,9 +4543,12 @@ const TechTeamPMS = () => {
       if (!startD) {
           startD = firstDataKey ? keyToDate(firstDataKey)
                  : endD ? new Date(endD.getFullYear(), endD.getMonth() - 11, 1)
-                 : new Date(now.getFullYear(), now.getMonth() - 11, 1);
+                 : new Date(now.getFullYear(), 0, 1);   // 아무 근거도 없으면 올해 1월부터
       }
-      if (!endD) endD = nowMonth;
+      // ★ 완료일 미입력 → '그해 연말(12월)'까지 (2026-07-14 팀장님)
+      //   기준 연도 = 올해와 계약 연도 중 나중 것. (계약이 내년이면 그 해 연말까지, 옛 계약이면 올해 연말까지)
+      const yearEndBase = Math.max(now.getFullYear(), startD.getFullYear());
+      if (!endD) endD = new Date(yearEndBase, 11, 1);
 
       // 안전장치 ① 실적이 기간 밖이면 그 달까지 자동 확장 (데이터 잘림 방지)
       if (firstDataKey && keyToDate(firstDataKey) < startD) startD = keyToDate(firstDataKey);
@@ -4558,13 +4563,14 @@ const TechTeamPMS = () => {
       // 기간 표시 + '왜 이 기간인지' 근거
       const startDateStr = fmtYM(startD);
       const endDateStr   = edRaw ? fmtYM(endD) : null;
-      const rangeLabel   = `${startDateStr} ~ ${edRaw ? fmtYM(endD) : '진행중'}`;
+      // 완료일이 없으면 '연말까지(예정)'임을 라벨에 명시 — 실제 완료일이 아님을 오해하지 않도록
+      const rangeLabel   = `${startDateStr} ~ ${fmtYM(endD)}${edRaw ? '' : ' (예정)'}`;
       let rangeNote =
             (sdRaw && edRaw) ? '공사 계약 ~ 공사 완료'
-          : (sdRaw && !edRaw) ? '공사 계약 ~ 이번 달 (완료일 미입력)'
+          : (sdRaw && !edRaw) ? '공사 계약 ~ 연말 (완료일 미입력 → 그해 12월까지 표시)'
           : (!sdRaw && edRaw) ? (firstDataKey ? '첫 실적 ~ 공사 완료 (계약일 미입력)' : '완료일 기준 12개월 (계약일 미입력)')
-          : (firstDataKey ? '실적 기준 (공사 계약·완료 미입력)'
-                          : '최근 12개월 — 기간 미입력. 공사 계약/완료를 넣으면 실제 기간으로 그려집니다');
+          : (firstDataKey ? '첫 실적 ~ 연말 (공사 계약·완료 미입력)'
+                          : '올해 1~12월 — 기간 미입력. 공사 계약/완료를 넣으면 실제 기간으로 그려집니다');
       // 원래 날짜보다 넓혀 그린 경우 그 이유를 덧붙임 ('왜 완료일보다 뒤까지 나오지?' 방지)
       const _sdMonth = sdRaw ? toMonth(sdRaw) : null;
       const _edMonth = edRaw ? toMonth(edRaw) : null;
@@ -5661,7 +5667,7 @@ const TechTeamPMS = () => {
                                   작업 백로그
                               </button>
                               <button
-                                  onClick={() => { if (SKIP_LOGIN) { setCurrentMode('estimate'); return; } setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
+                                  onClick={() => { setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
                                   className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적
@@ -5685,6 +5691,8 @@ const TechTeamPMS = () => {
                   currentTeam={currentTeam}
                   user={user}
                   isAdmin={registeredUser?.role === 'admin'}   /* ★ 위험 버튼(엑셀 확정저장·전체저장) 관리자 전용 게이팅 (2026-07-14) */
+                  openProgressPid={openProgressPid}                     /* ★ 그래프 → 진행실적 팝업 이동 (2026-07-14) */
+                  onProgressOpened={() => setOpenProgressPid(null)}
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
                   onGoToPms={(execNo) => {
                       setCurrentMode('pms');
@@ -7453,77 +7461,137 @@ const TechTeamPMS = () => {
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
                   onClick={() => setGraphProject(null)}>
-                  <div style={{background:'#fff',border:'1px solid var(--line)',boxShadow:'0 8px 32px rgba(0,0,0,0.1)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
+                  <div style={{background:'#fff',border:'1.5px solid #cfdcea',borderRadius:14,boxShadow:'0 18px 48px rgba(16,42,73,0.22), 0 2px 6px rgba(16,42,73,0.08)',width:'min(94vw,1020px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
                       onClick={e => e.stopPropagation()}>
 
                       {/* 헤더 */}
-                      <div style={{background:'var(--head-bg)',borderBottom:'2px solid var(--line)',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-                          <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <BarChart3 size={16} color="var(--brand)"/>
-                              <span style={{fontWeight:800,fontSize:14,color:'var(--txt-strong)'}}>실적 그래프</span>
-                              <span style={{fontSize:12,color:'#444',fontWeight:600,marginLeft:4}}>{graphProject.project}</span>
+                      <div style={{background:'linear-gradient(180deg,#f7fafd 0%,#eef4fa 100%)',borderBottom:'1.5px solid #d8e3ee',padding:'8px 12px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+                          {/* 제목 — 길어도 한 줄 말줄임(버튼을 밀어내지 않게) */}
+                          <div style={{display:'flex',alignItems:'center',gap:7,flex:1,minWidth:0}}>
+                              <BarChart3 size={16} color="var(--brand)" style={{flexShrink:0}}/>
+                              <span style={{fontWeight:800,fontSize:14,color:'var(--txt-strong)',whiteSpace:'nowrap',flexShrink:0}}>실적 그래프</span>
+                              <span title={graphProject.project}
+                                  style={{fontSize:12,color:'#5b6b7a',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',minWidth:0}}>
+                                  {graphProject.project}
+                              </span>
                           </div>
-                          <div style={{display:'flex',alignItems:'center',gap:10}}>
-                              {/* 줌 컨트롤 */}
-                              <span style={{fontSize:11,color:'#888',fontWeight:600}}>줌</span>
-                              <button onClick={() => setChartZoom(z => Math.max(0.5, parseFloat((z-0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>−</button>
-                              <span style={{fontSize:12,fontWeight:700,color:'var(--brand)',minWidth:36,textAlign:'center'}}>{Math.round(chartZoom*100)}%</span>
-                              <button onClick={() => setChartZoom(z => Math.min(3, parseFloat((z+0.2).toFixed(1))))}
-                                  style={{padding:'2px 10px',border:'1px solid var(--line)',background:'#f0f4f8',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)'}}>＋</button>
-                              <button onClick={() => setChartZoom(1)} style={{padding:'2px 8px',border:'1px solid var(--line)',background:'#f0f4f8',fontSize:11,fontWeight:700,cursor:'pointer',color:'#666',marginLeft:2}}>초기화</button>
-                              <button onClick={() => setGraphProject(null)} style={{marginLeft:8,background:'none',border:'none',cursor:'pointer',color:'#666',display:'flex',alignItems:'center'}}><X size={18}/></button>
+                          {/* 컨트롤 — 절대 줄바꿈/세로쪼개짐 없음 (nowrap + flexShrink:0) */}
+                          <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0,whiteSpace:'nowrap'}}>
+                              <div style={{display:'flex',alignItems:'center',border:'1px solid #cfdcea',borderRadius:7,overflow:'hidden',background:'#fff'}}>
+                                  <button onClick={() => setChartZoom(z => Math.max(0.5, parseFloat((z-0.2).toFixed(1))))} title="축소"
+                                      style={{padding:'3px 9px',border:'none',background:'#f4f8fc',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)',lineHeight:1.2}}>−</button>
+                                  <span style={{fontSize:11.5,fontWeight:800,color:'var(--brand)',minWidth:40,textAlign:'center',whiteSpace:'nowrap'}}>{Math.round(chartZoom*100)}%</span>
+                                  <button onClick={() => setChartZoom(z => Math.min(3, parseFloat((z+0.2).toFixed(1))))} title="확대"
+                                      style={{padding:'3px 9px',border:'none',background:'#f4f8fc',fontWeight:800,fontSize:14,cursor:'pointer',color:'var(--brand)',lineHeight:1.2}}>＋</button>
+                              </div>
+                              <button onClick={() => setChartZoom(1)}
+                                  style={{padding:'4px 9px',border:'1px solid #cfdcea',borderRadius:7,background:'#fff',fontSize:11,fontWeight:700,cursor:'pointer',color:'#5b6b7a',whiteSpace:'nowrap'}}>초기화</button>
+                              {/* ★ 그래프 → 진행실적 등록 (List 화면에서만) */}
+                              {currentMode === 'projectList' && graphProject?.pid && (
+                                  <button onClick={() => { const _pid = graphProject.pid; setGraphProject(null); setOpenProgressPid(_pid); }}
+                                      title="이 프로젝트의 진행실적 등록 팝업 열기"
+                                      style={{padding:'4px 10px',border:'1px solid #93c5fd',background:'#eff6ff',color:'#1e40af',fontSize:11,fontWeight:800,cursor:'pointer',borderRadius:7,display:'inline-flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
+                                      <TrendingUp size={13} style={{flexShrink:0}}/> 진행실적 등록
+                                  </button>
+                              )}
+                              <button onClick={() => setGraphProject(null)} title="닫기"
+                                  style={{marginLeft:2,background:'none',border:'none',cursor:'pointer',color:'#7d8fa1',display:'flex',alignItems:'center',flexShrink:0}}><X size={18}/></button>
                           </div>
                       </div>
 
-                      {/* 요약 대시보드 (인포그래픽) */}
-                      <div style={{display:'flex',gap:20,padding:'12px 20px',background:'#f5f8fb',borderBottom:'1px solid var(--head-bg)',flexShrink:0,alignItems:'center'}}>
-                          {/* 달성률 도넛 */}
-                          <div style={{position:'relative',width:92,height:92,flexShrink:0}}>
-                              <svg width="92" height="92" viewBox="0 0 92 92">
-                                  <circle cx="46" cy="46" r="38" fill="none" stroke="#e8eef4" strokeWidth="11"/>
-                                  <circle cx="46" cy="46" r="38" fill="none" stroke={progressPercent>=100?'#dc2626':'var(--brand)'} strokeWidth="11" strokeLinecap="round"
-                                      strokeDasharray={`${Math.min(progressPercent,100)/100*238.76} 238.76`} transform="rotate(-90 46 46)"/>
-                              </svg>
-                              <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
-                                  <span style={{fontSize:21,fontWeight:800,color:progressPercent>=100?'#dc2626':'var(--brand)',lineHeight:1}}>{progressPercent}%</span>
-                                  <span style={{fontSize:10,color:'#8aa0b4',marginTop:2}}>달성률</span>
+                      {/* ── 요약 대시보드 (2026-07-14 재설계) ──────────────────────────
+                           · 88% = '달성률' = 누적 실적 ÷ 총점 → 도넛 밑에 계산식을 그대로 적어 오해 방지
+                           · '총점 대비 진행' = 총점 막대(위=목표) + 진행 막대(아래=실제) 2단 비교
+                           · 지표 카드마다 '무슨 뜻인지' 한 줄 설명
+                      --------------------------------------------------------------- */}
+                      <div style={{display:'flex',gap:12,padding:'12px 14px',background:'linear-gradient(180deg,#f8fbfe 0%,#f1f6fb 100%)',borderBottom:'1.5px solid #dde7f0',flexShrink:0,alignItems:'stretch'}}>
+
+                          {/* 달성률 도넛 + 계산식 */}
+                          <div style={{width:130,flexShrink:0,background:'#fff',border:'1.5px solid #d9e4ef',borderRadius:12,padding:'8px 6px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                              <div style={{position:'relative',width:82,height:82}}>
+                                  <svg width="82" height="82" viewBox="0 0 82 82">
+                                      <circle cx="41" cy="41" r="34" fill="none" stroke="#e9eff5" strokeWidth="10"/>
+                                      <circle cx="41" cy="41" r="34" fill="none" stroke={progressPercent>=100?'#dc2626':'#1e7ac8'} strokeWidth="10" strokeLinecap="round"
+                                          strokeDasharray={`${Math.min(progressPercent,100)/100*213.6} 213.6`} transform="rotate(-90 41 41)"/>
+                                  </svg>
+                                  <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+                                      <span style={{fontSize:20,fontWeight:800,color:progressPercent>=100?'#dc2626':'#1e7ac8',lineHeight:1}}>{progressPercent}%</span>
+                                      <span style={{fontSize:9,color:'#8aa0b4',marginTop:2,fontWeight:700}}>달성률</span>
+                                  </div>
+                              </div>
+                              {/* ★ 88%가 무슨 뜻인지 — 계산식 그대로 노출 */}
+                              <div style={{marginTop:6,textAlign:'center',lineHeight:1.4}}>
+                                  <div style={{fontSize:9.5,color:'#7c93aa',fontWeight:700}}>누적 실적 ÷ 총점</div>
+                                  <div style={{fontSize:10.5,fontWeight:800}}>
+                                      <span style={{color:'#059669'}}>{totalAcc.toLocaleString()}</span>
+                                      <span style={{color:'#9fb0c2'}}> ÷ </span>
+                                      <span style={{color:'#dc2626'}}>{totalPoints.toLocaleString()}</span>
+                                      <span style={{color:'#9fb0c2'}}> pt</span>
+                                  </div>
                               </div>
                           </div>
-                          {/* 진행 바 + 지표 */}
-                          <div style={{flex:1,minWidth:0}}>
-                              <div style={{marginBottom:10}}>
-                                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontWeight:700,color:'#5b6b7a',marginBottom:4}}>
-                                      <span>총점 대비 진행</span>
-                                      <span style={{color:'#dc2626'}}>총점 {totalPoints.toLocaleString()} pt</span>
+
+                          {/* 총점 vs 진행 — 2단 막대 */}
+                          <div style={{flex:1,minWidth:0,background:'#fff',border:'1.5px solid #d9e4ef',borderRadius:12,padding:'10px 13px',boxShadow:'0 1px 3px rgba(16,42,73,0.05)',display:'flex',flexDirection:'column',justifyContent:'center'}}>
+                              <div style={{fontSize:11,fontWeight:800,color:'#33465c',marginBottom:8,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                                  총점 대비 진행
+                                  <span style={{fontSize:9.5,color:'#94a8bb',fontWeight:600}}>— 위 = 목표(총점) · 아래 = 현재까지 실적</span>
+                              </div>
+
+                              {/* ① 총점(목표) 막대 — 항상 꽉 찬 100% = 비교 기준 */}
+                              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
+                                  <span style={{fontSize:9.5,fontWeight:800,color:'#b91c1c',width:30,flexShrink:0,textAlign:'right'}}>총점</span>
+                                  <div style={{flex:1,height:20,borderRadius:10,background:'repeating-linear-gradient(45deg,#fee2e2,#fee2e2 6px,#fef4f4 6px,#fef4f4 12px)',border:'1.5px solid #f2a7a7',display:'flex',alignItems:'center',justifyContent:'flex-end',paddingRight:10,boxSizing:'border-box'}}>
+                                      <span style={{fontSize:10.5,fontWeight:800,color:'#b91c1c',whiteSpace:'nowrap'}}>{totalPoints.toLocaleString()} pt = 100%</span>
                                   </div>
-                                  <div style={{position:'relative',height:22,borderRadius:11,background:'#eef3f8',overflow:'hidden'}}>
-                                      <div style={{height:'100%',width:`${Math.min(progressPercent,100)}%`,borderRadius:11,background:progressPercent>=100?'#dc2626':'var(--brand)',display:'flex',alignItems:'center',paddingLeft:10,minWidth:44,boxSizing:'border-box'}}>
-                                          <span style={{fontSize:11,fontWeight:800,color:'#fff',whiteSpace:'nowrap'}}>{totalAcc.toLocaleString()} pt</span>
+                                  {/* 오른쪽 고정 칸 — 아래 '잔여'와 세로 정렬용 (총점 행은 목표라 비워둠) */}
+                                  <span style={{width:78,flexShrink:0,fontSize:9.5,fontWeight:700,color:'#b0bfcd',textAlign:'right',whiteSpace:'nowrap'}}>목표</span>
+                              </div>
+
+                              {/* ② 진행(실제) 막대 — 같은 폭 트랙이라 길이 비교가 바로 됨. 잔여는 막대 '밖' 고정 칸(글자 겹침 방지) */}
+                              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                  <span style={{fontSize:9.5,fontWeight:800,color:'#1e40af',width:30,flexShrink:0,textAlign:'right'}}>진행</span>
+                                  <div style={{flex:1,position:'relative',height:20,borderRadius:10,background:'#eef3f8',border:'1.5px solid #cfdcea',overflow:'hidden',boxSizing:'border-box'}}>
+                                      <div style={{height:'100%',width:`${Math.min(progressPercent,100)}%`,borderRadius:9,
+                                          background: progressPercent>=100 ? 'linear-gradient(90deg,#ef4444,#dc2626)' : 'linear-gradient(90deg,#3b9ae1,#1e7ac8)',
+                                          display:'flex',alignItems:'center',justifyContent:'flex-end',paddingRight:9,minWidth:58,boxSizing:'border-box',
+                                          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.4)'}}>
+                                          <span style={{fontSize:10.5,fontWeight:800,color:'#fff',whiteSpace:'nowrap'}}>{totalAcc.toLocaleString()} pt · {progressPercent}%</span>
                                       </div>
                                   </div>
-                              </div>
-                              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#f0f9f2'}}>
-                                      <div style={{fontSize:10,color:'#5b7a63',fontWeight:600}}>누적 실적</div>
-                                      <div style={{fontSize:15,fontWeight:800,color:'#059669'}}>{totalAcc.toLocaleString()} <span style={{fontSize:10,fontWeight:600}}>pt</span></div>
-                                  </div>
-                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#fff7ed'}}>
-                                      <div style={{fontSize:10,color:'#7a5b16',fontWeight:600}}>잔여</div>
-                                      <div style={{fontSize:15,fontWeight:800,color:'#d97706'}}>{Math.max(totalPoints-totalAcc,0).toLocaleString()} <span style={{fontSize:10,fontWeight:600}}>pt</span></div>
-                                  </div>
-                                  <div style={{flex:'1 1 90px',padding:'5px 12px',borderRadius:8,background:'#f0f6fb'}}>
-                                      <div style={{fontSize:10,color:'#3b6182',fontWeight:600}}>공정률 (금월)</div>
-                                      <div style={{fontSize:15,fontWeight:800,color:'#1e7ac8'}}>{lastProgress} <span style={{fontSize:10,fontWeight:600}}>%</span></div>
-                                  </div>
-                                  {/* 기간 — 항상 표시. 근거(무엇을 보고 정한 기간인지)까지 같이 (2026-07-13) */}
-                                  <div style={{flex:'2 1 220px',padding:'5px 12px',borderRadius:8,background: rangeWarn ? '#fef2f2' : '#f0f6fb'}}>
-                                      <div style={{fontSize:10,color: rangeWarn ? '#b91c1c' : '#3b6182',fontWeight:600}}>기간 ({timeline.length}개월)</div>
-                                      <div style={{fontSize:13,fontWeight:800,color: rangeWarn ? '#b91c1c' : '#1e3a5f'}}>{rangeLabel}</div>
-                                      <div style={{fontSize:10,color: rangeWarn ? '#b91c1c' : '#7c93aa',fontWeight:600,marginTop:1}}>{rangeWarn || rangeNote}</div>
-                                  </div>
+                                  <span style={{width:78,flexShrink:0,fontSize:10,fontWeight:800,color:'#d97706',textAlign:'right',whiteSpace:'nowrap'}}>
+                                      {progressPercent >= 100 ? '달성 ✓' : `잔여 ${Math.max(totalPoints-totalAcc,0).toLocaleString()} pt`}
+                                  </span>
                               </div>
                           </div>
+
+                          {/* 지표 카드 3종 — 각각 '무슨 뜻인지' 설명 부제 */}
+                          <div style={{display:'flex',gap:8,flexShrink:0}}>
+                              <div style={{width:112,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #bfe3cd',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                                  <div style={{fontSize:9.5,color:'#5b7a63',fontWeight:800}}>누적 실적</div>
+                                  <div style={{fontSize:16,fontWeight:800,color:'#059669',lineHeight:1.25}}>{totalAcc.toLocaleString()} <span style={{fontSize:10,fontWeight:700}}>pt</span></div>
+                                  <div style={{fontSize:9,color:'#8fa79a',fontWeight:600,marginTop:2,lineHeight:1.35}}>지금까지 등록된<br/>시운전 포인트 합</div>
+                              </div>
+                              <div style={{width:112,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #fbd9a5',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                                  <div style={{fontSize:9.5,color:'#7a5b16',fontWeight:800}}>잔여</div>
+                                  <div style={{fontSize:16,fontWeight:800,color:'#d97706',lineHeight:1.25}}>{Math.max(totalPoints-totalAcc,0).toLocaleString()} <span style={{fontSize:10,fontWeight:700}}>pt</span></div>
+                                  <div style={{fontSize:9,color:'#b39463',fontWeight:600,marginTop:2,lineHeight:1.35}}>총점 − 누적 실적<br/>(남은 포인트)</div>
+                              </div>
+                              <div style={{width:124,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #b9d7ef',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                                  <div style={{fontSize:9.5,color:'#3b6182',fontWeight:800}}>공정률 (금월)</div>
+                                  <div style={{fontSize:16,fontWeight:800,color:'#1e7ac8',lineHeight:1.25}}>{lastProgress} <span style={{fontSize:10,fontWeight:700}}>%</span></div>
+                                  <div style={{fontSize:9,color:'#7c93aa',fontWeight:600,marginTop:2,lineHeight:1.35}}>공정 항목(PLC·ETOS<br/>·HMI 등) 평균 진척</div>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* 기간 — 한 줄 띠 (2026-07-14: 카드에서 분리해 폭 확보) */}
+                      <div style={{display:'flex',alignItems:'center',gap:8,padding:'6px 16px',background: rangeWarn ? '#fef2f2' : '#fbfdff',borderBottom:'1px solid #e6eef6',flexShrink:0,flexWrap:'wrap'}}>
+                          <span style={{fontSize:9.5,fontWeight:800,color: rangeWarn ? '#b91c1c' : '#3b6182',background: rangeWarn ? '#fee2e2' : '#eef4fa',border:`1px solid ${rangeWarn ? '#f2a7a7' : '#cfdcea'}`,borderRadius:20,padding:'2px 9px'}}>
+                              기간 {timeline.length}개월
+                          </span>
+                          <span style={{fontSize:12.5,fontWeight:800,color: rangeWarn ? '#b91c1c' : '#1e3a5f'}}>{rangeLabel}</span>
+                          <span style={{fontSize:10,color: rangeWarn ? '#b91c1c' : '#8fa4b8',fontWeight:600}}>{rangeWarn || rangeNote}</span>
                       </div>
 
                       {/* 범례 — 칩 형태 (2026-07-13 시인성 개편) */}
@@ -7555,7 +7623,8 @@ const TechTeamPMS = () => {
                                   <div style={{fontSize:12,color:'#cbd5e1'}}>진행실적을 등록하면 막대 그래프가 표시됩니다</div>
                               </div>
                           )}
-                          <div style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',padding:'22px 0 12px'}} className="custom-scrollbar">
+                          <div ref={gChartScrollRef} onScroll={() => syncScroll(gChartScrollRef, gTableScrollRef)}
+                              style={{flex:1,minHeight:0,overflowX:'auto',overflowY:'auto',padding:'22px 0 12px'}} className="custom-scrollbar">
                               <div style={{display:'flex',paddingLeft:16,paddingRight:16,minWidth:totalW+104}}>
 
                                   {/* 왼쪽 Y축 — 포인트 */}
@@ -7583,9 +7652,12 @@ const TechTeamPMS = () => {
                                               </linearGradient>
                                           </defs>
 
+                                          {/* ★ 플롯 영역 박스 (2026-07-14) — 총점 기준선 높이부터 바닥까지 테두리로 감싸 '그래프 판'을 명확히 */}
+                                          <rect x={0.5} y={0.5} width={totalW-1} height={BAR_H-1} fill="#fcfdfe" stroke="#c3d2e1" strokeWidth={1.2} rx={4}/>
+
                                           {/* 달 배경 밴드 — 한 칸 걸러 옅게 */}
                                           {timeline.map((t,i) => (i % 2 === 1
-                                              ? <rect key={'bg'+t.date} x={i*colW} y={0} width={colW} height={BAR_H} fill="#f7fafc"/>
+                                              ? <rect key={'bg'+t.date} x={i*colW} y={1} width={colW} height={BAR_H-2} fill="#f4f8fc"/>
                                               : null))}
 
                                           {/* 가로 격자 + 바닥선 */}
@@ -7695,31 +7767,75 @@ const TechTeamPMS = () => {
                           </div>
                       </div>
 
-                      {/* 하단 데이터 테이블 */}
-                      <div style={{flexShrink:0,borderTop:'2px solid var(--line)',overflow:'auto',maxHeight:160}} className="custom-scrollbar">
-                          <table style={{width:'100%',fontSize:11,borderCollapse:'collapse',minWidth:totalW+80}}>
+                      {/* ── 하단 데이터 테이블 (2026-07-14 좌우 정렬 확정) ────────────────────
+                           ★ 표의 테두리 박스를 차트의 '플롯 박스'와 정확히 같은 구간에 놓는다.
+                             차트:  [여백16][Y축 56][ ==== 플롯 박스 totalW ==== ][%축 44][여백16]
+                             표  :  [여백16][항목 56][ ==== 테두리 박스 totalW ==== ][      60      ]
+                             → '항목' 칸은 테두리 밖(Y축 자리)에 두고, 월 칸에만 테두리를 그린다.
+                               그래야 위(차트)·아래(표)의 좌·우 경계가 딱 맞는다.
+                      ------------------------------------------------------------------------ */}
+                      <div ref={gTableScrollRef} onScroll={() => syncScroll(gTableScrollRef, gChartScrollRef)}
+                          style={{flexShrink:0,borderTop:'1.5px solid #dde7f0',background:'#fbfdff',padding:'10px 60px 12px 16px',overflowX:'auto',overflowY:'hidden',maxHeight:170}} className="custom-scrollbar">
+                          <table style={{fontSize:11,borderCollapse:'separate',borderSpacing:0,tableLayout:'fixed',
+                              width:56+totalW,minWidth:56+totalW,background:'transparent'}}>
+                              <colgroup>
+                                  <col style={{width:56}}/>
+                                  {timeline.map(t => <col key={'c'+t.date} style={{width:colW}}/>)}
+                              </colgroup>
                               <thead>
-                                  <tr style={{background:'var(--head-bg)'}}>
-                                      <th style={{padding:'4px 8px',borderRight:'1px solid var(--line)',textAlign:'left',fontWeight:700,color:'var(--txt-strong)',width:80,position:'sticky',left:0,background:'var(--head-bg)'}}>항목</th>
-                                      {timeline.map(t => (
-                                          <th key={t.date} style={{padding:'2px 6px',borderRight:'1px solid var(--line)',textAlign:'center',fontWeight:700,color:'var(--txt-strong)',whiteSpace:'nowrap',minWidth:colW}}>
-                                              {t.showYear && <div style={{fontSize:9,color:'var(--brand)',lineHeight:1.2}}>{t.date.slice(0,4)}년</div>}
-                                              <div style={{lineHeight:1.2}}>{parseInt(t.date.slice(5,7),10)}월</div>
-                                          </th>
-                                      ))}
+                                  <tr>
+                                      {/* 항목 라벨 — 차트 Y축 자리. 테두리 밖이라 박스가 왼쪽으로 튀어나오지 않음 */}
+                                      <th style={{padding:'4px 8px 4px 0',border:'none',background:'transparent',textAlign:'right',
+                                          fontWeight:800,color:'#8fa4b8',fontSize:10}}>항목</th>
+                                      {timeline.map((t,i) => {
+                                          const first = i === 0, last = i === timeline.length - 1;
+                                          return (
+                                              <th key={t.date} style={{padding:'4px 4px',textAlign:'center',fontWeight:800,whiteSpace:'nowrap',
+                                                  color: t.hasData ? '#1e3a5f' : '#a9b8c6',
+                                                  background: t.hasData ? 'linear-gradient(180deg,#f4f8fc,#e9f0f7)' : '#f6f9fc',
+                                                  borderTop:'1.2px solid #c3d2e1',
+                                                  borderBottom:'1.2px solid #c3d2e1',
+                                                  borderLeft: first ? '1.2px solid #c3d2e1' : '1px solid #e3ebf3',
+                                                  borderRight: last ? '1.2px solid #c3d2e1' : 'none',
+                                                  borderTopLeftRadius: first ? 8 : 0,
+                                                  borderTopRightRadius: last ? 8 : 0}}>
+                                                  {t.showYear && <div style={{fontSize:9,color:'#1e7ac8',lineHeight:1.2,fontWeight:800}}>{t.date.slice(0,4)}년</div>}
+                                                  <div style={{lineHeight:1.25,fontSize:11}}>{parseInt(t.date.slice(5,7),10)}월</div>
+                                              </th>
+                                          );
+                                      })}
                                   </tr>
                               </thead>
                               <tbody>
                                   {[
-                                      {l:'금월 pt', f: t => t.monthPt > 0 ? t.monthPt.toLocaleString() : '—', c: t => 'var(--brand)'},
-                                      {l:'누적 pt', f: t => t.accPt > 0 ? t.accPt.toLocaleString() : '—', c: t => totalPoints>0&&t.accPt>totalPoints?'#dc2626':'#333'},
-                                      {l:'공정률', f: t => t.progressPct > 0 ? `${t.progressPct}%` : '—', c: t => '#059669'},
-                                  ].map(({l,f,c}) => (
-                                      <tr key={l}>
-                                          <td style={{padding:'3px 8px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',fontWeight:700,color:'#555',position:'sticky',left:0,background:'#f5f8fb'}}>{l}</td>
-                                          {timeline.map(t => <td key={t.date} style={{padding:'3px 6px',borderRight:'1px solid var(--line)',borderBottom:'1px solid var(--line)',textAlign:'center',fontWeight:600,color:c(t)}}>{f(t)}</td>)}
-                                      </tr>
-                                  ))}
+                                      {l:'금월 pt', bg:'#f7fbff', f: t => t.monthPt > 0 ? t.monthPt.toLocaleString() : '—', c: t => t.monthPt > 0 ? '#1868b0' : '#c3ceda'},
+                                      {l:'누적 pt', bg:'#ffffff', f: t => t.accPt   > 0 ? t.accPt.toLocaleString()   : '—', c: t => t.accPt === 0 ? '#c3ceda' : (totalPoints>0 && t.accPt>totalPoints ? '#dc2626' : (t.hasData ? '#33465c' : '#9fb0c2'))},
+                                      {l:'공정률', bg:'#f8fdfa', f: t => t.progressPct > 0 ? `${t.progressPct}%` : '—', c: t => t.progressPct > 0 ? '#059669' : '#c3ceda'},
+                                  ].map(({l,bg,f,c}, ri, arr) => {
+                                      const lastRow = ri === arr.length - 1;
+                                      return (
+                                          <tr key={l}>
+                                              {/* 행 라벨 — 테두리 밖(차트 Y축 자리), 오른쪽 정렬로 표에 붙임 */}
+                                              <td style={{padding:'5px 8px 5px 0',border:'none',background:'transparent',textAlign:'right',
+                                                  fontWeight:800,color:'#5b6b7a',fontSize:10.5,whiteSpace:'nowrap'}}>{l}</td>
+                                              {timeline.map((t,i) => {
+                                                  const first = i === 0, last = i === timeline.length - 1;
+                                                  return (
+                                                      <td key={t.date} style={{padding:'5px 4px',textAlign:'center',fontWeight:800,fontSize:11,
+                                                          color:c(t),
+                                                          background: t.hasData ? bg : '#fbfcfd',
+                                                          borderLeft: first ? '1.2px solid #c3d2e1' : '1px solid #eef3f8',
+                                                          borderRight: last ? '1.2px solid #c3d2e1' : 'none',
+                                                          borderBottom: lastRow ? '1.2px solid #c3d2e1' : '1px solid #eef3f8',
+                                                          borderBottomLeftRadius: (lastRow && first) ? 8 : 0,
+                                                          borderBottomRightRadius: (lastRow && last) ? 8 : 0}}>
+                                                          {f(t)}
+                                                      </td>
+                                                  );
+                                              })}
+                                          </tr>
+                                      );
+                                  })}
                               </tbody>
                           </table>
                       </div>

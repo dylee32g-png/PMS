@@ -40,7 +40,8 @@ const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(t
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
-    baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings, isAdmin = false }) => {
+    baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings, isAdmin = false,
+    openProgressPid = null, onProgressOpened }) => {
     // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선, 없으면 하드코딩 폴백. List 상태는 월간보고 status와 별개 (2026-07-06 2단계: 구조 정정)
     const _teamCfg = currentTeam ? (teamSettings?.[currentTeam] || null) : null;
     const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : DEFAULT_STATUS_OPTIONS;
@@ -1096,8 +1097,29 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setAddingRow(newRow);
     };
 
+    // ── 공사 계약/완료 날짜 짝 검사 (2026-07-14 팀장님 규칙) ──────────────────────
+    //   · 계약 O / 완료 X → 저장 불가 (완료일을 반드시 같이)
+    //   · 계약 X / 완료 O → 저장 불가 (완료일만 넣기 금지)
+    //   · 둘 다 X        → 저장 OK (기존 동작 유지 — 아직 계약 전인 건들)
+    //   ※ 지금은 '프로젝트 추가'에만 적용. 상세/수정 팝업은 기존 152건 중 완료일이 빈 행이 많아
+    //     그대로 걸면 수정 자체가 막힘 → 데이터 정리 후 함께 적용 예정. [[contract-date-pair-rule]]
+    //   ※ 계약일 > 완료일(순서 뒤바뀜) 검사도 데이터 정리 때 함께 결정 예정.
+    const checkContractDates = (rowObj) => {
+        const cCol = activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사계약'));
+        const dCol = activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사완료'));
+        if (!cCol || !dCol) return null;                       // 해당 열이 없는 팀/양식이면 검사 안 함
+        const c = String(rowObj?.[cCol] ?? '').trim();
+        const d = String(rowObj?.[dCol] ?? '').trim();
+        if (c && !d) return '[공사 완료] 일자를 입력해 주세요.\n\n공사 계약 일자를 넣으면 공사 완료 일자도 함께 넣어야 합니다.\n(둘 다 비워두는 것은 가능합니다)';
+        if (!c && d) return '[공사 계약] 일자를 입력해 주세요.\n\n공사 완료 일자만 넣을 수는 없습니다.\n(둘 다 비워두는 것은 가능합니다)';
+        return null;                                           // 둘 다 있음 / 둘 다 없음 → 통과
+    };
+
     const saveAddingRow = async () => {
         if (!addingRow) return;
+        // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
+        const dateErr = checkContractDates(addingRow);
+        if (dateErr) { setAlertMsg(dateErr); return; }
         if (dataSource !== 'firebase') {
             if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: [...p.rows, addingRow] }));
             else if (dataSource === 'local') setLocalData(p => ({ ...p, rows: [...p.rows, addingRow] }));
@@ -1109,7 +1131,46 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
+    // ★ 그래프 → 진행실적 복귀 (2026-07-14): App.js 그래프 모달의 '진행실적 등록' 버튼이 pid를 내려주면 그 행의 팝업을 연다.
+    useEffect(() => {
+        if (!openProgressPid) return;
+        const row = activeRows.find(r => String(r._pid || '') === String(openProgressPid));
+        if (row) setProgressRow(row);
+        else setAlertMsg('이 화면(기준연도/필터)에서 해당 프로젝트를 찾지 못했습니다.');
+        onProgressOpened?.();   // 소비 완료 — 같은 pid를 다시 눌러도 열리도록 초기화
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openProgressPid]);
+
+    // ★ 실적 그래프 열기 (2026-07-14): 우클릭 메뉴와 '진행실적 등록' 팝업에서 함께 쓴다.
+    //    pid 기준. 연결된 월간보고가 있으면 그 월별데이터까지, 없으면 List 행 + 진행실적으로 그린다.
+    const openGraphForRow = (row) => {
+        if (!row) return;
+        const pid = row._pid;
+        const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '프로젝트';
+        if (!pid) { setAlertMsg('이 프로젝트는 내부 ID가 없어 그래프를 열 수 없습니다. (상세/수정에서 한 번 저장하면 발급됩니다)'); return; }
+        const linked = allProjects ? allProjects.find(p => p.pid === pid) : null;
+        // 그래프 기간 = List '공사 계약'(시작) ~ '공사 완료'(끝). 없으면 월간보고 값으로 폴백 (2026-07-13 규칙)
+        const _contractCol = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사계약'));
+        const _doneCol     = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사완료'));
+        const _sd = _contractCol ? toDateInputVal(row[_contractCol]) : '';
+        const _ed = _doneCol     ? toDateInputVal(row[_doneCol])     : '';
+        const graphObj = {
+            ...(linked || {}),
+            pid,
+            execNo: row[EXEC_NO_COL] || linked?.execNo,
+            project: nm,
+            totalCommissioningPoints: Number(row['포인트']) || linked?.totalCommissioningPoints || linked?.point || 0,
+            point: Number(row['포인트']) || linked?.point || 0,
+            monthlyData: linked?.monthlyData || [],
+            startDate: _sd || linked?.startDate || '',
+            endDate:   _ed || linked?.endDate   || '',
+        };
+        if (onShowGraph) onShowGraph(graphObj);
+    };
+
     const deleteRow = async id => {
+        // ★ 관리자 전용 (2026-07-14): 되돌릴 수 없는 완전 삭제
+        if (dataSource === 'firebase' && !isAdmin) { setAlertMsg('프로젝트 삭제는 관리자만 할 수 있습니다.'); return; }
         if (dataSource !== 'firebase') {
             const updater = rows => rows.filter(r => r._id !== id);
             if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
@@ -1826,33 +1887,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
                         </button>
-                        <button onClick={() => {
-                            const row = contextMenu.row;
-                            const pid = row._pid;
-                            const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '프로젝트';
-                            if (!pid) { setAlertMsg('이 프로젝트는 내부 ID가 없어 그래프를 열 수 없습니다. (상세/수정에서 한 번 저장하면 발급됩니다)'); setContextMenu(null); return; }
-                            // pid 전환(2026-07-06): 실행번호 대신 pid로. 연결된 월간보고가 있으면 그 월별데이터(공정률)까지,
-                            //   없으면 List 행 + 진행실적(pid)으로 시운전 포인트 추이를 그림.
-                            const linked = allProjects ? allProjects.find(p => p.pid === pid) : null;
-                            // 그래프 기간 = List의 '공사 계약'(시작) ~ '공사 완료'(끝). 없으면 월간보고 값 → 그래프쪽 폴백 규칙 (2026-07-13)
-                            const _contractCol = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사계약'));
-                            const _doneCol     = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사완료'));
-                            const _sd = _contractCol ? toDateInputVal(row[_contractCol]) : '';
-                            const _ed = _doneCol     ? toDateInputVal(row[_doneCol])     : '';
-                            const graphObj = {
-                                ...(linked || {}),
-                                pid,
-                                execNo: row[EXEC_NO_COL] || linked?.execNo,
-                                project: nm,
-                                totalCommissioningPoints: Number(row['포인트']) || linked?.totalCommissioningPoints || linked?.point || 0,
-                                point: Number(row['포인트']) || linked?.point || 0,
-                                monthlyData: linked?.monthlyData || [],
-                                startDate: _sd || linked?.startDate || '',
-                                endDate:   _ed || linked?.endDate   || '',
-                            };
-                            if (onShowGraph) onShowGraph(graphObj);
-                            setContextMenu(null);
-                        }} className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                        <button onClick={() => { openGraphForRow(contextMenu.row); setContextMenu(null); }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
                         {/* 프로젝트 연결 — '월간보고로 넘기기'가 기본 경로가 되면서 평소엔 숨김.
@@ -1881,6 +1917,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <button onClick={() => { handleResetProgress(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-[#dc2626] transition-colors">
                             <Trash2 size={16}/> 진행실적 초기화 (백지)
+                        </button>
+                        {/* ★ 프로젝트 완전 삭제 — 관리자 전용 (2026-07-14 신설).
+                            deleteRow()는 있었으나 호출 버튼이 없어 테스트 행조차 지울 수 없었음.
+                            평소 운영은 진행현황을 '삭제'로 바꾸는 방식(soft, 행 보존) 권장 — 이 메뉴는 테스트·오등록 정리용. */}
+                        <button onClick={() => {
+                            const row = contextMenu.row;
+                            const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '(이름 없음)';
+                            const no = row['번호'] ? `번호 ${row['번호']} · ` : '';
+                            setContextMenu(null);
+                            setConfirmDialog({
+                                message: `[완전 삭제]\n${no}${nm}\n\n이 프로젝트를 클라우드에서 완전히 지웁니다.\n되돌릴 수 없습니다. (작업 백로그에는 삭제 기록이 남습니다)\n\n※ 실제 운영 중인 프로젝트라면 삭제 대신\n   진행현황을 '삭제'로 바꾸는 방식을 권장합니다.`,
+                                onConfirm: () => deleteRow(row._id),
+                            });
+                        }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-black text-[#b91c1c] transition-colors">
+                            <Trash2 size={16}/> 프로젝트 완전 삭제
                         </button>
                         </>)}
                     </div>
@@ -2002,6 +2053,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         onApplyToMonthly={(rowId, data) => { applyProgressToMainRow(rowId, data?.mainTable); onApplyProgressByPid?.(progressRow._pid, data); }}
                         onProgressSaved={onProgressSaved}
                         onClose={() => setProgressRow(null)}
+                        /* ★ 진행실적 → 실적 그래프 바로 이동 (2026-07-14). 저장(적용) 후 눌러야 최신 값이 반영된다 */
+                        onShowGraph={() => { const r = progressRow; setProgressRow(null); openGraphForRow(r); }}
                     />
                 );
             })()}

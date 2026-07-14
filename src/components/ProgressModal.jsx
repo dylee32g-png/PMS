@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { X, Minus, BarChart2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { X, Minus, BarChart2, BarChart3, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 
@@ -53,7 +53,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {} }) => {
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph }) => {
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -99,6 +99,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const [savedWeekly,setSavedWeekly]= useState({});
     const [saving,     setSaving]     = useState(false);
     const [dirty,      setDirty]      = useState(false);
+    const [confirmClose, setConfirmClose] = useState(false);   // ★ 저장 안 하고 닫으려 할 때 경고 (2026-07-14)
     const [pmsData,    setPmsData]    = useState(null);
     const [reloading,  setReloading]  = useState(false);
     const [wSummary,   setWSummary]   = useState(null);
@@ -368,14 +369,29 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         await parseWeeklyBlob(ab);
     };
 
-    useEffect(() => {
-        if (didScrollRef.current || !scrollRef.current) return;
-        didScrollRef.current = true;
+    // 현재(오늘이 속한) 주차 컬럼이 화면 가운데 오도록 가로 스크롤 — 초기 표시·보기 전환에서 공통 사용
+    const scrollToCurrentWeek = () => {
+        if (!scrollRef.current) return;
         const idx = DISP_WEEKS.findIndex(c => c.year === cy0 && c.month === cm0 && c.week === Math.ceil(now0.getDate()/7));
         if (idx < 0) return;
         const containerW = scrollRef.current.clientWidth;
-        scrollRef.current.scrollLeft = totalLabelW + idx * weekColW - (containerW - totalLabelW - TOTAL_COL_W) / 2;
+        scrollRef.current.scrollLeft = Math.max(0, totalLabelW + idx * weekColW - (containerW - totalLabelW - TOTAL_COL_W) / 2);
+    };
+
+    useEffect(() => {
+        if (didScrollRef.current || !scrollRef.current) return;
+        didScrollRef.current = true;
+        scrollToCurrentWeek();
     }, []); // eslint-disable-line
+
+    // ★ '전체 기간 보기' 전환 시 현재 월로 (2026-07-14)
+    //   전체보기는 ±6개월이라 표가 작년/1월부터 그려진다. 그대로 두면 화면 왼쪽 끝 = 1월이 보여
+    //   정작 이번 달 칸을 보려면 매번 오른쪽으로 스크롤해야 했다 → 전환 직후 현재 주차로 이동시킨다.
+    //   (표시 범위·데이터·합계는 그대로. 보이는 위치만 이동)
+    useEffect(() => {
+        const t = setTimeout(() => scrollToCurrentWeek(), 0);   // 새 열 폭이 DOM에 반영된 뒤 실행
+        return () => clearTimeout(t);
+    }, [showAllMonths]); // eslint-disable-line
 
     const onDragStart = (e) => {
         if (e.target.closest('input,button,select')) return;
@@ -549,6 +565,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             selfPts, intPts, prevSelfPts, accSelfPts, accIntPts, curWeek: nowW,
             monthStr: baseDate, month: m, prevMonthStr,
         };
+    };
+
+    // ★ 닫기 요청 (2026-07-14): 입력만 하고 [적용하기]를 안 누른 채 닫으면 값이 사라지므로 먼저 확인.
+    const requestClose = () => {
+        if (dirty) { setConfirmClose(true); return; }
+        onClose?.();
     };
 
     const handleApplyConfirm = async () => {
@@ -813,10 +835,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
         return (
             <tr key={`total-${type}`}>
-                <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:12, color,
-                    background: bgHead, position:'sticky', left:0, zIndex:1, height:34 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <div style={{ width:3, height:14, background:color, borderRadius:1, flexShrink:0 }}/>
+                <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:13, color,
+                    background: bgHead, position:'sticky', left:0, zIndex:1, height:38, verticalAlign:'middle' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                        <div style={{ width:4, height:16, background:color, borderRadius:2, flexShrink:0 }}/>
                         {label}
                     </div>
                 </td>
@@ -825,8 +847,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         s + (Number((weeklyData[`sub_${i}_${subKey}`]||{})[wKey]) || 0), 0);
                     const isCur = isCurrentWeek(year, month, week);
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
-                    return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:700, fontSize:12,
-                        color: weekSum>0?color:'var(--line)', background: isCur?'#fef9e7':bgCell }}>
+                    return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:800, fontSize:14,
+                        color: weekSum>0?color:'var(--line)', background: isCur?'#fef9e7':bgCell,
+                        height:38, verticalAlign:'middle' }}>
                         {weekSum > 0 ? weekSum : ''}
                     </td>;
                 })}
@@ -1083,7 +1106,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     </button>
                     )}
                     <button onClick={() => setMinimized(p => !p)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', padding:2, display:'flex' }}><Minus size={13}/></button>
-                    <button onClick={onClose}                     style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', padding:2, display:'flex' }}><X size={13}/></button>
+                    <button onClick={requestClose}                style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', padding:2, display:'flex' }}><X size={13}/></button>
                 </div>
             </div>
 
@@ -1268,8 +1291,19 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         <td colSpan={DISP_WEEKS.length + 3} style={{ padding:0, background:'#e2e8f0', height:2, border:'none' }}/>
                                     </tr>
 
-                                    <tr>
-                                        <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:13, color:'#0ea5e9', background:'#f0f9ff', height:34, position:'sticky', left:0, zIndex:1 }}>진척률(%)</td>
+                                    {/* ★ 진척률 행 — 가장 중요한 수치인데 글자가 제일 작았음(11px) → 강조 (2026-07-14)
+                                        · 주차 셀 11 → 14px, 합계 14 → 18px, 굵기 800, 진한 파랑
+                                        · 행 높이 34 → 42px, 세로 가운데 정렬(다른 행 38px 입력칸과 시각적으로 맞춤)
+                                        · 위쪽 굵은 구분선 + 진한 배경으로 '결론 줄'임을 명확히 */}
+                                    <tr style={{ height:42 }}>
+                                        <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14.5, color:'#075985',
+                                            background:'#eaf3f9', height:42, verticalAlign:'middle', borderTop:'1.5px solid #a9cde3',
+                                            position:'sticky', left:0, zIndex:1 }}>
+                                            <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                                                <div style={{ width:4, height:18, background:'#7fb3d3', borderRadius:2, flexShrink:0 }}/>
+                                                <span>진척률<span style={{ fontSize:11, fontWeight:700, color:'#3d7fa5', marginLeft:2 }}>(%)</span></span>
+                                            </div>
+                                        </td>
                                         {DISP_WEEKS.map(({ key: wKey, year, month, week }) => {
                                             const pct = pctByWeek[wKey] || 0;
                                             const hasData = subRows.length > 0
@@ -1280,12 +1314,33 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                 : [...SECONDARY_ON, ...WEEKLY_ON].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0);
                                             const isCur = isCurrentWeek(year, month, week);
                                             const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
-                                            return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:700, fontSize:11, color:'#0ea5e9', background: isCur?'#fef9e7':'#f0f9ff' }}>
-                                                {hasData && pct > 0 ? `${pct}%` : ''}
+                                            const show = hasData && pct > 0;
+                                            // ★ '%' 기호 제거 (2026-07-14): 셀 폭 44px에 '68.9%'(5글자)는 안 들어가 옆 칸과 붙었음.
+                                            //    헤더가 이미 '진척률(%)'이라 단위는 명확 → 숫자만. 소수부는 작게 써서 정수부가 먼저 읽히게.
+                                            const _s = show ? String(pct).split('.') : null;
+                                            return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:800,
+                                                color: show ? '#0f5f8a' : '#bcd3e1', background: isCur?'#fdf3d8':'#eaf3f9',
+                                                height:42, verticalAlign:'middle', borderTop:'1.5px solid #a9cde3', whiteSpace:'nowrap',
+                                                padding:'0 2px', letterSpacing:'-0.02em' }}>
+                                                {show ? (
+                                                    <span style={{ display:'inline-flex', alignItems:'baseline', justifyContent:'center' }}>
+                                                        <span style={{ fontSize:15 }}>{_s[0]}</span>
+                                                        {_s[1] !== undefined && <span style={{ fontSize:10.5, opacity:0.7 }}>.{_s[1]}</span>}
+                                                    </span>
+                                                ) : <span style={{ fontSize:12 }}>—</span>}
                                             </td>;
                                         })}
-                                        <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color:'#0ea5e9', background:'#e0f2fe', textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
-                                            {overallPct > 0 ? `${overallPct}%` : ''}
+                                        <td style={{ ...TD, padding:'0 8px', background:'#d9e9f4', textAlign:'right',
+                                            height:42, verticalAlign:'middle', borderTop:'1.5px solid #a9cde3',
+                                            position:'sticky', right:0, zIndex:1 }}>
+                                            {overallPct > 0 ? (
+                                                <span style={{ display:'inline-flex', alignItems:'baseline', justifyContent:'flex-end', color:'#0b5578', letterSpacing:'-0.02em', whiteSpace:'nowrap' }}>
+                                                    <span style={{ fontSize:19, fontWeight:800 }}>{String(overallPct).split('.')[0]}</span>
+                                                    {String(overallPct).split('.')[1] !== undefined &&
+                                                        <span style={{ fontSize:12, fontWeight:800, opacity:0.75 }}>.{String(overallPct).split('.')[1]}</span>}
+                                                    <span style={{ fontSize:11, fontWeight:700, opacity:0.7, marginLeft:1 }}>%</span>
+                                                </span>
+                                            ) : <span style={{ fontSize:13, color:'#9ab5c7' }}>—</span>}
                                         </td>
                                     </tr>
                                 </tbody>
@@ -1395,11 +1450,47 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         적용하기
                     </button>
                 )}
-                <button onClick={onClose} disabled={saving || applying}
+                {/* ★ 실적 그래프로 바로 이동 (2026-07-14) — 그래프는 '저장된 값'으로 그려지므로 미저장 상태면 먼저 안내 */}
+                {onShowGraph && (
+                    <button onClick={() => {
+                        if (dirty) { setApplyMsg('저장하지 않은 값이 있습니다 — [적용하기]로 저장한 뒤 그래프를 확인하세요'); setTimeout(() => setApplyMsg(''), 5000); return; }
+                        onShowGraph();
+                    }} disabled={saving || applying}
+                        style={{ background:'#eff6ff', border:'1px solid #93c5fd', borderRadius:7, color:'#1e40af', fontSize:12, fontWeight:800, padding:'6px 14px', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                        <BarChart3 size={13}/> 실적 그래프
+                    </button>
+                )}
+                <button onClick={requestClose} disabled={saving || applying}
                     style={{ background:'#f1f5f9', border:BORDER, borderRadius:7, color:'#374151', fontSize:12, fontWeight:700, padding:'6px 18px', cursor:'pointer' }}>
                     닫기
                 </button>
             </div>
+
+            {/* ★ 저장 안 하고 닫기 경고 (2026-07-14) — 입력만 하고 [적용하기]를 안 누르면 값이 사라짐 */}
+            {confirmClose && (
+                <div style={{ position:'fixed', inset:0, zIndex:9600, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.45)' }}>
+                    <div style={{ background:'#fff', border:'1.5px solid #f59e0b', width:420, maxWidth:'92vw', overflow:'hidden', boxShadow:'0 8px 40px rgba(0,0,0,0.25)' }}>
+                        <div style={{ background:'#f59e0b', padding:'9px 16px', color:'#fff', fontSize:12, fontWeight:800 }}>
+                            ⚠ 저장하지 않은 변경사항이 있습니다
+                        </div>
+                        <div style={{ padding:'16px', fontSize:12.5, color:'#222', lineHeight:1.75 }}>
+                            입력하신 실적은 아직 저장되지 않았습니다.<br/>
+                            아래 <b style={{ color:'#15803d' }}>[적용하기]</b> 를 눌러야 메인표와 클라우드에 저장됩니다.<br/><br/>
+                            <span style={{ color:'#b45309', fontWeight:700 }}>지금 그냥 닫으면 방금 입력한 값이 모두 사라집니다.</span>
+                        </div>
+                        <div style={{ display:'flex', gap:8, justifyContent:'flex-end', padding:'10px 16px', borderTop:'1px solid #e5eaf3', background:'#f8fafc' }}>
+                            <button onClick={() => { setConfirmClose(false); onClose?.(); }}
+                                style={{ padding:'6px 14px', fontSize:12, fontWeight:700, color:'#b91c1c', background:'#fff', border:'1px solid #fecaca', cursor:'pointer' }}>
+                                저장 안 하고 닫기
+                            </button>
+                            <button onClick={() => setConfirmClose(false)}
+                                style={{ padding:'6px 14px', fontSize:12, fontWeight:800, color:'#fff', background:'#15803d', border:'1px solid #15803d', cursor:'pointer' }}>
+                                돌아가서 저장하기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
