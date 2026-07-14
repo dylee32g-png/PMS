@@ -514,8 +514,37 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { return null; }   // 확인 실패 시 저장을 막지 않음(기존 동작 유지)
     };
 
+    // ── 인라인(표에서 바로 수정)용 동시수정 감지 (2026-07-14) ──────────────────
+    //  editOrigRef = 셀 편집을 '시작한 순간'의 값. 편집하는 동안 실시간 구독으로 화면값이
+    //  바뀌어도 이 원본은 그대로 두어야, 그 사이 남이 고친 걸 잡아낼 수 있다.
+    const editOrigRef = useRef(null);   // { id, key, value }
+    useEffect(() => {
+        if (!editingCell.id || !editingCell.key) { editOrigRef.current = null; return; }
+        const cur = editOrigRef.current;
+        if (cur && cur.id === editingCell.id && cur.key === editingCell.key) return;   // 같은 셀 편집 중 → 원본 유지
+        const r = activeRows.find(x => x._id === editingCell.id);
+        editOrigRef.current = { id: editingCell.id, key: editingCell.key, value: String(r?.[editingCell.key] ?? '') };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editingCell.id, editingCell.key]);
+
+    // 칸 하나만 비교 — 내가 편집을 시작할 때 보던 값과 서버 최신값이 다르면 = 그 사이 남이 고침
+    const findCellConflict = async (rowId, key, baseVal) => {
+        if (dataSource !== 'firebase' || !rowId || !key) return null;
+        try {
+            const snap = await getDoc(rowDocRef(currentTeam, rowId));
+            if (!snap.exists()) return null;
+            const server = snap.data();
+            const who = String(server._updatedBy || '');
+            if (who && who === String(user?.email || '')) return null;              // 내가 방금 고친 것
+            if (String(server[key] ?? '') === String(baseVal ?? '')) return null;   // 그대로 → 충돌 아님
+            return { who, at: server._updatedAt || '', fields: [key], server };
+        } catch (e) { return null; }
+    };
+
     // ── 인라인 셀 편집 ────────────────────────────────────────────────────
-    const commitCellEdit = async () => {
+    //   onBlur={commitCellEdit} 로도 불리므로(이벤트 객체가 인자로 들어옴) 저장 본체는 doCommitCell로 분리.
+    const commitCellEdit = () => doCommitCell(editingCell, false);
+    const doCommitCell = async (editingCell, isForce) => {
         if (!editingCell.id || !editingCell.key) return;
         const srcRow = activeRows.find(r => r._id === editingCell.id);
         // 날짜 칸: 입력값이 원본(정규화)과 같으면 = 사용자가 안 바꾼 것 → 저장 스킵.
@@ -542,8 +571,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
         // ★ 역방향 동기화(2026-07-10): 공정률 7개 셀이면 진행실적 주차장부에도 반영 → 팝업 합계와 양방향 일치.
         //    (progItemKeyOf가 공정률 7개만 통과시키므로 포인트·시운전·날짜·상태는 자동 제외)
-        syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
         if (dataSource !== 'firebase') {
+            syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
                 return { ...r, ...patch, _changeHistory: pushChangeHist(r, entry) };
@@ -555,6 +584,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         const row = fbRows.find(r => r._id === editingCell.id);
         if (!row) { setEditingCell({ id: null, key: null, value: '' }); return; }
+        // ★ 동시수정 감지 (2026-07-14): 편집을 시작할 때 보던 값 ↔ 서버 최신값 비교
+        if (!isForce) {
+            const o = editOrigRef.current;
+            const baseVal = (o && o.id === editingCell.id && o.key === editingCell.key)
+                ? o.value : String(srcRow?.[editingCell.key] ?? '');
+            const cf = await findCellConflict(editingCell.id, editingCell.key, baseVal);
+            if (cf) {
+                const cell = { ...editingCell };   // 확인창을 띄우는 사이 상태가 바뀌어도 내 입력값 보존
+                setConflictDlg({
+                    ...cf,
+                    mine: { [cell.key]: cell.value },
+                    onOverwrite: () => { setConflictDlg(null); setEditingCell({ id: null, key: null, value: '' }); doCommitCell(cell, true); },
+                    onCancel:    () => { setConflictDlg(null); setEditingCell({ id: null, key: null, value: '' }); },
+                });
+                return;
+            }
+        }
+        // ★ 역방향 동기화(공정률 7개 → 진행실적 주차장부)는 '저장이 확정된 뒤'에만 —
+        //   충돌 확인창에서 [취소]를 눌렀는데 주차장부만 바뀌는 일을 막는다 (2026-07-14)
+        syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
         const { _id, ...rest } = row;
         try {
             await setDoc(rowDocRef(currentTeam, _id), stampSave({
@@ -578,10 +627,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return [...prev, { date: today, status: value }];
     };
 
-    const commitCellWith = async (id, key, value) => {
+    const commitCellWith = async (id, key, value, isForce) => {
         if (!id || !key) return;
         const srcRow = activeRows.find(r => r._id === id);
         const entry  = makeChangeEntry(srcRow, key, value);
+        // ★ 동시수정 감지 (2026-07-14): 드롭다운은 화면에 보이던 값이 곧 '내가 본 원본'
+        if (dataSource === 'firebase' && isForce !== true) {
+            const cf = await findCellConflict(id, key, String(srcRow?.[key] ?? ''));
+            if (cf) {
+                setConflictDlg({
+                    ...cf,
+                    mine: { [key]: value },
+                    onOverwrite: () => { setConflictDlg(null); commitCellWith(id, key, value, true); },
+                    onCancel:    () => setConflictDlg(null),
+                });
+                return;
+            }
+        }
         if (dataSource !== 'firebase') {
             const updater = rows => rows.map(r => {
                 if (r._id !== id) return r;
@@ -832,7 +894,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ★ 동시수정 감지 (2026-07-14): 내가 고친 칸을 팝업 열어둔 사이 다른 사람이 먼저 고쳤으면 확인부터.
         if (!isForce && dataSource === 'firebase') {
             const cf = await findConflicts(detailRow._id, Object.keys(popupChanges));
-            if (cf) { setConflictDlg({ ...cf, onOverwrite: () => { setConflictDlg(null); saveDetailRow(true); } }); return; }
+            if (cf) { setConflictDlg({ ...cf, mine: { ...popupChanges }, onOverwrite: () => { setConflictDlg(null); saveDetailRow(true); } }); return; }
         }
         let working = { ...latest, ...popupChanges };
         const contentChanged = activeHeaders.some(h =>
@@ -1576,13 +1638,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <p style={{ marginBottom:10 }}>
                                 <b style={{ color:'#dc2626' }}>{(conflictDlg.who || '다른 사용자').split('@')[0]}</b>님이
                                 내가 이 창을 열어둔 사이에 <b>같은 칸</b>을 수정했습니다.
-                                {conflictDlg.at ? <span style={{ color:'#888' }}> ({String(conflictDlg.at).slice(0,16).replace('T',' ')})</span> : null}
+                                {conflictDlg.at ? <span style={{ color:'#888' }}> ({(() => { try { return new Date(conflictDlg.at).toLocaleString('ko-KR', { hour12: false }); } catch (e) { return String(conflictDlg.at); } })()})</span> : null}
                             </p>
                             <div style={{ backgroundColor:'#fff5f5', border:'1px solid #fecaca', padding:'8px 10px', marginBottom:12, maxHeight:150, overflowY:'auto' }}>
                                 {conflictDlg.fields.slice(0,8).map(h => (
                                     <div key={h} style={{ fontSize:11.5, marginBottom:3 }}>
                                         <b>{h}</b> — 상대방 값: <span style={{ color:'#dc2626' }}>"{String(conflictDlg.server?.[h] ?? '')}"</span>
-                                        {' → '}내 값: <span style={{ color:'#1e7ac8' }}>"{String(detailRow?.[h] ?? '')}"</span>
+                                        {' → '}내 값: <span style={{ color:'#1e7ac8' }}>"{String(conflictDlg.mine?.[h] ?? detailRow?.[h] ?? '')}"</span>
                                     </div>
                                 ))}
                                 {conflictDlg.fields.length > 8 && <div style={{ fontSize:11, color:'#888' }}>외 {conflictDlg.fields.length - 8}칸</div>}
@@ -1593,7 +1655,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </p>
                         </div>
                         <div style={{ display:'flex', gap:8, justifyContent:'flex-end', padding:'10px 16px', borderTop:'1px solid #e5eaf3', backgroundColor:'#f8fafc' }}>
-                            <button onClick={() => { setConflictDlg(null); setDetailRow(null); setDetailRowOriginal(null); }}
+                            <button onClick={() => { const c = conflictDlg; setConflictDlg(null); if (c.onCancel) c.onCancel(); else { setDetailRow(null); setDetailRowOriginal(null); } }}
                                 style={{ padding:'6px 14px', fontSize:12, fontWeight:700, color:'#555', backgroundColor:'#fff', border:'1px solid #c4ccd8' }}>
                                 취소 (저장 안 함)
                             </button>

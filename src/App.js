@@ -88,7 +88,8 @@ const getLoginErrorMessage = (code) => {
         'auth/invalid-credential':      '아이디 또는 비밀번호가 올바르지 않습니다.',
         'auth/user-not-found':          '등록되지 않은 공용 계정입니다. 관리자에게 문의하세요.',
     };
-    return map[code] || '오류가 발생했습니다. 다시 시도해 주세요.';
+    // 매핑에 없는 코드는 원인 파악용으로 코드를 그대로 보여준다 (2026-07-14)
+    return map[code] || `오류가 발생했습니다. 다시 시도해 주세요. [${code || '알 수 없음'}]`;
 };
 
 // --- 외부 데이터 정의 ---
