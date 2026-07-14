@@ -209,3 +209,15 @@ export const loadFileSaver = async () => {
         document.body.appendChild(script);
     });
 };
+
+// Tesseract.js OCR (무료, 한글+영문 인식) — CDN 동적 로드
+export const loadTesseract = async () => {
+    if (window.Tesseract) return window.Tesseract;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        script.onload = () => resolve(window.Tesseract);
+        script.onerror = () => reject(new Error("Tesseract(OCR) 로드 실패"));
+        document.body.appendChild(script);
+    });
+};

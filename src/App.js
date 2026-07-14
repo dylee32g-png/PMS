@@ -64,8 +64,10 @@ try {
 
 const appId = (typeof window !== 'undefined' && typeof window.__app_id !== 'undefined') ? window.__app_id : 'tech-team-pms-app';
 
-// 로그인 스킵 (개발용) — 배포 전 false로 변경
-const SKIP_LOGIN = false;
+// 로그인/견적암호 스킵 — 로컬(개발 PC)에서만 자동 적용. 배포 도메인에선 정상 로그인.
+// (이 조건이라 커밋·push 해도 안전 — 배포판은 스킵 안 됨)
+const SKIP_LOGIN = (typeof window !== 'undefined') &&
+    /^(localhost$|127\.|192\.168\.|10\.|0\.0\.0\.0$)/.test(window.location.hostname);
 const GUEST_USER = { email: 'guest@local', displayName: '게스트' };
 const GUEST_REGISTERED = { email: 'guest@local', displayName: '게스트', role: 'admin', active: true };
 
@@ -5607,7 +5609,7 @@ const TechTeamPMS = () => {
                                   작업 백로그
                               </button>
                               <button
-                                  onClick={() => { setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
+                                  onClick={() => { if (SKIP_LOGIN) { setCurrentMode('estimate'); return; } setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
                                   className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적

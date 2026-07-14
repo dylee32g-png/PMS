@@ -2,13 +2,74 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     Upload, Download, Trash2, X, LogOut,
     AlertTriangle, Search, FileSpreadsheet,
-    Edit2, Save, ChevronUp, ChevronDown, Plus, Target
+    Edit2, Save, ChevronUp, ChevronDown, Plus, Target, Camera, ArrowDownAZ, Settings
 } from 'lucide-react';
-import { loadXLSX, loadExcelJS, loadFileSaver } from '../utils';
+import { loadXLSX, loadExcelJS, loadFileSaver, loadTesseract } from '../utils';
+
+const EST_STORE_KEY = 'pms_estimate_data_v1';
 
 const DROPDOWN_KW = ['진행', '현황', '담당자', '공사업체', '업체담당자'];
-const isDateCol     = (h) => ['날짜', '일자', 'Date', '일시'].some(k => h.includes(k));
+const isDateCol     = (h) => ['날짜', '일자', 'Date', '일시', '발행일'].some(k => h.includes(k));
 const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
+
+// 견적서 사진 OCR용 고정 컬럼
+const EST_COLUMNS = ['발행일', '견적번호', '고객명', '담당자/tel', 'End User', '내용', '견적가', '수주가', '특기사항', '진행'];
+
+// 각 컬럼을 찾기 위한 라벨(견적서에 흔한 표기)
+const EST_FIELDS = [
+    { key: '발행일',     labels: ['발행일', '발행 일', '견적일', '작성일', '일자', 'date'] },
+    { key: '견적번호',   labels: ['견적번호', '견적 번호', '견적no', '문서번호', 'quotation', 'quote'] },
+    { key: '고객명',     labels: ['고객명', '고객', '수신', '업체명', '회사명', '거래처', '상호'] },
+    { key: '담당자/tel', labels: ['담당자', '담당', '연락처', '전화', 'tel', '휴대폰', '핸드폰', 'h.p', 'hp'] },
+    { key: 'End User',   labels: ['end user', 'enduser', '엔드유저', '실사용', '수요처', '납품처', '현장'] },
+    { key: '내용',       labels: ['내용', '품명', '품 명', '규격', '품목', '제품', '사양', 'item'] },
+    { key: '견적가',     labels: ['견적가', '견적금액', '견적 금액', '공급가', '합계', '총액', '금액', 'total'] },
+    { key: '수주가',     labels: ['수주가', '수주금액', '수주 금액', '계약가', '낙찰가', '수주'] },
+    { key: '특기사항',   labels: ['특기사항', '특기', '비고', '참고', 'remark', 'note', '기타'] },
+];
+
+// OCR 텍스트 → 한 행(견적) 파싱
+const parseEstimateText = (text) => {
+    const row = {};
+    EST_COLUMNS.forEach(c => { row[c] = ''; });
+    const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+        const low = line.toLowerCase();
+        for (const f of EST_FIELDS) {
+            if (row[f.key]) continue;
+            for (const lab of f.labels) {
+                const idx = low.indexOf(lab.toLowerCase());
+                if (idx >= 0) {
+                    const val = line.slice(idx + lab.length).replace(/^[\s:：·\-=]+/, '').trim();
+                    if (val) row[f.key] = val;
+                    break;
+                }
+            }
+        }
+    }
+    // 발행일 정규화 (2026.7.1 / 2026년 7월 1일 → 2026-07-01)
+    if (row['발행일']) {
+        const d = row['발행일'].match(/(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
+        if (d) row['발행일'] = `${d[1]}-${String(d[2]).padStart(2, '0')}-${String(d[3]).padStart(2, '0')}`;
+    }
+    // 금액은 숫자(콤마 포함)만
+    ['견적가', '수주가'].forEach(k => {
+        if (row[k]) { const m = row[k].match(/[\d][\d,]{2,}/); if (m) row[k] = m[0]; }
+    });
+    return row;
+};
+
+// 진행 상태(칩) 항목 + 색상
+const EST_STATUSES = ['진행중', '집행', '완료', '검토중', 'invoice'];
+const STATUS_CHIP_COLOR = {
+    '진행중':  { bg: 'rgba(59,130,246,0.18)',  text: '#60a5fa', border: '#3b82f6' },
+    '집행':    { bg: 'rgba(168,85,247,0.18)',  text: '#c084fc', border: '#a855f7' },
+    '완료':    { bg: 'rgba(16,185,129,0.18)',  text: '#34d399', border: '#10b981' },
+    '검토중':  { bg: 'rgba(245,158,11,0.18)',  text: '#fbbf24', border: '#f59e0b' },
+    'invoice': { bg: 'rgba(236,72,153,0.18)',  text: '#f472b6', border: '#ec4899' },
+};
+// 주요열 (표시=주요 모드일 때 보이는 열)
+const EST_MAIN_COLS = ['발행일', '견적번호', '고객명', '견적가', '수주가', '진행'];
 
 const EstimateScreen = ({ onBack }) => {
     const [headers, setHeaders]               = useState([]);
@@ -18,16 +79,43 @@ const EstimateScreen = ({ onBack }) => {
     const [editingRow, setEditingRow]         = useState(null);
     const [addingRow, setAddingRow]           = useState(null);
     const [isLoading, setIsLoading]           = useState(false);
+    const [ocrProgress, setOcrProgress]       = useState('');
     const [alertMsg, setAlertMsg]             = useState('');
     const [confirmClearOpen, setConfirmClearOpen] = useState(false);
     const [colWidths, setColWidths]           = useState({});
     const [resizingCol, setResizingCol]       = useState(null);
     const [startX, setStartX]                 = useState(0);
     const [startWidth, setStartWidth]         = useState(0);
+    const [settingsOpen, setSettingsOpen]     = useState(false);
+    const [savedFlash, setSavedFlash]         = useState(false);
+    const [activeStatus, setActiveStatus]     = useState(new Set()); // 진행 상태 칩 필터
+    const [colMode, setColMode]               = useState('all');     // 'all' | 'main' (전체 열 / 주요열)
 
     const fileInputRef = useRef(null);
+    const photoInputRef = useRef(null);
 
     const getW = h => colWidths[h] || Math.max(100, h.length * 14 + 40);
+
+    // 저장된 견적 자동 불러오기
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(EST_STORE_KEY);
+            if (raw) {
+                const d = JSON.parse(raw);
+                if (Array.isArray(d.headers) && Array.isArray(d.rows)) { setHeaders(d.headers); setRows(d.rows); }
+            }
+        } catch (_) { /* 무시 */ }
+    }, []);
+
+    // 저장 (이 브라우저에 보관)
+    const handleSave = () => {
+        try {
+            const rowsToSave = rows.map(({ _ocr, ...r }) => r); // OCR 원문은 제외해 용량 절약
+            localStorage.setItem(EST_STORE_KEY, JSON.stringify({ headers, rows: rowsToSave, savedAt: Date.now() }));
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 1800);
+        } catch (e) { setAlertMsg('저장 실패: ' + e.message); }
+    };
 
     // 컬럼 리사이즈
     useEffect(() => {
@@ -73,6 +161,40 @@ const EstimateScreen = ({ onBack }) => {
         } finally {
             setIsLoading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    // 견적서 사진(최대 5장) OCR → 표에 자동 정리
+    const handlePhotoUpload = async (e) => {
+        const files = Array.from(e.target?.files || []).slice(0, 5);
+        if (!files.length) return;
+        setIsLoading(true);
+        setOcrProgress('OCR 엔진 준비 중...');
+        try {
+            const Tesseract = await loadTesseract();
+            const ts = Date.now();
+            const newRows = [];
+            for (let i = 0; i < files.length; i++) {
+                setOcrProgress(`사진 ${i + 1}/${files.length} 읽는 중... (처음엔 한글 데이터를 받느라 느릴 수 있어요)`);
+                const { data } = await Tesseract.recognize(files[i], 'kor+eng');
+                const row = parseEstimateText(data.text);
+                row._id = `est_ocr_${ts}_${i}`;
+                row._ocr = data.text; // 원본 인식 텍스트 보관
+                newRows.push(row);
+            }
+            // 고정 컬럼을 헤더에 병합(기존 컬럼 유지)
+            setHeaders(prev => {
+                const merged = [...prev];
+                EST_COLUMNS.forEach(c => { if (!merged.includes(c)) merged.push(c); });
+                return merged;
+            });
+            setRows(prev => [...prev, ...newRows]);
+        } catch (err) {
+            setAlertMsg(`사진 읽기 오류: ${err.message}`);
+        } finally {
+            setIsLoading(false);
+            setOcrProgress('');
+            if (photoInputRef.current) photoInputRef.current.value = '';
         }
     };
 
@@ -134,8 +256,11 @@ const EstimateScreen = ({ onBack }) => {
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
 
-    const getUniqueVals = (header) =>
-        [...new Set(rows.map(r => String(r[header]||'').trim()).filter(Boolean))].sort();
+    const getUniqueVals = (header) => {
+        const base = [...new Set(rows.map(r => String(r[header]||'').trim()).filter(Boolean))];
+        if (header === '진행') return [...new Set([...EST_STATUSES, ...base])];
+        return base.sort();
+    };
 
     const FieldInput = ({ header, value, onChange }) => {
         const cls = 'bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition-all w-full';
@@ -154,19 +279,47 @@ const EstimateScreen = ({ onBack }) => {
         return <input type="text" value={value || ''} onChange={e => onChange(e.target.value)} className={cls}/>;
     };
 
+    // 검색만 적용된 행 (상태 칩 개수 계산용)
+    const searchedRows = useMemo(() => {
+        if (!searchTerm) return rows;
+        const t = searchTerm.toLowerCase();
+        return rows.filter(r => headers.some(h => String(r[h] || '').toLowerCase().includes(t)));
+    }, [rows, headers, searchTerm]);
+
+    // 진행 상태별 개수
+    const statusCounts = useMemo(() => {
+        const c = {}; EST_STATUSES.forEach(s => { c[s] = 0; });
+        searchedRows.forEach(r => { const v = String(r['진행'] || '').trim(); if (v in c) c[v]++; });
+        return c;
+    }, [searchedRows]);
+
     const sortedRows = useMemo(() => {
-        let out = rows;
-        if (searchTerm) {
-            const t = searchTerm.toLowerCase();
-            out = out.filter(r => headers.some(h => String(r[h] || '').toLowerCase().includes(t)));
-        }
+        let out = searchedRows;
+        if (activeStatus.size > 0) out = out.filter(r => activeStatus.has(String(r['진행'] || '').trim()));
         if (!sortConfig.key) return out;
         return [...out].sort((a, b) => {
             const av = String(a[sortConfig.key] || '').toLowerCase();
             const bv = String(b[sortConfig.key] || '').toLowerCase();
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         });
-    }, [rows, headers, searchTerm, sortConfig]);
+    }, [searchedRows, sortConfig, activeStatus]);
+
+    // 표에 보여줄 열 (주요열/전체)
+    const displayHeaders = useMemo(
+        () => colMode === 'main' ? headers.filter(h => EST_MAIN_COLS.includes(h)) : headers,
+        [headers, colMode]
+    );
+    const toggleStatus = (s) =>
+        setActiveStatus(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+
+    // 견적가·수주가 합계 (현재 표시 행 기준)
+    const totals = useMemo(() => {
+        const num = v => Number(String(v ?? '').replace(/[^0-9.-]/g, '')) || 0;
+        return {
+            est:   sortedRows.reduce((s, r) => s + num(r['견적가']), 0),
+            order: sortedRows.reduce((s, r) => s + num(r['수주가']), 0),
+        };
+    }, [sortedRows]);
 
     return (
         <div className="h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-6 flex flex-col overflow-hidden relative">
@@ -176,6 +329,7 @@ const EstimateScreen = ({ onBack }) => {
                 <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
                     <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(245,158,11,0.4)]"/>
                     <p className="text-lg font-bold text-white">처리 중...</p>
+                    {ocrProgress && <p className="text-sm text-amber-300 mt-2 max-w-xs text-center whitespace-pre-line">{ocrProgress}</p>}
                 </div>
             )}
 
@@ -274,6 +428,7 @@ const EstimateScreen = ({ onBack }) => {
             )}
 
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
+            <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} accept="image/*" multiple className="hidden"/>
 
             {/* 헤더 */}
             <header className="flex flex-wrap justify-between items-center gap-3 mb-3 shrink-0">
@@ -310,20 +465,55 @@ const EstimateScreen = ({ onBack }) => {
                             <Plus size={15}/> 견적 추가
                         </button>
                     )}
-                    <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white text-sm font-bold transition-all">
-                        <Upload size={15}/> 엑셀 업로드
-                    </button>
-                    <button onClick={handleDownload} disabled={!headers.length}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-500/50 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-sm font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
-                        <Download size={15}/> 다운로드
-                    </button>
-                    {rows.length > 0 && (
-                        <button onClick={() => setConfirmClearOpen(true)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-500/30 bg-rose-600/10 hover:bg-rose-600/30 text-rose-400 text-sm font-bold transition-all">
-                            <Trash2 size={15}/> 전체 삭제
-                        </button>
+                    {headers.length > 0 && (
+                        <>
+                            <button onClick={() => requestSort('고객명')}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-sm font-bold transition-all">
+                                <ArrowDownAZ size={15}/> 고객명순
+                            </button>
+                            <button onClick={() => requestSort('진행')}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-sm font-bold transition-all">
+                                <ArrowDownAZ size={15}/> 진행순
+                            </button>
+                            <button onClick={handleSave}
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-bold transition-all ${savedFlash ? 'border-emerald-400 bg-emerald-600 text-white' : 'border-emerald-500/50 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white'}`}>
+                                <Save size={15}/> {savedFlash ? '저장됨!' : '저장'}
+                            </button>
+                        </>
                     )}
+
+                    {/* 설정 (사진 읽기 · 엑셀 · 다운로드 · 전체삭제) */}
+                    <div className="relative">
+                        <button onClick={() => setSettingsOpen(o => !o)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-sm font-bold transition-all">
+                            <Settings size={15}/> 설정
+                        </button>
+                        {settingsOpen && (
+                            <>
+                                <div className="fixed inset-0 z-[190]" onClick={() => setSettingsOpen(false)}/>
+                                <div className="absolute right-0 top-full mt-2 z-[200] w-52 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 flex flex-col gap-1">
+                                    <button onClick={() => { setSettingsOpen(false); if (photoInputRef.current) { photoInputRef.current.value = ''; photoInputRef.current.click(); } }}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-violet-600/20 text-violet-300 text-sm font-bold text-left transition-all">
+                                        <Camera size={16}/> 견적서 사진 읽기 (5장)
+                                    </button>
+                                    <button onClick={() => { setSettingsOpen(false); if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-cyan-600/20 text-cyan-300 text-sm font-bold text-left transition-all">
+                                        <Upload size={16}/> 엑셀 업로드
+                                    </button>
+                                    <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!headers.length}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-emerald-600/20 text-emerald-300 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <Download size={16}/> 엑셀 다운로드
+                                    </button>
+                                    <div className="h-px bg-slate-800 my-1"/>
+                                    <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!rows.length}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-rose-600/20 text-rose-400 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <Trash2 size={16}/> 전체 삭제
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     <button onClick={onBack}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-sm font-bold transition-all">
                         <LogOut size={15}/> 나가기
@@ -334,81 +524,151 @@ const EstimateScreen = ({ onBack }) => {
             {/* 빈 상태 */}
             {headers.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                    <div className="p-8 bg-slate-900/50 rounded-3xl border border-slate-800 text-center max-w-sm">
-                        <FileSpreadsheet size={48} className="text-slate-700 mx-auto mb-4"/>
-                        <p className="text-slate-400 font-bold mb-2">엑셀 파일을 업로드하면</p>
-                        <p className="text-slate-400 font-bold mb-4">견적 목록이 표시됩니다.</p>
-                        <p className="text-slate-600 text-sm">첫 번째 행을 헤더(열 이름)로 인식합니다.</p>
+                    <div className="p-8 bg-slate-900/50 rounded-3xl border border-slate-800 text-center max-w-md">
+                        <Camera size={48} className="text-violet-500/70 mx-auto mb-4"/>
+                        <p className="text-slate-300 font-bold mb-2">견적서 사진을 읽어 자동 정리</p>
+                        <p className="text-slate-500 text-sm mb-4">발행일·견적번호·고객명·견적가 등을 항목별로 뽑아 표로 만듭니다. (한 번에 5장까지)</p>
+                        <p className="text-slate-600 text-xs">※ 자동 인식이 완벽하진 않아요. 표에서 바로 수정할 수 있습니다.</p>
                     </div>
-                    <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
-                        className="flex items-center gap-2 px-6 py-3 rounded-xl border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white font-bold transition-all text-sm">
-                        <Upload size={18}/> 엑셀 파일 업로드
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                        <button onClick={() => { if (photoInputRef.current) { photoInputRef.current.value = ''; photoInputRef.current.click(); } }}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-violet-500/50 bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold transition-all text-sm">
+                            <Camera size={18}/> 견적서 사진 읽기
+                        </button>
+                        <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white font-bold transition-all text-sm">
+                            <Upload size={18}/> 엑셀 파일 업로드
+                        </button>
+                    </div>
                 </div>
             ) : (
-                /* 테이블 */
-                <div className="flex-1 overflow-auto custom-scrollbar rounded-2xl border border-slate-800 shadow-xl">
-                    <table className="w-full text-sm border-collapse min-w-max">
-                        <thead className="sticky top-0 z-10">
-                            <tr className="bg-slate-900 border-b border-slate-800">
-                                <th className="px-3 py-2.5 text-[11px] font-bold text-slate-500 text-center w-10 border-r border-slate-800 shrink-0">No</th>
-                                {headers.map(h => (
-                                    <th key={h}
-                                        className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-left cursor-pointer hover:bg-slate-800 hover:text-amber-400 transition-colors border-r border-slate-800/60 select-none relative group"
-                                        style={{ width: getW(h), minWidth: getW(h) }}
-                                        onClick={() => requestSort(h)}>
-                                        <span className="flex items-center gap-1">
-                                            {h}
-                                            {sortConfig.key === h
-                                                ? (sortConfig.dir === 'asc' ? <ChevronUp size={10}/> : <ChevronDown size={10}/>)
-                                                : null}
-                                        </span>
-                                        {/* 리사이즈 핸들 */}
-                                        <div
-                                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover:opacity-100 hover:bg-amber-500/40 transition-opacity"
-                                            onMouseDown={e => { e.stopPropagation(); setResizingCol(h); setStartX(e.clientX); setStartWidth(getW(h)); }}
-                                        />
-                                    </th>
-                                ))}
-                                <th className="px-3 py-2.5 text-[11px] font-bold text-slate-500 text-center w-20 sticky right-0 bg-slate-900 border-l border-slate-800">작업</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sortedRows.length === 0 ? (
-                                <tr>
-                                    <td colSpan={headers.length + 2} className="py-16 text-center text-slate-600 font-bold">
-                                        검색 결과가 없습니다.
-                                    </td>
+                <>
+                    {/* 진행 상태 칩 필터 (테이블 위) */}
+                    {headers.includes('진행') && (
+                        <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 bg-slate-900/60 border border-slate-800 rounded-xl shrink-0">
+                            <span className="text-[11px] font-bold text-slate-400">진행</span>
+                            <button onClick={() => setActiveStatus(new Set())}
+                                className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
+                                style={activeStatus.size === 0
+                                    ? { background: 'rgba(59,130,246,0.18)', color: '#60a5fa', borderColor: '#3b82f6' }
+                                    : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                전체 <span className="opacity-70">({searchedRows.length})</span>
+                            </button>
+                            {EST_STATUSES.map(s => {
+                                const active = activeStatus.has(s);
+                                const c = STATUS_CHIP_COLOR[s];
+                                return (
+                                    <button key={s} onClick={() => toggleStatus(s)}
+                                        className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
+                                        style={active
+                                            ? { background: c.bg, color: c.text, borderColor: c.border }
+                                            : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                        {s} <span className="opacity-70">({statusCounts[s]})</span>
+                                    </button>
+                                );
+                            })}
+                            {activeStatus.size > 0 && (
+                                <button onClick={() => setActiveStatus(new Set())}
+                                    className="text-[10px] font-bold text-rose-400 flex items-center gap-0.5 px-1">
+                                    <X size={10}/> 초기화
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 테이블 */}
+                    <div className="flex-1 overflow-auto custom-scrollbar rounded-2xl border border-slate-800 shadow-xl">
+                        <table className="w-full text-sm border-collapse min-w-max">
+                            <thead className="sticky top-0 z-10">
+                                <tr className="bg-slate-900 border-b border-slate-800">
+                                    <th className="px-3 py-2.5 text-[11px] font-bold text-slate-500 text-center w-10 border-r border-slate-800 shrink-0">No</th>
+                                    {displayHeaders.map(h => (
+                                        <th key={h}
+                                            className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-left cursor-pointer hover:bg-slate-800 hover:text-amber-400 transition-colors border-r border-slate-800/60 select-none relative group"
+                                            style={{ width: getW(h), minWidth: getW(h) }}
+                                            onClick={() => requestSort(h)}>
+                                            <span className="flex items-center gap-1">
+                                                {h}
+                                                {sortConfig.key === h
+                                                    ? (sortConfig.dir === 'asc' ? <ChevronUp size={10}/> : <ChevronDown size={10}/>)
+                                                    : null}
+                                            </span>
+                                            <div
+                                                className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize opacity-0 group-hover:opacity-100 hover:bg-amber-500/40 transition-opacity"
+                                                onMouseDown={e => { e.stopPropagation(); setResizingCol(h); setStartX(e.clientX); setStartWidth(getW(h)); }}
+                                            />
+                                        </th>
+                                    ))}
+                                    <th className="px-3 py-2.5 text-[11px] font-bold text-slate-500 text-center w-20 sticky right-0 bg-slate-900 border-l border-slate-800">작업</th>
                                 </tr>
-                            ) : sortedRows.map((row, idx) => (
-                                <tr key={row._id} className={`border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors ${idx % 2 !== 0 ? 'bg-slate-900/20' : ''}`}>
-                                    <td className="px-3 py-2 text-center text-slate-500 text-xs border-r border-slate-800/40 shrink-0">{idx + 1}</td>
-                                    {headers.map(h => (
-                                        <td key={h}
-                                            className="px-3 py-2 text-slate-300 text-xs border-r border-slate-800/40 truncate max-w-[200px]"
-                                            title={row[h]}>
-                                            {row[h] || <span className="text-slate-700">-</span>}
+                            </thead>
+                            <tbody>
+                                {sortedRows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={displayHeaders.length + 2} className="py-16 text-center text-slate-600 font-bold">
+                                            조건에 맞는 견적이 없습니다.
+                                        </td>
+                                    </tr>
+                                ) : sortedRows.map((row, idx) => (
+                                    <tr key={row._id} className={`border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors ${idx % 2 !== 0 ? 'bg-slate-900/20' : ''}`}>
+                                        <td className="px-3 py-2 text-center text-slate-500 text-xs border-r border-slate-800/40 shrink-0">{idx + 1}</td>
+                                        {displayHeaders.map(h => (
+                                            <td key={h}
+                                                className="px-3 py-2 text-slate-300 text-xs border-r border-slate-800/40 truncate max-w-[200px]"
+                                                title={row[h]}>
+                                                {row[h] || <span className="text-slate-700">-</span>}
+                                            </td>
+                                        ))}
+                                        <td className="px-2 py-2 sticky right-0 bg-slate-950 border-l border-slate-800/40">
+                                            <div className="flex items-center justify-center gap-1">
+                                                <button onClick={() => setEditingRow({ ...row })}
+                                                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-400 transition-colors"
+                                                    title="수정">
+                                                    <Edit2 size={12}/>
+                                                </button>
+                                                <button onClick={() => deleteRow(row._id)}
+                                                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
+                                                    title="삭제">
+                                                    <Trash2 size={12}/>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            {/* 합계 행 — 견적가·수주가 컬럼 아래 (인라인 스타일로 강제: 밝은 배경 + 검정 굵은 큰 고딕) */}
+                            <tfoot className="sticky bottom-0 z-10">
+                                <tr style={{ fontFamily: "'맑은 고딕','Malgun Gothic',sans-serif" }}>
+                                    <td style={{ backgroundColor: '#e0f2fe', color: '#111827', fontWeight: 900, fontSize: '15px', textAlign: 'center', borderTop: '3px solid #38bdf8', padding: '12px' }}>합계</td>
+                                    {displayHeaders.map(h => (
+                                        <td key={h} style={{ backgroundColor: '#e0f2fe', color: '#111827', fontWeight: 900, fontSize: '18px', borderTop: '3px solid #38bdf8', padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                                            {h === '견적가'
+                                                ? totals.est.toLocaleString()
+                                                : h === '수주가'
+                                                    ? totals.order.toLocaleString()
+                                                    : ''}
                                         </td>
                                     ))}
-                                    <td className="px-2 py-2 sticky right-0 bg-slate-950 border-l border-slate-800/40">
-                                        <div className="flex items-center justify-center gap-1">
-                                            <button onClick={() => setEditingRow({ ...row })}
-                                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-400 transition-colors"
-                                                title="수정">
-                                                <Edit2 size={12}/>
-                                            </button>
-                                            <button onClick={() => deleteRow(row._id)}
-                                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-                                                title="삭제">
-                                                <Trash2 size={12}/>
-                                            </button>
-                                        </div>
-                                    </td>
+                                    <td style={{ position: 'sticky', right: 0, backgroundColor: '#e0f2fe', color: '#374151', fontWeight: 700, fontSize: '11px', textAlign: 'center', borderTop: '3px solid #38bdf8', padding: '10px' }}>{sortedRows.length}건</td>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    {/* 푸터 — 표시/전체 · 주요열/전체 + 열 표시 토글 */}
+                    <div className="px-4 py-2 mt-2 border border-slate-800 bg-slate-900/60 rounded-xl flex items-center justify-between text-xs shrink-0 gap-3 flex-wrap">
+                        <span className="text-slate-500">
+                            표시 <b className="text-slate-300">{sortedRows.length}</b> / 전체 <b className="text-slate-300">{rows.length}</b>행 ·
+                            주요열 <b className="text-slate-300">{EST_MAIN_COLS.filter(c => headers.includes(c)).length}</b> / 전체 {headers.length}개
+                        </span>
+                        <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-0.5">
+                            <button onClick={() => setColMode('all')}
+                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${colMode === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}>전체 열</button>
+                            <button onClick={() => setColMode('main')}
+                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${colMode === 'main' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}>주요열</button>
+                        </div>
+                    </div>
+                </>
             )}
         </div>
     );
