@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { LayoutGrid, Mail, LogIn, AlertCircle, CheckCircle, Users, Lock, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
 
 const LS_LAST_EMAIL = 'pms_last_email';
+const LS_STAY_LOGGED_IN = 'pms_stay_logged_in';   // 지난번 '로그인 유지' 선택 기억 (2026-07-14)
 
 const GoogleIcon = () => (
     <svg width="18" height="18" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
@@ -19,7 +20,7 @@ const bgHead  = '#dce3ec';
 
 export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin, loading, error }) {
     const [email, setEmail]               = useState(() => localStorage.getItem(LS_LAST_EMAIL) || '');
-    const [stayLoggedIn, setStayLoggedIn] = useState(true);
+    const [stayLoggedIn, setStayLoggedIn] = useState(() => localStorage.getItem(LS_STAY_LOGGED_IN) !== '0');   // 기본 = 유지 (2026-07-14)
     const [sent, setSent]                 = useState(false);
 
     // 공용 계정 섹션
@@ -118,7 +119,7 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
                             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                                 <input type="checkbox" checked={stayLoggedIn} onChange={e => setStayLoggedIn(e.target.checked)}
                                     style={{ width: '14px', height: '14px', accentColor: accent, cursor: 'pointer' }} />
-                                <span style={{ fontSize: '12px', color: '#555', fontWeight: 600 }}>로그인 유지</span>
+                                <span style={{ fontSize: '12px', color: '#555', fontWeight: 600 }}>이 PC에서 로그인 유지 <span style={{ fontSize: '11px', color: '#999', fontWeight: 500 }}>(다음부터 인증 메일 없이 바로 접속)</span></span>
                             </label>
 
                             <button type="submit" disabled={loading || !email}
