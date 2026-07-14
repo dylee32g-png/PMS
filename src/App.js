@@ -71,6 +71,7 @@ const GUEST_REGISTERED = { email: 'guest@local', displayName: '게스트', role:
 
 const LS_LAST_EMAIL      = 'pms_last_email';     // 마지막 입력 이메일 기억
 const EMAIL_FOR_SIGN_IN  = 'pms_emailForSignIn'; // 링크 발송한 이메일 임시 보관
+const LS_STAY_LOGGED_IN  = 'pms_stay_logged_in'; // '로그인 유지' 선택값 기억 ('1'=유지, '0'=이 창만) (2026-07-14)
 
 const getLoginErrorMessage = (code) => {
     const map = {
@@ -598,7 +599,13 @@ const TechTeamPMS = () => {
         savedEmail = window.prompt('보안을 위해 이메일을 다시 입력해 주세요:');
       }
       if (savedEmail) {
-        signInWithEmailLink(auth, savedEmail, window.location.href)
+        // ★ 로그인 유지 (2026-07-14): 링크로 열린 이 탭에서 '어디에 로그인 상태를 저장할지'를 먼저 정한다.
+        //    browserLocalPersistence = 이 PC(브라우저)에 보관 → 창을 닫았다 켜도 로그인 유지 = 재인증 불필요.
+        //    (사용자가 로그인 화면에서 '로그인 유지'를 껐다면 그 창에서만 유지 = session)
+        const stay = localStorage.getItem(LS_STAY_LOGGED_IN) !== '0';   // 기본값 = 유지
+        setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence)
+          .catch(() => {})   // 저장소 지정 실패해도 로그인 자체는 진행
+          .then(() => signInWithEmailLink(auth, savedEmail, window.location.href))
           .then(() => {
             localStorage.removeItem(EMAIL_FOR_SIGN_IN);
             // 원래 탭(로그인 창)에 완료 신호 전송
@@ -1793,6 +1800,7 @@ const TechTeamPMS = () => {
       try {
           const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
           await setPersistence(auth, persistence);
+          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // ★ 링크 탭에서 같은 방식으로 저장하도록 전달 (2026-07-14)
           await sendSignInLinkToEmail(auth, email, {
               url: window.location.origin + window.location.pathname,
               handleCodeInApp: true,
@@ -1828,6 +1836,7 @@ const TechTeamPMS = () => {
       try {
           const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
           await setPersistence(auth, persistence);
+          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // (2026-07-14)
           await signInWithPopup(auth, new GoogleAuthProvider());
       } catch (e) {
           setLoginError(getLoginErrorMessage(e.code));
@@ -1852,6 +1861,7 @@ const TechTeamPMS = () => {
       try {
           const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
           await setPersistence(auth, persistence);
+          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // (2026-07-14)
           try {
               await signInWithEmailAndPassword(auth, syntheticEmail, password);
           } catch (firstErr) {
@@ -5671,6 +5681,7 @@ const TechTeamPMS = () => {
               <ProjectListScreen
                   currentTeam={currentTeam}
                   user={user}
+                  isAdmin={registeredUser?.role === 'admin'}   /* ★ 위험 버튼(엑셀 확정저장·전체저장) 관리자 전용 게이팅 (2026-07-14) */
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
                   onGoToPms={(execNo) => {
                       setCurrentMode('pms');

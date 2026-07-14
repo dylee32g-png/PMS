@@ -40,7 +40,7 @@ const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(t
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
-    baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings }) => {
+    baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings, isAdmin = false }) => {
     // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선, 없으면 하드코딩 폴백. List 상태는 월간보고 status와 별개 (2026-07-06 2단계: 구조 정정)
     const _teamCfg = currentTeam ? (teamSettings?.[currentTeam] || null) : null;
     const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : DEFAULT_STATUS_OPTIONS;
@@ -94,6 +94,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const appliedHighlightRef = useRef(null); // 중복 하이라이트 방지
     const [detailRow, setDetailRow]                 = useState(null); // 상세 화면용 row 사본
     const [detailRowOriginal, setDetailRowOriginal] = useState(null); // 변경 감지용 원본
+    const [conflictDlg, setConflictDlg] = useState(null); // 동시수정 감지 확인창 {who, at, fields, server, onOverwrite} (2026-07-14)
     const [editingRow, setEditingRow]       = useState(null);
     const [addingRow, setAddingRow]         = useState(null);
     const [selectedRowId, setSelectedRowId] = useState(null);
@@ -313,6 +314,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ── 엑셀 업로드 → 전체 시트 파싱 → pendingData (미저장 미리보기) ────
     const handleFileUpload = async (e) => {
+        // ★ 관리자 전용 (2026-07-14): 업로드하면 화면이 '미리보기'로 바뀌어 클라우드와 분리됨 → 일반 사용자 혼선·오조작 방지
+        if (!isAdmin) { setAlertMsg('엑셀 업로드는 관리자만 할 수 있습니다.'); return; }
         const file = e.target?.files?.[0];
         if (!file) return;
         setIsLoading(true); setLogs([]);
@@ -404,6 +407,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ── Firebase에 확정 저장 ─────────────────────────────────────────────
     const handleSaveToFirebase = async () => {
+        // ★ 관리자 전용 (2026-07-14): 기존 행을 전량 삭제하고 엑셀로 교체 → 그 시각 남이 하던 수정·pid·이력이 모두 사라짐
+        if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.\n\n[엑셀 확정 저장]은 클라우드의 기존 데이터를\n전부 지우고 엑셀로 교체합니다.'); return; }
         const src = pendingData || localData;
         if (!src?.rows?.length) return;
         setIsLoading(true);
@@ -484,6 +489,31 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const pushChangeHist = (row, entry) =>
         entry ? [...(Array.isArray(row._changeHistory) ? row._changeHistory : []), entry] : (row._changeHistory || []);
 
+    // ── 동시 편집 안전장치 (2026-07-14) ────────────────────────────────────────
+    //  ① stampSave = 저장할 때마다 '누가·언제' 도장(_updatedAt/_updatedBy)을 찍는다.
+    //  ② findConflicts = 상세팝업 저장 직전, 서버 최신본과 '팝업을 열 때의 원본'을 대조해
+    //     내가 고친 칸을 그 사이 다른 사람이 먼저 고쳤는지 찾는다(겹치는 칸만 = 오탐 방지).
+    //     서로 다른 칸이면 기존 병합 로직(latest + popupChanges)이 양쪽 다 살리므로 경고하지 않는다.
+    const stampSave = (data) => ({
+        ...data,
+        _updatedAt: new Date().toISOString(),
+        _updatedBy: user?.email || '',
+    });
+    const findConflicts = async (rowId, myKeys) => {
+        if (dataSource !== 'firebase' || !rowId || !myKeys.length) return null;
+        try {
+            const snap = await getDoc(rowDocRef(currentTeam, rowId));
+            if (!snap.exists()) return null;
+            const server = snap.data();
+            const base   = detailRowOriginal || {};
+            const who    = String(server._updatedBy || '');
+            if (who && who === String(user?.email || '')) return null;    // 내가 방금 고친 것 → 충돌 아님
+            const fields = myKeys.filter(h => String(server[h] ?? '') !== String(base[h] ?? ''));
+            if (!fields.length) return null;                              // 겹치는 칸 없음 → 병합으로 둘 다 보존
+            return { who, at: server._updatedAt || '', fields, server };
+        } catch (e) { return null; }   // 확인 실패 시 저장을 막지 않음(기존 동작 유지)
+    };
+
     // ── 인라인 셀 편집 ────────────────────────────────────────────────────
     const commitCellEdit = async () => {
         if (!editingCell.id || !editingCell.key) return;
@@ -527,11 +557,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!row) { setEditingCell({ id: null, key: null, value: '' }); return; }
         const { _id, ...rest } = row;
         try {
-            await setDoc(rowDocRef(currentTeam, _id), {
+            await setDoc(rowDocRef(currentTeam, _id), stampSave({
                 ...rest,
                 ...patch,
                 _changeHistory: pushChangeHist(row, entry)
-            });
+            }));
             if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...row, ...patch }, entry.changes);   // 백로그: 표 셀 수정
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
@@ -569,11 +599,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!row) return;
         const { _id, ...rest } = row;
         try {
-            await setDoc(rowDocRef(currentTeam, _id), {
+            await setDoc(rowDocRef(currentTeam, _id), stampSave({
                 ...rest, [key]: value,
                 _statusHistory: appendStatusHistory(row, key, value),
                 _changeHistory: pushChangeHist(row, entry)
-            });
+            }));
             if (entry) {   // 백로그: 상태/담당자 변경. 상태를 '보류'·'삭제'로 바꾸면 해당 동작으로 구분 기록
                 const v = String(value).replace(/\s/g, '').toUpperCase();
                 let act = AUDIT_ACTIONS.EDIT;
@@ -597,7 +627,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setEditingRow(null); return;
         }
         const { _id, ...data } = editingRow;
-        try { await setDoc(rowDocRef(currentTeam, _id), data); setEditingRow(null); }
+        try { await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); setEditingRow(null); }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
@@ -629,7 +659,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
             } else {
                 const { _id, ...rest } = srcRow;
-                await setDoc(rowDocRef(currentTeam, _id), { ...rest, ...patch, _changeHistory: pushChangeHist(srcRow, entry) });
+                await setDoc(rowDocRef(currentTeam, _id), stampSave({ ...rest, ...patch, _changeHistory: pushChangeHist(srcRow, entry) }));
                 if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...srcRow, ...patch }, entry.changes);   // 백로그: 진행실적 적용
             }
             setAlertMsg('✓ 진행실적이 메인표에 반영되었습니다 (' + Object.keys(patch).length + '개 항목)');
@@ -685,6 +715,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const PROGRESS_RESET_FIELDS = ['자체시운전','통합시운전','포인트실적','포인트소스','도면입수','I/O Map','화면작성','기준정보','PLC','ETOS','HMI'];
     const handleResetProgress = async (row) => {
         if (!row) return;
+        // ★ 관리자 전용 (2026-07-14): 주차별 진행실적이 전부 백지가 됨(되돌리기 불가)
+        if (!isAdmin) { setAlertMsg('진행실적 초기화는 관리자만 할 수 있습니다.'); return; }
         const nm = row['프로젝트명'] || row['프로젝트'] || row['Project'] || row['공사명'] || '이 프로젝트';
         if (!window.confirm(`[${nm}]\n\n진행실적(주차 입력)과 메인표 반영값(공정률·시운전·포인트)을 모두 지워 백지로 만듭니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
         const _id = row._id;
@@ -786,8 +818,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     };
 
-    const saveDetailRow = async () => {
+    const saveDetailRow = async (force) => {
         if (!detailRow) return;
+        const isForce = (force === true);   // ★ onClick 이벤트 객체가 들어와도 강제저장으로 오인하지 않도록 엄격 비교
         // ⑨ 동시수정 보완 + ② 내용↔날짜:
         //   팝업이 열린 사이 표(인라인)에서 같은 행을 고쳤을 수 있으니, '현재 최신 원본(latest)'에
         //   '팝업에서 실제로 바뀐 칸'만 덮어쓴다(표 편집 보존). 그 위에 내용↔날짜 연동을 적용.
@@ -796,6 +829,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         activeHeaders.forEach(h => {
             if (String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? '')) popupChanges[h] = detailRow[h];
         });
+        // ★ 동시수정 감지 (2026-07-14): 내가 고친 칸을 팝업 열어둔 사이 다른 사람이 먼저 고쳤으면 확인부터.
+        if (!isForce && dataSource === 'firebase') {
+            const cf = await findConflicts(detailRow._id, Object.keys(popupChanges));
+            if (cf) { setConflictDlg({ ...cf, onOverwrite: () => { setConflictDlg(null); saveDetailRow(true); } }); return; }
+        }
         let working = { ...latest, ...popupChanges };
         const contentChanged = activeHeaders.some(h =>
             isProgressContentCol(h) && String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? ''));
@@ -814,7 +852,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         const { _id, ...data } = updatedRow;
         try {
-            await setDoc(rowDocRef(currentTeam, _id), data);
+            await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
             if (entry) recordAudit(AUDIT_ACTIONS.EDIT, working, entry.changes);   // 백로그: 상세팝업 수정
             setDetailRow(null); setDetailRowOriginal(null);
         }
@@ -921,13 +959,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (dataSource === 'local')   setLocalData(p =>   ({ ...p, rows: updater(p.rows) }));
             return;
         }
-        try { await setDoc(rowDocRef(currentTeam, _id), data); }
+        try { await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
     // ── 전체 행 저장 (메타 포함) ──────────────────────────────────────────
     const saveAllRows = async () => {
         if (!activeRows.length) return;
+        // ★ 관리자 전용 (2026-07-14): 내 화면의 모든 행을 한꺼번에 덮어씀 → 다른 사람의 최신 수정을 밀어낼 수 있음
+        //    (로컬/임시 저장은 내 PC에만 쓰므로 제한 없음)
+        if (dataSource === 'firebase' && !isAdmin) {
+            setAlertMsg('관리자만 실행할 수 있습니다.\n\n[전체 저장]은 화면의 모든 행을 한꺼번에\n덮어쓰기 때문에 다른 사람의 수정이 밀릴 수 있습니다.\n\n개별 수정은 셀·상세 팝업에서 바로 저장됩니다.'); return;
+        }
         setIsLoading(true);
         try {
             if (dataSource !== 'firebase') {
@@ -1000,7 +1043,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setAddingRow(null); return;
         }
         const { _id, ...data } = addingRow;
-        try { await setDoc(rowDocRef(currentTeam, _id), data); recordAudit(AUDIT_ACTIONS.ADD, addingRow, []); setAddingRow(null); }
+        try { await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); recordAudit(AUDIT_ACTIONS.ADD, addingRow, []); setAddingRow(null); }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
@@ -1020,6 +1063,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     const clearAll = async () => {
+        // ★ 관리자 전용 (2026-07-14): 팀의 모든 프로젝트가 통째로 삭제됨
+        if (!isAdmin) { setConfirmClearOpen(false); setAlertMsg('전체 데이터 삭제는 관리자만 할 수 있습니다.'); return; }
         setIsLoading(true); setConfirmClearOpen(false);
         try {
             let batch = writeBatch(db), cnt = 0;
@@ -1520,6 +1565,47 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             )}
 
+            {/* ★ 동시수정 감지 확인창 (2026-07-14) — 상세팝업(z-9000대)·알림(z-10000)보다 위 */}
+            {conflictDlg && (
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50">
+                    <div className="shadow-2xl" style={{ backgroundColor:'#fff', border:'1.5px solid #dc2626', width:460, maxWidth:'95vw', overflow:'hidden' }}>
+                        <div style={{ backgroundColor:'#dc2626', padding:'9px 16px', color:'#fff', fontSize:12, fontWeight:800 }}>
+                            ⚠ 동시 수정 감지
+                        </div>
+                        <div style={{ padding:'16px', fontSize:12.5, color:'#222', lineHeight:1.7 }}>
+                            <p style={{ marginBottom:10 }}>
+                                <b style={{ color:'#dc2626' }}>{(conflictDlg.who || '다른 사용자').split('@')[0]}</b>님이
+                                내가 이 창을 열어둔 사이에 <b>같은 칸</b>을 수정했습니다.
+                                {conflictDlg.at ? <span style={{ color:'#888' }}> ({String(conflictDlg.at).slice(0,16).replace('T',' ')})</span> : null}
+                            </p>
+                            <div style={{ backgroundColor:'#fff5f5', border:'1px solid #fecaca', padding:'8px 10px', marginBottom:12, maxHeight:150, overflowY:'auto' }}>
+                                {conflictDlg.fields.slice(0,8).map(h => (
+                                    <div key={h} style={{ fontSize:11.5, marginBottom:3 }}>
+                                        <b>{h}</b> — 상대방 값: <span style={{ color:'#dc2626' }}>"{String(conflictDlg.server?.[h] ?? '')}"</span>
+                                        {' → '}내 값: <span style={{ color:'#1e7ac8' }}>"{String(detailRow?.[h] ?? '')}"</span>
+                                    </div>
+                                ))}
+                                {conflictDlg.fields.length > 8 && <div style={{ fontSize:11, color:'#888' }}>외 {conflictDlg.fields.length - 8}칸</div>}
+                            </div>
+                            <p style={{ fontSize:11.5, color:'#666' }}>
+                                [내 값으로 덮어쓰기] = 상대방 값이 사라집니다(변경 이력·작업 백로그에는 남습니다).<br/>
+                                [취소] = 저장하지 않고 팝업을 닫습니다. 창을 다시 열면 상대방의 최신 값이 보입니다.
+                            </p>
+                        </div>
+                        <div style={{ display:'flex', gap:8, justifyContent:'flex-end', padding:'10px 16px', borderTop:'1px solid #e5eaf3', backgroundColor:'#f8fafc' }}>
+                            <button onClick={() => { setConflictDlg(null); setDetailRow(null); setDetailRowOriginal(null); }}
+                                style={{ padding:'6px 14px', fontSize:12, fontWeight:700, color:'#555', backgroundColor:'#fff', border:'1px solid #c4ccd8' }}>
+                                취소 (저장 안 함)
+                            </button>
+                            <button onClick={() => conflictDlg.onOverwrite && conflictDlg.onOverwrite()}
+                                style={{ padding:'6px 14px', fontSize:12, fontWeight:700, color:'#fff', backgroundColor:'#dc2626', border:'1px solid #b91c1c' }}>
+                                내 값으로 덮어쓰기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 모달리스 저장 확인 다이얼로그 */}
             {confirmDialog && (
                 <div className="fixed z-[500] flex items-end justify-center pointer-events-none" style={{ inset:0, paddingBottom:'48px' }}>
@@ -1727,12 +1813,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 </button>
                             </>
                         )}
-                        {/* 진행실적 초기화(백지) — TODO: 로그인 등급 구현 후 '관리자만' 표시. 삭제 말고 유지(테스트값 정리·잘못입력 리셋에도 유용), 일반 로그인엔 안 보이게 (2026-07-06 팀장님 방향) */}
+                        {/* 진행실적 초기화(백지) — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
+                        {isAdmin && (<>
                         <div className="border-t border-[#e5eaf3] my-1"/>
                         <button onClick={() => { handleResetProgress(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-[#dc2626] transition-colors">
                             <Trash2 size={16}/> 진행실적 초기화 (백지)
                         </button>
+                        </>)}
                     </div>
                 </>
             )}
@@ -2171,7 +2259,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     </div>
 
 
-                    {/* 전체 저장 */}
+                    {/* 전체 저장 — ★관리자 전용 (2026-07-14). 일반 사용자는 셀·상세팝업 개별 저장만 사용 */}
+                    {(isAdmin || dataSource !== 'firebase') && (
                     <button onClick={confirmSaveAll} title="전체 행 저장"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-bold transition-all shrink-0"
                         style={{ backgroundColor:'#16a34a', borderColor:'#15803d', color:'#fff', boxShadow:'0 1px 4px rgba(22,163,74,0.4)' }}
@@ -2179,6 +2268,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         onMouseLeave={e=>e.currentTarget.style.backgroundColor='#16a34a'}>
                         <Save size={13}/> 전체 저장
                     </button>
+                    )}
 
 
 
@@ -2218,53 +2308,56 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <span className="text-[#aaa] text-[10px] ml-auto">{activeRows.length}행</span>
                                     </div>
                                     )}
-                                    {/* 로컬 임시 저장 (pending) */}
-                                    {dataSource === 'pending' && (
+                                    {/* 로컬 임시 저장 (pending) — 업로드가 관리자 전용이므로 함께 게이팅 */}
+                                    {isAdmin && dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToLocal(); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-violet-600 flex items-center gap-2 transition-colors">
                                             <HardDrive size={14}/> 로컬 임시 저장
                                         </button>
                                     )}
                                     {/* A-4c 병합 미리보기 (드라이런 · 저장 없음 · 데이터 안 바뀜) */}
-                                    {dataSource === 'pending' && (
+                                    {isAdmin && dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleMergePreview(); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-sky-600 flex items-center gap-2 transition-colors">
                                             <Eye size={14}/> 병합 미리보기 (드라이런)
                                         </button>
                                     )}
-                                    {/* Firebase 확정 저장 (pending/local) */}
-                                    {(dataSource === 'pending' || dataSource === 'local') && (
+                                    {/* Firebase 확정 저장 (pending/local) — ★관리자 전용 (2026-07-14) */}
+                                    {isAdmin && (dataSource === 'pending' || dataSource === 'local') && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToFirebase(); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-emerald-600 flex items-center gap-2 transition-colors">
                                             <CloudUpload size={14}/> Firebase 확정 저장
                                         </button>
                                     )}
                                     {/* 로컬 삭제 (local) */}
-                                    {dataSource === 'local' && (
+                                    {isAdmin && dataSource === 'local' && (
                                         <button onClick={() => { setSettingsOpen(false); handleDeleteLocal(); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-amber-600 flex items-center gap-2 transition-colors">
                                             <Trash2 size={14}/> 로컬 데이터 삭제
                                         </button>
                                     )}
                                     {/* 업로드 취소 (pending) */}
-                                    {dataSource === 'pending' && (
+                                    {isAdmin && dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); setPendingData(null); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#888] flex items-center gap-2 transition-colors">
                                             <X size={14}/> 업로드 취소
                                         </button>
                                     )}
-                                    {/* 엑셀 업로드 */}
+                                    {/* 엑셀 업로드 — ★관리자 전용 (2026-07-14) */}
+                                    {isAdmin && (
                                     <button onClick={() => { setSettingsOpen(false); if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
                                         <Upload size={14} className="text-cyan-600"/> 엑셀 업로드
                                     </button>
+                                    )}
                                     {/* 엑셀 생성 */}
                                     <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!activeHeaders.length}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                                         <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
                                     </button>
+                                    {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
+                                    {isAdmin && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 진행현황 관리 (2026-07-06 2단계) */}
                                     <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); setStatusMgrColors(Object.fromEntries(STATUS_OPTIONS.map(s => [s, STATUS_COLORS[s] || STATUS_COLOR_PRESETS[8]]))); setStatusColorOpenIdx(null); setStatusDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
@@ -2273,6 +2366,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
                                     </button>
+                                    </>)}
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
                                     <button onClick={() => { setSettingsOpen(false); setTableScale(100); saveScale(100); setColWidths({}); saveColWidths(currentTeam, {}); }}
@@ -2307,19 +2401,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             </div>
                                         </div>
                                     )}
+                                    {/* 디버그 모드 — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
+                                    {isAdmin && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 디버그 모드 — TODO: 로그인 등급(관리자/일반) 구현 후 '관리자만' 표시. 지금은 유지, 일반 로그인엔 안 보이게 (2026-07-06 팀장님) */}
                                     <button onClick={() => { setSettingsOpen(false); setShowDebug(v=>!v); }}
                                         className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors border-b border-[#e5eaf3] ${showDebug?'text-emerald-600':'text-[#333]'}`}>
                                         <TerminalSquare size={14}/> 디버그 모드
                                         <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug?'border-emerald-600 text-emerald-600':'border-[#c4ccd8] text-[#999]'}`}>{showDebug?'ON':'OFF'}</span>
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 전체 삭제 */}
+                                    {/* 전체 삭제 — ★관리자 전용 (2026-07-14) */}
                                     <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!activeRows.length}
                                         className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
                                         <Trash2 size={14}/> 전체 데이터 삭제
                                     </button>
+                                    </>)}
                                 </div>
                             </>
                         )}
@@ -2338,11 +2434,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <h2 className="text-3xl font-extrabold text-slate-200 mb-3 tracking-tight">등록된 프로젝트 List가 없습니다</h2>
                         <p className="text-slate-500 text-base mb-2">엑셀 파일을 업로드하면 헤더를 자동으로 인식하여<br/>테이블 형태로 표시됩니다.</p>
                         <p className="text-slate-600 text-sm mb-10">업로드 후 검토 → 로컬 임시 저장 → Firebase 확정 저장 순으로 진행하세요.</p>
+                        {isAdmin ? (<>
                         <button onClick={() => { if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
                             className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-base shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
                             <Upload size={20}/> 엑셀 파일 업로드
                         </button>
                         <p className="text-slate-700 text-xs mt-5">지원 형식: .xlsx · .xls</p>
+                        </>) : (
+                        <p className="text-slate-500 text-sm">엑셀 업로드는 관리자만 할 수 있습니다. 관리자에게 요청하세요.</p>
+                        )}
                     </div>
                 </div>
             ) : (
