@@ -90,10 +90,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     // 모달 뷰포트: 보이는 주차에 맞추되 최대 ≈13주(전체보기 시 가로 스크롤)
     const visWeekCnt  = Math.min(DISP_WEEKS.length, Math.round(3 * 4.4));
     const visW        = visWeekCnt * weekColW + totalLabelW + TOTAL_COL_W;
-    const progressPanelW = visW + 48;
+    // 좁은 화면(모바일) 대응 (2026-07-15): 팝업 폭을 화면 폭에 맞춰 줄임 — 주차 영역은 원래 있던 가로 스크롤 사용. PC(넓은 화면)는 기존과 동일.
+    const progressPanelW = Math.min(visW + 48, Math.max(320, window.innerWidth - 8));
     const wSummaryPanelW = 520;
 
-    const [pos,        setPos]        = useState({ x: Math.max(20, (window.innerWidth - progressPanelW) / 2), y: 50 });
+    const [pos,        setPos]        = useState({ x: Math.max(4, (window.innerWidth - progressPanelW) / 2), y: 50 });
     const [minimized,  setMinimized]  = useState(false);
     const [weeklyData, setWeeklyData] = useState({});
     const [savedWeekly,setSavedWeekly]= useState({});

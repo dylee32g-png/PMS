@@ -15,7 +15,7 @@ import {
   LogOut, Wrench, TerminalSquare, AlertTriangle, Upload, Save, Database, CornerDownRight,
   Eye, ChevronRight, HelpCircle, CheckCircle2, Menu, PieChart, Target, Zap,
   ZoomIn, ZoomOut, Maximize, Minus, Download, FileSpreadsheet, ChevronUp, ListChecks,
-  HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp
+  HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp, Smartphone
 } from 'lucide-react';
 
 import LoginScreen from './components/LoginScreen';
@@ -25,6 +25,7 @@ import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
 import WeeklyReportScreen from './components/WeeklyReportScreen';
 import BacklogScreen from './components/BacklogScreen';
+import MobileInputScreen from './components/MobileInputScreen';   // 모바일 진행실적 입력 전용 (2026-07-15)
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from './auditLog';
 import WeeklyPanelViewer from './components/WeeklyPanelViewer';
 import WeeklyInputScreen from './components/WeeklyInputScreen';
@@ -711,6 +712,17 @@ const TechTeamPMS = () => {
     }).catch(() => setUserCheckDone(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // ── 모바일 자동 진입 (2026-07-15): 휴대폰 브라우저면 로그인 확인 직후 '모바일 진행실적 입력' 화면으로 ──
+  //    딱 한 번만 실행(didMobileRouteRef) — 화면 안 'PC 화면' 버튼으로 나가면 다시 끌고 오지 않음.
+  const didMobileRouteRef = useRef(false);
+  useEffect(() => {
+      if (didMobileRouteRef.current) return;
+      if (!userCheckDone || !registeredUser) return;
+      didMobileRouteRef.current = true;
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) setCurrentMode('mobileInput');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userCheckDone, registeredUser]);
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -5459,7 +5471,7 @@ const TechTeamPMS = () => {
                       </div>
                   </div>
               </div>
-          ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary' && currentMode !== 'backlog') ? (
+          ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary' && currentMode !== 'backlog' && currentMode !== 'mobileInput') ? (
               <div className="h-screen bg-gray-50 text-gray-800 flex flex-col items-center justify-center p-3 relative overflow-hidden">
 
                   {/* 팀 선택 화면 상단 우측 — 사용자 정보 + 관리 버튼 */}
@@ -5470,6 +5482,11 @@ const TechTeamPMS = () => {
                               <Users size={13} /> 사용자 관리
                           </button>
                       )}
+                      <button onClick={() => setCurrentMode('mobileInput')}
+                          title="담당자용 진행실적 입력 — 휴대폰 접속 시 자동으로 열리는 화면"
+                          className="flex items-center gap-1 bg-white hover:bg-gray-100 border border-gray-200 px-2.5 py-1.5 transition-all text-xs font-bold text-gray-600 hover:text-white">
+                          <Smartphone size={13} /> 모바일 입력
+                      </button>
                       <div className="flex items-center gap-1 border border-gray-200 bg-white" style={{ height: 30 }}>
                           <span className="px-2.5 text-xs font-semibold text-gray-500 max-w-[140px] truncate" title={user?.email || ''}>
                               {registeredUser?.displayName || user?.displayName || user?.email?.split('@')[0] || '사용자'}
@@ -5684,6 +5701,17 @@ const TechTeamPMS = () => {
               <WeeklySummaryScreen db={db} teamId={currentTeam} onBack={() => setCurrentMode(null)} />
           ) : currentMode === 'estimate' ? (
               <EstimateScreen onBack={() => setCurrentMode(null)} />
+          ) : currentMode === 'mobileInput' ? (
+              /* ★ 모바일 진행실적 입력 전용 (2026-07-15) — 휴대폰 자동 진입 + 팀선택 '모바일 입력' 버튼 */
+              <MobileInputScreen
+                  user={user}
+                  registeredUser={registeredUser}
+                  baseDate={baseDate}
+                  onApplyProgressByPid={applyProgressByPid}
+                  onProgressSaved={handleProgressSaved}
+                  onExitToPc={() => setCurrentMode(null)}
+                  onSignOut={handleSignOut}
+              />
           ) : currentMode === 'backlog' ? (
               <BacklogScreen teams={currentTeam ? [currentTeam] : ['기술1팀', '기술2팀', '기술3팀', 'Software팀']} onBack={() => setCurrentMode(backlogReturn)} />
           ) : currentMode === 'projectList' ? (
