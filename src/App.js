@@ -1660,9 +1660,14 @@ const TechTeamPMS = () => {
           target[mk] = (target[mk] || 0) + (Number(v) || 0);
       });
       if (rec?.weekly) {
+          // ★ 하위 체제 장부(sub_i_* 키 존재)는 메인 직접 키인(하위 도입 전 옛 데이터) 무시 —
+          //   진행실적 팝업과 동일 규칙. 안 그러면 옛 메인 키 + 새 하위 키가 이중 합산돼 총점 초과 (2026-07-16 수정)
+          const hasSubKeys = Object.keys(rec.weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k));
           Object.keys(rec.weekly).forEach(key => {
-              if (key === 'commissioning' || /^sub_\d+_commissioning$/.test(key)) add(rec.weekly[key], self);
-              else if (key === 'intCommissioning' || /^sub_\d+_intCommissioning$/.test(key)) add(rec.weekly[key], intg);
+              if (key === 'commissioning') { if (!hasSubKeys) add(rec.weekly[key], self); }
+              else if (key === 'intCommissioning') { if (!hasSubKeys) add(rec.weekly[key], intg); }
+              else if (/^sub_\d+_commissioning$/.test(key)) add(rec.weekly[key], self);
+              else if (/^sub_\d+_intCommissioning$/.test(key)) add(rec.weekly[key], intg);
           });
       }
       return { self, intg };
@@ -1693,6 +1698,8 @@ const TechTeamPMS = () => {
       if (!weekly) return {};
       const applied = getAppliedKeys(p);
       if (!applied.length) return {};
+      // ★ 하위 체제 장부는 메인 직접 키인 무시 — 위 getRecordMonthlySums·팝업과 동일 규칙 (2026-07-16)
+      const hasSubKeys = Object.keys(weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k));
       const wkSet = new Set();
       Object.values(weekly).forEach(obj => obj && Object.keys(obj).forEach(w => wkSet.add(w)));
       const wkList = [...wkSet].filter(w => String(w).split('-').length >= 3).sort((a, b) => {
@@ -1708,8 +1715,8 @@ const TechTeamPMS = () => {
               const v = (weekly[k] || {})[w];
               if (v !== undefined && v !== null && v !== '') lastVal[k] = Number(v) || 0;
           });
-          let selfW = Number((weekly['commissioning'] || {})[w]) || 0;
-          let intW  = Number((weekly['intCommissioning'] || {})[w]) || 0;
+          let selfW = hasSubKeys ? 0 : (Number((weekly['commissioning'] || {})[w]) || 0);
+          let intW  = hasSubKeys ? 0 : (Number((weekly['intCommissioning'] || {})[w]) || 0);
           Object.keys(weekly).forEach(key => {
               if (/^sub_\d+_commissioning$/.test(key))    selfW += Number(weekly[key][w]) || 0;
               if (/^sub_\d+_intCommissioning$/.test(key)) intW  += Number(weekly[key][w]) || 0;

@@ -6,7 +6,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight
 } from 'lucide-react';
 import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -182,6 +182,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const activeColGroups = pendingData?.colGroups  || localData?.colGroups  || fbColGroups;
     const activeRows      = pendingData?.rows       || localData?.rows       || fbRows;
     const dataSource      = pendingData ? 'pending' : localData ? 'local' : 'firebase';
+
+    // ── 하위(공종) 행 규칙 (2026-07-16) ──────────────────────────────────────────
+    //   판별 = 실행번호가 's' 또는 '-'로 시작 — 월간보고·진행실적 팝업·모바일과 완전히 같은 규칙.
+    //   ※ 추후 팀 협의로 엑셀 원본에 하위 줄이 생겨도(실행번호 열에 s) 업로드만 하면 그대로 인식됨(코드 추가 불필요).
+    const isSubListRow = (r) => { const e = String(r?.['실행번호'] || '').trim().toLowerCase(); return e === 's' || e.startsWith('-'); };
+    // 프로젝트 이름이 표시되는 열 — └ 하위 마커 표시용
+    const projectNameCol = useMemo(() => {
+        const nameKeys = ['프로젝트명', '프로젝트', 'Project', '공사명', '건명', '명칭'];
+        return nameKeys.find(k => activeHeaders.includes(k)) || activeHeaders.find(h => /프로젝트|공사|건명/.test(h)) || '';
+    }, [activeHeaders]);
 
     // (2026-06-27) 엑셀 전체 항목 표시 — 기본 자동 숨김 제거.
     //   담당자가 필요없는 항목은 상세팝업의 표시/숨김 토글로 끄면 메인표에서 빠짐(hiddenCols).
@@ -1097,6 +1107,37 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setAddingRow(newRow);
     };
 
+    // ── 하위(공종) 추가 (2026-07-16) ─────────────────────────────────────────────
+    //   큰 프로젝트 밑에 공조·CDA 같은 공종 행을 만든다 (월간보고의 '하위'와 같은 개념).
+    //   · _id = 부모 _id + '_sub##' → _id 문자순 정렬에서 항상 부모 바로 아래·다음 메인 앞에 위치
+    //   · 실행번호 's' = 하위 표식 (월간보고·진행실적 팝업·모바일 공통 규칙 — 지우면 하위 해제)
+    //   · 저장은 기존 '프로젝트 추가' 팝업(DetailModal)·saveAddingRow 그대로 재사용
+    const handleAddSubRow = (parentRow) => {
+        if (!parentRow || isSubListRow(parentRow)) return;
+        if (!activeHeaders.length) { setAlertMsg('먼저 엑셀 파일을 업로드하거나 데이터를 불러오세요.'); return; }
+        let maxSeq = 0;                                    // 다음 하위 번호 = 기존 _sub## 최대값 + 1 (중간 삭제 후 재추가에도 안전)
+        activeRows.forEach(r => {
+            if (String(r._id).startsWith(`${parentRow._id}_sub`)) {
+                const m = String(r._id).match(/_sub(\d+)$/);
+                if (m) maxSeq = Math.max(maxSeq, Number(m[1]));
+            }
+        });
+        const newId = `${parentRow._id}_sub${String(maxSeq + 1).padStart(2, '0')}`;
+        const _d = new Date();
+        const regDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+        const newRow = { _id: newId, _pid: generatePid(), _year: parentRow._year || selectedYear || String(new Date().getFullYear()), _regDate: regDate, _subParent: parentRow._pid || '' };
+        activeHeaders.forEach(h => { newRow[h] = ''; });
+        activeHeaders.forEach(h => {                       // 부모에게 물려받는 값 — 현장(공장동)·발주처·담당자
+            const hn = String(h).replace(/\s+/g, '');
+            if (hn.includes('공장') || hn === '발주처' || isAssigneeCol(h)) newRow[h] = parentRow[h] || '';
+        });
+        newRow['실행번호'] = 's';                           // 하위 표식
+        const stCol = activeHeaders.find(h => isStatusCol(h));
+        if (stCol) newRow[stCol] = 'sub';                  // 진행현황 칩 '하위'(보라)
+        if (projectNameCol) newRow[projectNameCol] = '- ';  // 이름 앞 '-'는 월간보고 하위 표기 관례
+        setAddingRow(newRow);
+    };
+
     // ── 공사 계약/완료 날짜 짝 검사 (2026-07-14 팀장님 규칙) ──────────────────────
     //   · 계약 O / 완료 X → 저장 불가 (완료일을 반드시 같이)
     //   · 계약 X / 완료 O → 저장 불가 (완료일만 넣기 금지)
@@ -1115,14 +1156,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return null;                                           // 둘 다 있음 / 둘 다 없음 → 통과
     };
 
+    // 하위(_sub##) 행은 부모 바로 아래에 끼워 넣기 — 클라우드는 _id 정렬이 자동 처리, 미확정(pending/local)만 수동 (2026-07-16)
+    const insertRowInOrder = (rows, r) => {
+        const m = String(r._id).match(/^(.*)_sub\d+$/);
+        if (!m) return [...rows, r];
+        let at = rows.findIndex(x => x._id === m[1]);
+        if (at < 0) return [...rows, r];
+        while (at + 1 < rows.length && String(rows[at + 1]._id).startsWith(`${m[1]}_sub`)) at++;
+        return [...rows.slice(0, at + 1), r, ...rows.slice(at + 1)];
+    };
     const saveAddingRow = async () => {
         if (!addingRow) return;
         // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
         const dateErr = checkContractDates(addingRow);
         if (dateErr) { setAlertMsg(dateErr); return; }
         if (dataSource !== 'firebase') {
-            if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: [...p.rows, addingRow] }));
-            else if (dataSource === 'local') setLocalData(p => ({ ...p, rows: [...p.rows, addingRow] }));
+            if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: insertRowInOrder(p.rows, addingRow) }));
+            else if (dataSource === 'local') setLocalData(p => ({ ...p, rows: insertRowInOrder(p.rows, addingRow) }));
             else { setLocalData({ headers: activeHeaders, colGroups: activeColGroups, rows: [addingRow], savedAt: new Date().toISOString() }); }
             setAddingRow(null); return;
         }
@@ -1270,6 +1320,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const monthCountMap = useMemo(() => {
         const m = { etc: 0 };
         yearFilteredRows.forEach(r => {
+            if (isSubListRow(r)) return;   // 하위는 부모를 따라가므로 건수는 메인만 (2026-07-16)
             const mm = contractMonthOf(r);
             if (mm) m[mm] = (m[mm] || 0) + 1; else m.etc += 1;
         });
@@ -1291,6 +1342,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!statusFilterCol) return [];
         const countMap = {};
         monthFilteredRows.forEach(r => {
+            if (isSubListRow(r)) return;   // 하위 제외 — 'sub' 칩 생기지 않게 (2026-07-16)
             let v = String(r[statusFilterCol] || '').trim();
             if (v.toUpperCase() === 'HOLD') v = 'Hold';
             if (v) countMap[v] = (countMap[v] || 0) + 1;
@@ -1313,6 +1365,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!assigneeFilterCol) return {};
         const map = {};
         monthFilteredRows.forEach(r => {
+            if (isSubListRow(r)) return;   // 하위 제외 — 부모와 담당자 같아 이중 계산 방지 (2026-07-16)
             const name = extractName(normalizeAssignee(r[assigneeFilterCol] || ''));
             if (name) map[name] = (map[name] || 0) + 1;
         });
@@ -1326,6 +1379,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (!isFilterable(h)) return;
             const cm = {};
             monthFilteredRows.forEach(r => {
+                if (isSubListRow(r)) return;   // 하위 제외 (2026-07-16)
                 let v = String(r[h]||'').trim();
                 if (isStatusCol(h) && v.toUpperCase() === 'HOLD') v = 'Hold';
                 if (v) cm[v] = (cm[v] || 0) + 1;
@@ -1338,6 +1392,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ── 검색·컬럼필터·정렬 (연도 필터 이후 적용) ─────────────────────────
     const sortedRows = useMemo(() => {
         let out = monthFilteredRows;
+        // ★ 하위(공종)는 부모를 따라간다 (2026-07-16) — 필터·칩·기준월·검색·정렬은 '메인 행'만 판정하고,
+        //   하위 행은 자기 값(빈 계약일·sub 상태)과 무관하게 보이는 부모 바로 아래에 항상 붙는다 (월간보고와 동일 규칙).
+        //   (수정 전: 기본 상태칩(진행중·추진중)·기준월에서 하위가 걸러져 '저장했는데 안 보이는' 문제)
+        const subsByParent = {};
+        const orphanSubs = [];
+        { let lastMainId = null;
+          activeRows.forEach(r => {
+              if (!isSubListRow(r)) { lastMainId = r._id; return; }
+              if (lastMainId) { if (!subsByParent[lastMainId]) subsByParent[lastMainId] = []; subsByParent[lastMainId].push(r); }
+              else orphanSubs.push(r);
+          });
+        }
         if (activeStatusChips.size > 0 && statusFilterCol) {
             out = out.filter(r => {
                 let v = String(r[statusFilterCol] || '').trim();
@@ -1351,7 +1417,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         if (searchTerm) {
             const t = searchTerm.toLowerCase();
-            out = out.filter(r => activeHeaders.some(h => String(r[h]||'').toLowerCase().includes(t)));
+            const hit = (r) => activeHeaders.some(h => String(r[h]||'').toLowerCase().includes(t));
+            out = out.filter(r => hit(r) || (subsByParent[r._id] || []).some(hit));   // 하위 이름으로 검색해도 부모 묶음이 나온다
         }
         Object.entries(columnFilters).forEach(([col, vals]) => {
             if (!(vals instanceof Set) || vals.size === 0) return;
@@ -1366,13 +1433,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 });
             }
         });
-        if (!sortConfig.key) return out;
-        return [...out].sort((a, b) => {
+        // 보이는 메인 행 뒤에 하위 붙이기 — 하위 자신은 필터 결과(out)에서 빼고 부모 뒤에서만 등장
+        const attachSubs = (list) => {
+            const fin = [];
+            list.forEach(r => {
+                if (isSubListRow(r)) return;
+                fin.push(r);
+                (subsByParent[r._id] || []).forEach(s => fin.push(s));
+            });
+            orphanSubs.forEach(s => fin.push(s));   // 부모 없는 하위(비정상 데이터)는 숨기지 않고 맨 끝에 표시
+            return fin;
+        };
+        if (!sortConfig.key) return attachSubs(out);
+        return attachSubs([...out].sort((a, b) => {
             const av = String(a[sortConfig.key]||'').toLowerCase();
             const bv = String(b[sortConfig.key]||'').toLowerCase();
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-        });
-    }, [monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]);
+        }));
+    }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]); // eslint-disable-line
 
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
@@ -1872,7 +1950,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <>
                     <div className="fixed inset-0 z-[8000]" onClick={() => setContextMenu(null)}/>
                     <div className="fixed z-[8001] bg-white border border-[#c4ccd8] shadow-2xl rounded-lg py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
-                        style={{ top: Math.min(contextMenu.y, window.innerHeight-290), left: Math.min(contextMenu.x, window.innerWidth-200) }}
+                        style={{ top: Math.min(contextMenu.y, window.innerHeight-330), left: Math.min(contextMenu.x, window.innerWidth-200) }}
                         onClick={e => e.stopPropagation()}>
                         <div className="px-3 py-1.5 border-b border-[#e5eaf3] mb-1">
                             <p className="text-[10px] font-black text-[#888] uppercase tracking-wider truncate">
@@ -1891,6 +1969,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
+                        {/* ★ 하위(공종) 추가 — 큰 프로젝트 밑에 공조·CDA 같은 공종 행 (2026-07-16). 하위 행에서는 숨김 */}
+                        {!isSubListRow(contextMenu.row) && (
+                        <button onClick={() => { const r = contextMenu.row; setContextMenu(null); handleAddSubRow(r); }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <CornerDownRight size={16} className="text-[#7c3aed]"/> 하위(공종) 추가
+                        </button>
+                        )}
                         {/* 프로젝트 연결 — '월간보고로 넘기기'가 기본 경로가 되면서 평소엔 숨김.
                             옛 월간보고 잇기·끊긴 연결 복구용으로 기능(openExecNoModal/saveExecNo)은 보관.
                             관리자에게 노출하려면 아래 false를 조건으로 교체 (2026-07-06) */}
@@ -1925,10 +2010,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             const row = contextMenu.row;
                             const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '(이름 없음)';
                             const no = row['번호'] ? `번호 ${row['번호']} · ` : '';
+                            // 하위(공종) 행도 함께 삭제 — 부모만 지우면 남은 하위가 앞 프로젝트에 잘못 붙는 사고 방지 (2026-07-16)
+                            const subIds = [];
+                            const i0 = activeRows.findIndex(x => x._id === row._id);
+                            // 메인 행을 지울 때만 하위 동반 삭제 — 하위 행 하나를 우클릭하면 '그 행만' 지운다 (2026-07-16)
+                            if (!isSubListRow(row) && i0 >= 0) { for (let i = i0 + 1; i < activeRows.length; i++) { if (isSubListRow(activeRows[i])) subIds.push(activeRows[i]._id); else break; } }
+                            const subMsg = subIds.length ? `\n※ 이 프로젝트의 하위(공종) ${subIds.length}개 행도 함께 삭제됩니다.` : '';
                             setContextMenu(null);
                             setConfirmDialog({
-                                message: `[완전 삭제]\n${no}${nm}\n\n이 프로젝트를 클라우드에서 완전히 지웁니다.\n되돌릴 수 없습니다. (작업 백로그에는 삭제 기록이 남습니다)\n\n※ 실제 운영 중인 프로젝트라면 삭제 대신\n   진행현황을 '삭제'로 바꾸는 방식을 권장합니다.`,
-                                onConfirm: () => deleteRow(row._id),
+                                message: `[완전 삭제]\n${no}${nm}\n\n이 프로젝트를 클라우드에서 완전히 지웁니다.\n되돌릴 수 없습니다. (작업 백로그에는 삭제 기록이 남습니다)${subMsg}\n\n※ 실제 운영 중인 프로젝트라면 삭제 대신\n   진행현황을 '삭제'로 바꾸는 방식을 권장합니다.`,
+                                onConfirm: async () => { for (const sid of subIds) { await deleteRow(sid); } await deleteRow(row._id); },
                             });
                         }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-black text-[#b91c1c] transition-colors">
                             <Trash2 size={16}/> 프로젝트 완전 삭제
@@ -2827,7 +2918,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? ((Number(row['포인트실적'])||0) > (Number(val)||0) ? <span title={`총점 ${val} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span>) : <span className="text-slate-700">—</span>) : (val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
+                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? ((Number(row['포인트실적'])||0) > (Number(val)||0) ? <span title={`총점 ${val} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span>) : <span className="text-slate-700">—</span>) : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}
