@@ -71,6 +71,9 @@ export async function idbDelete(teamId) {
 
 // ─── A-4c: 보존 병합 '미리보기(드라이런)' — Firebase 쓰기 없음, 매칭 결과만 계산 ───
 // 매칭 1순위 (연도+번호) → 2순위 (연도+Project명 정규화). 목적 = 기존 _pid·실행번호·이력 보존.
+// 번호 3자리 패딩 (2026-07-20 팀장님): '1'→'001', '26'→'026' — 문자열 정렬에서도 1,2,…,10,…,100 순서 보장.
+//   숫자 1~3자리만 변환, 그 외(빈칸·문자·4자리 이상)는 그대로. 업로드·병합 매칭·웹 편집이 같은 규칙을 쓴다.
+export const padProjectNo = (v) => { const s = String(v ?? '').trim(); return /^\d{1,3}$/.test(s) ? s.padStart(3, '0') : s; };
 const a4cNormName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 const a4cNumCol  = (headers) => (headers||[]).find(h => h === '번호') || (headers||[]).find(h => h.includes('번호') && !h.includes('전화') && !h.includes('사업')) || null;
 const a4cNameCol = (headers) => {
@@ -87,7 +90,7 @@ export function computeMergePreview(existingRows, pendingRows, headers) {
     const byNum = new Map(), byName = new Map();
     (existingRows || []).forEach(r => {
         const y = r._year || '';
-        if (numCol)  { const v = String(r[numCol] ?? '').trim(); if (v) byNum.set(`${y}||${v}`, r); }
+        if (numCol)  { const v = padProjectNo(r[numCol]); if (v) byNum.set(`${y}||${v}`, r); }   // 번호 패딩 정규화 (2026-07-20)
         if (nameCol) { const v = a4cNormName(r[nameCol]);        if (v) byName.set(`${y}||${v}`, r); }
     });
     const matched = new Set();
@@ -95,7 +98,7 @@ export function computeMergePreview(existingRows, pendingRows, headers) {
     (pendingRows || []).forEach(p => {
         const y = p._year || '';
         let m = null, via = '';
-        if (numCol)        { const v = String(p[numCol] ?? '').trim(); if (v) { m = byNum.get(`${y}||${v}`) || null; if (m) via = '번호'; } }
+        if (numCol)        { const v = padProjectNo(p[numCol]); if (v) { m = byNum.get(`${y}||${v}`) || null; if (m) via = '번호'; } }
         if (!m && nameCol) { const v = a4cNormName(p[nameCol]);        if (v) { m = byName.get(`${y}||${v}`) || null; if (m) via = 'Project명'; } }
         if (m) {
             matched.add(m._id);
@@ -130,7 +133,7 @@ export function computeMergePlan(existingRows, pendingRows, headers) {
     const byNum = new Map(), byName = new Map();
     (existingRows || []).forEach(r => {
         const y = r._year || '';
-        if (numCol)  { const v = String(r[numCol] ?? '').trim(); if (v) byNum.set(`${y}||${v}`, r); }
+        if (numCol)  { const v = padProjectNo(r[numCol]); if (v) byNum.set(`${y}||${v}`, r); }   // 번호 패딩 정규화 (2026-07-20)
         if (nameCol) { const v = a4cNormName(r[nameCol]);        if (v) byName.set(`${y}||${v}`, r); }
     });
     const matchedIds = new Set();
@@ -138,7 +141,7 @@ export function computeMergePlan(existingRows, pendingRows, headers) {
     (pendingRows || []).forEach(p => {
         const y = p._year || '';
         let m = null;
-        if (numCol)        { const v = String(p[numCol] ?? '').trim(); if (v) m = byNum.get(`${y}||${v}`) || null; }
+        if (numCol)        { const v = padProjectNo(p[numCol]); if (v) m = byNum.get(`${y}||${v}`) || null; }
         if (!m && nameCol) { const v = a4cNormName(p[nameCol]);        if (v) m = byName.get(`${y}||${v}`) || null; }
         if (m && !matchedIds.has(m._id)) {
             matchedIds.add(m._id);

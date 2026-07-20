@@ -78,7 +78,10 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
         const k = rowStatus(sec, r);
         statusCounts[k] = (statusCounts[k] || 0) + 1;
     }));
-    const chipList = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]);   // 건수 많은 순
+    // 칩 순서 (2026-07-20 팀장님): '전체'(항상 첫 번째, 아래 렌더링) 다음에 진행중·추진중을 고정 배치, 나머지는 건수 많은 순
+    const CHIP_PRIORITY = ['진행중', '추진중'];
+    const chipRank = (name) => { const i = CHIP_PRIORITY.indexOf(name); return i < 0 ? CHIP_PRIORITY.length : i; };
+    const chipList = Object.entries(statusCounts).sort((a, b) => (chipRank(a[0]) - chipRank(b[0])) || (b[1] - a[1]));
     const totalCnt = sections.reduce((s, sec) => s + sec.rows.length, 0);
     const effFilter = statusFilter && statusCounts[statusFilter] ? statusFilter : '';   // 기억된 상태가 지금 없으면 전체로
     const viewSections = !effFilter ? sections : sections
@@ -240,17 +243,31 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
             )}
 
             {/* 진행실적 팝업 — PC List와 동일 부품·동일 연결 */}
-            {progress && (
+            {progress && (() => {
+                // ── 이전/다음 프로젝트 이동 (2026-07-20 팀장님): 지금 보이는 카드 목록(칩 필터 반영) 순서 그대로 ──
+                const navList = viewSections.flatMap(sec => sec.rows.map(r => ({ team: sec.team, row: r })));
+                const navIdx = navList.findIndex(e => e.team === progress.team && e.row._id === progress.row._id);
+                const nameOf = (e) => e ? (e.row['공사명'] || e.row['프로젝트명'] || e.row['Project'] || e.row['사업명'] || '') : '';
+                const mobileNav = {
+                    idx: navIdx, total: navIdx < 0 ? 0 : navList.length,   // 필터에서 빠진 행이면 이동 버튼 숨김
+                    prevName: nameOf(navList[navIdx - 1]), nextName: nameOf(navList[navIdx + 1]),
+                    onGo: (delta) => { const t = navList[navIdx + delta]; if (t) openProgress(t.team, t.row); },
+                };
+                return (
                 <ProgressModal
+                    key={progress.row._id}   /* 프로젝트 이동 시 새로 열어 장부를 새로 읽음 */
                     row={progress.row}
                     team={progress.team}
                     subRows={progress.subs}
+                    mobileMode={true}
+                    mobileNav={mobileNav}
                     baseDate={baseDate}
                     onApplyToMonthly={(rowId, data) => { applyToMain(progress.team, rowId, data?.mainTable); onApplyProgressByPid?.(progress.row._pid, data); }}
                     onProgressSaved={onProgressSaved}
                     onClose={() => setProgress(null)}
                 />
-            )}
+                );
+            })()}
         </div>
     );
 };

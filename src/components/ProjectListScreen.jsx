@@ -6,7 +6,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash
 } from 'lucide-react';
 import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo } from './projectListData';
 
 const VERSION = 'v6.8.7';
 
@@ -264,6 +264,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
     // 포인트 칸 — 메인표에서 '실적/만점' 형식. 만점=상세팝업 row['포인트'](고정), 실적=row['포인트실적'](메인표 입력/진행실적) 2026-06-29
     const isPointCol = (h) => { const s = String(h).replace(/\s/g,''); return s === '포인트' || /^point$/i.test(s); };
+    // 번호 칸 판별 — 정확히 '번호'만 (실행번호·전화번호 등 제외). 값 패딩은 padProjectNo (2026-07-20)
+    const isProjNoCol = (h) => String(h).replace(/\s/g, '') === '번호';
 
     const getW = h => {
         if (colWidths[h]) return colWidths[h];
@@ -380,6 +382,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (colDefs.length > canonColCount) { canonHeaders = colDefs.map(c => c.name); canonColGroups = cg; canonColCount = colDefs.length; }
 
                 const ts = Date.now();
+                // 번호 3자리 패딩 (2026-07-20 팀장님): 원본 엑셀은 1·2·3 그대로 두고, 업로드가 001·002·003으로 자동 변환
+                const _noColName = (colDefs.find(c => String(c.name).replace(/\s/g, '') === '번호') || {}).name;
                 const sheetRows = raw.slice(dataStart).map((row, idx) => {
                     const obj = {
                         _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
@@ -387,6 +391,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         _year: year
                     };
                     colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
+                    if (_noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
                     return colDefs.every(({ name }) => !obj[name]) ? null : obj;
                 }).filter(Boolean);
 
@@ -529,6 +534,33 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         catch (err) { setAlertMsg(`로컬 삭제 오류: ${err.message}`); }
     };
 
+    // ── 번호 3자리 일괄 정리 (2026-07-20 팀장님) — 엑셀 업로드 없이, 이미 저장된 1·2자리 번호를 001 형태로 ──
+    //   대상 = 이 팀 전체 연도의 숫자 1~2자리 번호. 번호 칸만 merge 저장(다른 값·pid·이력 안 건드림).
+    //   문자('SM' 등)·빈칸(하위 행 포함)·이미 3자리는 건너뜀. 관리자 전용.
+    const handlePadAllNumbers = async () => {
+        if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 실행할 수 있습니다.\n(엑셀 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
+        const targets = fbRows.filter(r => {
+            const v = String(r['번호'] ?? '').trim();
+            return v && padProjectNo(v) !== v;
+        });
+        if (!targets.length) { setAlertMsg('정리할 번호가 없습니다 — 전부 3자리(또는 문자·빈칸)입니다.'); return; }
+        const sample = targets.slice(0, 3).map(r => `${r['번호']}→${padProjectNo(r['번호'])}`).join(', ');
+        if (!window.confirm(`[번호 3자리 일괄 정리]\n\n${targets.length}건의 번호를 3자리로 바꿉니다 (전체 연도 대상).\n예: ${sample}${targets.length > 3 ? ' …' : ''}\n\n번호 칸만 바뀌고 다른 값·pid·이력은 건드리지 않습니다.\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let batch = writeBatch(db), cnt = 0;
+            for (const r of targets) {
+                batch.set(rowDocRef(currentTeam, r._id), { '번호': padProjectNo(r['번호']) }, { merge: true });
+                if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
+            }
+            if (cnt > 0) await batch.commit();
+            addLog(`[번호정리] ${targets.length}건 3자리 패딩 완료`);
+            setAlertMsg(`번호 3자리 정리 완료!\n${targets.length}건 변경 (예: 1→001)`);
+        } catch (err) { setAlertMsg(`번호 정리 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+
     // ── 단일 필드 변경 이력 엔트리 생성 ──────────────────────────────────
     const makeChangeEntry = (row, key, newValue) => {
         const from = String(row?.[key] ?? '');
@@ -607,7 +639,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // 포인트 칸 편집은 '실적'(포인트실적)에만 저장 — 만점(포인트)은 상세팝업 고정값이라 안 건드림 (2026-06-29)
         const patch = isPointCol(editingCell.key)
             ? { '포인트실적': editingCell.value }
-            : { [editingCell.key]: editingCell.value };
+            : { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20)
         const contentChanged = isProgressContentCol(editingCell.key)
             && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
         if (contentChanged) {
@@ -947,6 +979,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (cf) { setConflictDlg({ ...cf, mine: { ...popupChanges }, onOverwrite: () => { setConflictDlg(null); saveDetailRow(true); } }); return; }
         }
         let working = { ...latest, ...popupChanges };
+        if (working['번호'] !== undefined) working['번호'] = padProjectNo(working['번호']);   // 번호 3자리 통일 (2026-07-20)
         const contentChanged = activeHeaders.some(h =>
             isProgressContentCol(h) && String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? ''));
         if (contentChanged) {
@@ -1206,17 +1239,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const saveAddingRow = async () => {
         if (!addingRow) return;
+        // 번호 3자리 통일 (2026-07-20 팀장님): 웹에서 추가할 때도 1→001 — 업로드·정렬 규칙과 일치
+        const rowToAdd = addingRow['번호'] !== undefined ? { ...addingRow, '번호': padProjectNo(addingRow['번호']) } : addingRow;
         // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
-        const dateErr = checkContractDates(addingRow);
+        const dateErr = checkContractDates(rowToAdd);
         if (dateErr) { setAlertMsg(dateErr); return; }
         if (dataSource !== 'firebase') {
-            if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: insertRowInOrder(p.rows, addingRow) }));
-            else if (dataSource === 'local') setLocalData(p => ({ ...p, rows: insertRowInOrder(p.rows, addingRow) }));
-            else { setLocalData({ headers: activeHeaders, colGroups: activeColGroups, rows: [addingRow], savedAt: new Date().toISOString() }); }
+            if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: insertRowInOrder(p.rows, rowToAdd) }));
+            else if (dataSource === 'local') setLocalData(p => ({ ...p, rows: insertRowInOrder(p.rows, rowToAdd) }));
+            else { setLocalData({ headers: activeHeaders, colGroups: activeColGroups, rows: [rowToAdd], savedAt: new Date().toISOString() }); }
             setAddingRow(null); return;
         }
-        const { _id, ...data } = addingRow;
-        try { await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); recordAudit(AUDIT_ACTIONS.ADD, addingRow, []); setAddingRow(null); }
+        const { _id, ...data } = rowToAdd;
+        try { await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); recordAudit(AUDIT_ACTIONS.ADD, rowToAdd, []); setAddingRow(null); }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
     };
 
@@ -1492,6 +1527,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return attachSubs([...out].sort((a, b) => {
             const av = String(a[sortConfig.key]||'').toLowerCase();
             const bv = String(b[sortConfig.key]||'').toLowerCase();
+            // 둘 다 숫자면 숫자로 비교 (2026-07-20): '1'과 '001' 혼재기·포인트 등 숫자열도 순서 보장
+            const an = Number(av), bn = Number(bv);
+            if (av !== '' && bv !== '' && Number.isFinite(an) && Number.isFinite(bn) && an !== bn) {
+                return sortConfig.dir === 'asc' ? an - bn : bn - an;
+            }
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         }));
     }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]); // eslint-disable-line
@@ -2610,6 +2650,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
                                     {isAdmin && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
+                                    {/* 번호 3자리 일괄 정리 (2026-07-20) — 기존 클라우드 데이터의 1·2자리 번호를 001 형태로 */}
+                                    <button onClick={() => { setSettingsOpen(false); handlePadAllNumbers(); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Hash size={14} className="text-[#1e7ac8]"/> 번호 3자리 정리 (1→001)
+                                    </button>
                                     <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); setStatusMgrColors(Object.fromEntries(STATUS_OPTIONS.map(s => [s, STATUS_COLORS[s] || STATUS_COLOR_PRESETS[8]]))); setStatusColorOpenIdx(null); setStatusDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리

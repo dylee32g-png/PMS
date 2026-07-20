@@ -53,7 +53,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph }) => {
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null }) => {
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -66,6 +66,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     // 표시 범위: 기본=이번 달+지난달(2개월), '전체 기간 보기'=±6개월. 데이터·합계는 그대로, 보이는 칸만 바뀜
     const [showAllMonths, setShowAllMonths] = useState(false);
+    // ── 모바일 간편 입력 주 선택 (2026-07-20 팀장님): 기본 = 오늘이 속한 주. PC(mobileMode=false)에선 사용 안 함 ──
+    const [mobileWeek, setMobileWeek] = useState({ year: cy0, month: cm0, week: Math.min(5, Math.ceil(now0.getDate() / 7)) });
 
     // 계산(누적·진척률)용 전체 범위 ±6개월 — 보기 범위와 무관하게 항상 고정 (합계·누적이 정확하도록)
     const { y: allPy, m: allPm } = addMonths(cy0, cm0, -6);
@@ -576,8 +578,18 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         onClose?.();
     };
 
-    const handleApplyConfirm = async () => {
-        if (!onApplyToMonthly || !applyConfirm) return;
+    // ── 모바일: 이전/다음 프로젝트 이동 (2026-07-20 팀장님) — 저장 안 한 변경이 있으면 먼저 확인 ──
+    const requestNav = (delta) => {
+        if (!mobileNav || !mobileNav.onGo) return;
+        if (dirty && !window.confirm('저장하지 않은 변경사항이 있습니다.\n저장하지 않고 다른 프로젝트로 이동할까요?\n(입력한 값은 사라집니다)')) return;
+        mobileNav.onGo(delta);
+    };
+
+    // ★ 원클릭 적용 (2026-07-20 팀장님): [적용하기] 한 번 = 주차 장부 저장 + 메인표·월간보고 반영까지 전부.
+    //   (옛 흐름: 적용하기 → 확인 패널 → [저장] 2단계 → 단계 축소. 확인 패널이 보여주던 수치는 완료 메시지로 대체)
+    const handleApplyConfirm = async (dataArg) => {
+        const data = dataArg || applyConfirm;
+        if (!onApplyToMonthly || !data) return;
         const projectId = row._id || row.id;
         setApplying(true);
         try {
@@ -588,12 +600,17 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             setSavedWeekly(weeklyData); setDirty(false);
             onProgressSaved?.({ docKey, weeklyData });
             // ③ 포인트 실적 = 선택(자체 또는 통합, 합 없음) → 메인표 포인트실적/포인트소스 (2026-06-29)
-            const _pts = pointSource === 'int' ? (applyConfirm.accIntPts || 0) : (applyConfirm.accSelfPts || 0);
-            const _confirm = { ...applyConfirm, mainTable: { ...applyConfirm.mainTable, '포인트실적': _pts, '포인트소스': pointSource } };
+            const _pts = pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0);
+            const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, '포인트소스': pointSource } };
             await onApplyToMonthly(projectId, _confirm);
-            setApplyMsg('✓ 진행실적 저장 및 업무현황 반영 완료');
+            const _bits = [];
+            if (data.plc  != null) _bits.push(`PLC ${data.plc}%`);
+            if (data.etos != null) _bits.push(`ETOS ${data.etos}%`);
+            if (data.hmi  != null) _bits.push(`HMI ${data.hmi}%`);
+            _bits.push(`포인트 ${_pts}pt(${pointSource === 'int' ? '통합' : '자체'})`);
+            setApplyMsg(`✓ ${data.month}월 저장·적용 완료 — ${_bits.join(' · ')}`);
             setApplyConfirm(null);
-            setTimeout(() => setApplyMsg(''), 4000);
+            setTimeout(() => setApplyMsg(''), 6000);
         } catch (e) {
             setApplyMsg('저장 오류: ' + e.message);
         } finally {
@@ -701,6 +718,116 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         return totalItemCnt > 0 ? Math.round((simPct + wkPct) / totalItemCnt * 10) / 10 : 0;
     }, [weeklyData, totalPt, subRows, refWKey, progressItems]); // eslint-disable-line
 
+    // ── 모바일 간편 입력 패널 (2026-07-20 팀장님 확정) ────────────────────────────────
+    //   기본 = 한 주만 크게(오늘이 속한 주). [이전 주]/[다음 주]로 이동, 금주 아니면 [오늘로] 복귀 버튼.
+    //   공정률 7개 = 누적 %(빈칸이면 직전값 회색 힌트 — 표와 동일 규칙), 시운전 = 이 주에 딴 포인트(하위 있으면 하위별).
+    //   입력은 표와 완전히 같은 장부(updateWeekly)를 씀 — 화면만 다르고 저장·계산은 100% 동일.
+    //   '전체 기간 보기' 버튼을 누르면 기존 표로 전환(좌우 스크롤 + 이전/금주/다음 그대로).
+    const renderMobileWeekPanel = () => {
+        const { year: my, month: mm, week: mw } = mobileWeek;
+        const wKey = `${my}-${mm}-${mw}`;
+        const isCur = isCurrentWeek(my, mm, mw);
+        const wCnt = weeksInMonth(my, mm).length;
+        const goPrev = () => { if (mw <= 1) { const p = addMonths(my, mm, -1); setMobileWeek({ year: p.y, month: p.m, week: weeksInMonth(p.y, p.m).length }); } else setMobileWeek({ year: my, month: mm, week: mw - 1 }); };
+        const goNext = () => { if (mw >= wCnt) { const n = addMonths(my, mm, 1); setMobileWeek({ year: n.y, month: n.m, week: 1 }); } else setMobileWeek({ year: my, month: mm, week: mw + 1 }); };
+        const goToday = () => setMobileWeek({ year: cy0, month: cm0, week: Math.min(5, Math.ceil(now0.getDate() / 7)) });
+        const dayRange = ['1~7일', '8~14일', '15~21일', '22~28일', '29일~'][mw - 1] || '';
+        const navBtn = { flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 2, background: '#f1f5f9', border: BORDER, borderRadius: 10, color: '#334155', fontSize: 13.5, fontWeight: 800, padding: '10px 12px', cursor: 'pointer' };
+        const bigRow = (itemKey, label, color, useMax, unit) => {
+            const val = weeklyData[itemKey]?.[wKey];
+            const hasVal = val !== undefined && val !== '';
+            const prevVal = useMax ? (cumByKey[itemKey]?.[wKey] || 0) : 0;
+            const showPrev = useMax && !hasVal && prevVal > 0;
+            return (
+                <div key={itemKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: BORDER_D }}>
+                    <div style={{ width: 4, height: 22, background: color, borderRadius: 2, flexShrink: 0 }}/>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+                    <input type="number" min="0" inputMode="numeric" value={val ?? ''} placeholder={showPrev ? String(prevVal) : ''}
+                        onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onWheel={e => e.target.blur()}
+                        onFocus={e => { if (e.target.select) e.target.select(); }}
+                        style={{ width: 108, height: 48, fontSize: 21, fontWeight: 800, textAlign: 'center', borderRadius: 10,
+                            border: hasVal ? '2px solid var(--brand)' : '1.5px solid #cbd5e1',
+                            background: hasVal ? 'rgba(37,99,235,0.06)' : '#fff', color: hasVal ? 'var(--brand)' : '#64748b', outline: 'none', boxSizing: 'border-box' }}/>
+                    <span style={{ width: 20, fontSize: 12, fontWeight: 700, color: '#94a3b8', flexShrink: 0 }}>{unit}</span>
+                </div>
+            );
+        };
+        return (
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 14px 10px' }}>
+                {/* 주 선택 — 큰 버튼. 스크롤해도 상단 고정(sticky) — 지금 몇 주에 입력 중인지 항상 보이게 (2026-07-20) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', position: 'sticky', top: 0, zIndex: 2, background: '#fff', borderBottom: '1px solid #f1f5f9' }}>
+                    <button onClick={goPrev} style={navBtn}><ChevronLeft size={16}/> 이전 주</button>
+                    <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                        <div style={{ fontSize: 16.5, fontWeight: 800, color: isCur ? '#b45309' : '#0f172a', whiteSpace: 'nowrap' }}>
+                            {my !== cy0 ? `${my}년 ` : ''}{mm}월 {mw}주{isCur ? ' (금주)' : ''}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{dayRange}</div>
+                    </div>
+                    <button onClick={goNext} style={navBtn}>다음 주 <ChevronRight size={16}/></button>
+                </div>
+                {!isCur && (
+                    <button onClick={goToday} style={{ width: '100%', marginBottom: 8, background: '#fef9c3', border: '1px solid #fbbf24', borderRadius: 10, color: '#92400e', fontSize: 13, fontWeight: 800, padding: '9px 0', cursor: 'pointer' }}>
+                        오늘(금주)로 돌아가기
+                    </button>
+                )}
+                {(SIMPLE_ON.length > 0 || SECONDARY_ON.length > 0) && (
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', letterSpacing: '0.06em', padding: '4px 2px 2px' }}>공정률 (누적 %)</div>
+                )}
+                {SIMPLE_ON.map(({ key, label, color }) => bigRow(key, label, color, true, '%'))}
+                {SECONDARY_ON.map(({ key, label, color }) => bigRow(key, label, color, true, '%'))}
+                {(subRows.length > 0 ? (selfOn || intOn) : WEEKLY_ON.length > 0) && (
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', letterSpacing: '0.06em', padding: '10px 2px 2px' }}>시운전 (이 주에 딴 포인트)</div>
+                )}
+                {subRows.length > 0 ? (
+                    subRows.map((sub, i) => (
+                        <React.Fragment key={i}>
+                            {selfOn && bigRow(`sub_${i}_commissioning`, `${sub.name} · 자체`, '#10b981', false, 'pt')}
+                            {intOn && bigRow(`sub_${i}_intCommissioning`, `${sub.name} · 통합`, '#f43f5e', false, 'pt')}
+                        </React.Fragment>
+                    ))
+                ) : (
+                    WEEKLY_ON.map(({ key, label, color }) => bigRow(key, label, color, false, 'pt'))
+                )}
+                <div style={{ marginTop: 10, padding: '10px 12px', background: '#eaf3f9', border: '1.5px solid #a9cde3', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#075985' }}>진척률</span>
+                    <span style={{ fontSize: 19, fontWeight: 800, color: '#0b5578' }}>{overallPct > 0 ? `${overallPct}%` : '—'}</span>
+                </div>
+                {/* 이전/다음 프로젝트 이동 (2026-07-20 팀장님): 키인 끝 → 목록 안 거치고 바로 다음 카드로.
+                    순서 = 카드 목록(상태 칩 필터 반영 — 진행중 필터면 진행중끼리)와 동일 */}
+                {mobileNav && mobileNav.total > 0 && (() => {
+                    const hasPrev = mobileNav.idx > 0;
+                    const hasNext = mobileNav.idx >= 0 && mobileNav.idx < mobileNav.total - 1;
+                    const nb = (on) => ({ flex: 1, height: 46, borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: on ? 'pointer' : 'default',
+                        background: on ? '#f1f5f9' : '#f8fafc', border: on ? BORDER : '1px solid #eef1f6', color: on ? '#334155' : '#cbd5e1',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 });
+                    return (
+                        <div style={{ marginTop: 10 }}>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button disabled={!hasPrev} onClick={() => requestNav(-1)} style={nb(hasPrev)}><ChevronLeft size={16}/> 이전</button>
+                                <button onClick={requestClose} style={{ flex: '0 0 auto', height: 46, padding: '0 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', background: '#fff', border: BORDER, color: '#64748b' }}>목록</button>
+                                <button disabled={!hasNext} onClick={() => requestNav(1)}
+                                    style={{ ...nb(hasNext), background: hasNext ? 'var(--brand)' : '#f8fafc', color: hasNext ? '#fff' : '#cbd5e1', border: hasNext ? '1px solid var(--brand)' : '1px solid #eef1f6' }}>
+                                    다음 <ChevronRight size={16}/></button>
+                            </div>
+                            <div style={{ marginTop: 5, textAlign: 'center', fontSize: 11, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {mobileNav.idx + 1} / {mobileNav.total}{hasNext ? ` · 다음: ${mobileNav.nextName || ''}` : ' · 마지막 프로젝트'}
+                            </div>
+                        </div>
+                    );
+                })()}
+                <div style={{ marginTop: 6, fontSize: 10.5, color: '#94a3b8', lineHeight: 1.5 }}>
+                    * 공정률 = 누적 % (빈칸이면 회색 직전값 그대로 유지) · 시운전 = 이 주에 새로 딴 포인트만<br/>
+                    * 입력 후 [적용하기] 한 번이면 저장 + 메인표·월간보고 반영까지 끝납니다
+                </div>
+            </div>
+        );
+    };
+
+    // ★ 4자리 잘림 수정 (2026-07-20 실측): 44px 주차 칸 + 14px 글씨는 3자리까지만 들어감 →
+    //   '1000'이 '100'처럼 보여 값이 바뀐 걸로 오해(데이터는 정상, 합계가 그 증거).
+    //   글자 수에 맞춰 글씨를 자동 축소해 끝자리까지 항상 보이게 한다 (값·회색 힌트 공통).
+    const cellFontFit = (txt) => { const n = String(txt ?? '').length; return n >= 5 ? 9.5 : n === 4 ? 10.5 : 14; };
+
     const renderRow = (itemKey, label, color, bgLabel = '#f8fafc', useMax = false) => {
         const d = weeklyData[itemKey] || {};
         const vals = Object.values(d).map(v => Number(v)||0).filter(v => v > 0);
@@ -728,7 +855,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             <input type="number" min="0" inputMode="numeric" value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
                                     border:'none', outline:'none', color: hasVal?'var(--brand)':'#94a3b8',
-                                    fontSize:14, fontWeight: hasVal?700:400,
+                                    fontSize: cellFontFit(hasVal ? val : (showPrev ? prevVal : '')), fontWeight: hasVal?700:400,
                                     textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
                                 onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(30,122,200,0.08)'; e.target.style.boxShadow='inset 0 0 0 2px var(--brand)'; e.target.style.color='#1e293b'; }}
                                 onBlur={e => {
@@ -768,7 +895,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                         style={{ display:'block', width:'100%', height:34, background: hasVal?`${valColor}15`:'transparent',
                             border:'none', outline:'none', color: hasVal?valColor:'#94a3b8',
-                            fontSize:14, fontWeight: hasVal?700:400,
+                            fontSize: cellFontFit(hasVal ? val : ''), fontWeight: hasVal?700:400,
                             textAlign:'center', boxSizing:'border-box', padding:'0 2px', cursor:'text' }}
                         onFocus={e => { if (e.target.select) e.target.select(); e.target.style.background='rgba(30,122,200,0.08)'; e.target.style.boxShadow='inset 0 0 0 2px var(--brand)'; e.target.style.color='#1e293b'; }}
                         onBlur={e => {
@@ -850,7 +977,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         s + (Number((weeklyData[`sub_${i}_${subKey}`]||{})[wKey]) || 0), 0);
                     const isCur = isCurrentWeek(year, month, week);
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
-                    return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:800, fontSize:14,
+                    return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:800, fontSize: cellFontFit(weekSum > 0 ? weekSum : ''),
                         color: weekSum>0?color:'var(--line)', background: isCur?'#fef9e7':bgCell,
                         height:38, verticalAlign:'middle' }}>
                         {weekSum > 0 ? weekSum : ''}
@@ -1075,10 +1202,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const modalW = progressPanelW + (wSummary ? wSummaryPanelW : 0);
 
     return (
-        <div style={{ position:'fixed', left:pos.x, top:pos.y, width:modalW, zIndex:9500,
+        <div style={{ position:'fixed', left: mobileMode ? Math.max(3, (window.innerWidth - modalW) / 2) : pos.x, top: mobileMode ? 6 : pos.y, width:modalW, zIndex:9500,
             background:'#ffffff', border:'1px solid var(--line)', borderRadius:14,
             boxShadow:'0 20px 60px rgba(0,0,0,0.1)',
-            display:'flex', flexDirection:'column', maxHeight:'88vh' }}>
+            display:'flex', flexDirection:'column',
+            /* 모바일(2026-07-20): vh는 폰 하단 툴바 뒤까지 포함해 푸터(적용하기)가 화면 밖으로 밀림 → 실제 보이는 높이(innerHeight)로 고정 */
+            maxHeight: mobileMode ? (window.innerHeight - 12) + 'px' : '88vh' }}>
             <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .progress-modal-table td:last-child { box-shadow: -6px 0 8px -7px rgba(15,23,42,0.18); }
 .progress-modal-table input::placeholder { color:#b4bcca; font-style:italic; font-weight:400; opacity:1; }`}</style>
@@ -1227,6 +1356,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             </div>
                         </div>
 
+                        {/* 모바일 간편 입력 (2026-07-20): mobileMode + 기본 보기 = 한 주 패널 / '전체 기간 보기' = 기존 표 */}
+                        {(mobileMode && !showAllMonths) ? renderMobileWeekPanel() : (<>
                         {/* 수평 스크롤 테이블 — flex:1로 남은 높이 채움 → 스크롤바 항상 보임 */}
                         <div ref={scrollRef} style={{ flex:1, minHeight:0, overflowX:'scroll', overflowY:'auto', paddingLeft:18, paddingRight:18 }}>
                             <table className="progress-modal-table" style={{ borderCollapse:'separate', borderSpacing:0,
@@ -1349,6 +1480,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                 </tbody>
                             </table>
                         </div>
+                        </>)}
 
                         {/* 주석 — flex 고정 영역 */}
                         <div style={{ flexShrink:0, padding:'3px 18px 6px', fontSize:10, color:'var(--line)' }}>
@@ -1361,48 +1493,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 </div>
             )}
 
-            {/* 적용 확인 패널 */}
-            {applyConfirm && (
-                <div style={{ flexShrink:0, padding:'12px 18px', background:'#fffbeb', borderTop:'2px solid #f59e0b' }}>
-                    <div style={{ fontSize:12, fontWeight:800, color:'#92400e', marginBottom:6 }}>
-                        {applyConfirm.month}월 W{applyConfirm.curWeek} 데이터를 기준일 {applyConfirm.month}월 업무현황에 저장하겠습니다
-                    </div>
-                    <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
-                        {applyConfirm.plc  != null && <span style={{ background:'#e0e7ff', color:'#3730a3', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>PLC: {applyConfirm.plc}% (W{applyConfirm.curWeek})</span>}
-                        {applyConfirm.etos != null && <span style={{ background:'#cffafe', color:'#0e7490', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>ETOS: {applyConfirm.etos}% (W{applyConfirm.curWeek})</span>}
-                        {applyConfirm.hmi  != null && <span style={{ background:'#ede9fe', color:'#5b21b6', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>HMI: {applyConfirm.hmi}% (W{applyConfirm.curWeek})</span>}
-                        {applyConfirm.currPoints != null && <span style={{ background:'#d1fae5', color:'#065f46', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>시운전 금월: {applyConfirm.currPoints}pt</span>}
-                        {applyConfirm.prevPoints != null && <span style={{ background:'#dbeafe', color:'#1e40af', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>시운전 전월: {applyConfirm.prevPoints}pt</span>}
-                        {applyConfirm.accPoints  != null && <span style={{ background:'#fef3c7', color:'#92400e', fontSize:11, fontWeight:700, padding:'2px 10px', borderRadius:4 }}>시운전 누적: {applyConfirm.accPoints}pt</span>}
-                        {[applyConfirm.plc, applyConfirm.etos, applyConfirm.hmi, applyConfirm.currPoints, applyConfirm.prevPoints, applyConfirm.accPoints].every(v => v == null) && (
-                            <span style={{ color:'#b45309', fontSize:11 }}>적용할 데이터가 없습니다 ({applyConfirm.month}월 입력값 확인)</span>
-                        )}
-                    </div>
-                    {(applyConfirm.selfPts > 0 || applyConfirm.intPts > 0) && (() => {
-                        const _v = pointSource==='int' ? (applyConfirm.accIntPts||0) : (applyConfirm.accSelfPts||0);
-                        const _over = totalPt>0 && _v>totalPt;
-                        return (
-                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10, flexWrap:'wrap' }}>
-                            <span style={{ fontSize:11, fontWeight:700, color:'#92400e' }}>메인표 포인트(왼쪽 실적):</span>
-                            <span style={{ background: _over?'#dc2626':'#16a34a', color:'#fff', fontSize:11, fontWeight:800, padding:'3px 12px', borderRadius:5 }}>
-                                {_over?'⚠ ':''}{pointSource==='int' ? '통합' : '자체'}시운전 {_v}pt{_over?` / 총점 ${totalPt} 초과`:''}
-                            </span>
-                            <span style={{ fontSize:10, color:'#92400e' }}>(아래 [자체]/[통합] 버튼으로 변경)</span>
-                        </div>
-                        );
-                    })()}
-                    <div style={{ display:'flex', gap:8 }}>
-                        <button onClick={handleApplyConfirm} disabled={applying}
-                            style={{ background: applying?'#16a34a99':'#16a34a', border:'none', borderRadius:6, color:'#fff', fontSize:12, fontWeight:800, padding:'5px 20px', cursor: applying?'default':'pointer' }}>
-                            {applying ? '저장 중...' : '저장'}
-                        </button>
-                        <button onClick={() => setApplyConfirm(null)} disabled={applying}
-                            style={{ background:'#f1f5f9', border:BORDER, borderRadius:6, color:'#374151', fontSize:12, fontWeight:700, padding:'5px 16px', cursor:'pointer' }}>
-                            취소
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* (2026-07-20) 적용 확인 패널 제거 — [적용하기] 원클릭으로 즉시 저장+적용, 결과는 푸터 완료 메시지로 표시 */}
 
             {onApplyToMonthly && (() => {
                 const _sum = (base) => subRows.length > 0
@@ -1448,7 +1539,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     </span>
                 )}
                 {onApplyToMonthly && (
-                    <button onClick={() => { const d = computeApplyData(); if (d) setApplyConfirm(d); }} disabled={saving || applying}
+                    <button onClick={() => { const d = computeApplyData(); if (!d) { setApplyMsg('기준월 정보가 없어 적용할 수 없습니다'); setTimeout(() => setApplyMsg(''), 3000); return; } handleApplyConfirm(d); }} disabled={saving || applying}
                         style={{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:7, color:'#15803d', fontSize:12, fontWeight:800, padding:'6px 16px', cursor:'pointer' }}>
                         적용하기
                     </button>

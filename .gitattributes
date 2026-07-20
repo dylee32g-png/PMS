@@ -1,0 +1,4 @@
+# 줄끝(CRLF/LF) 자동 변환 전면 금지 (2026-07-20)
+# utils.js·EstimateScreen.jsx가 환경(Windows git autocrlf·에디터)에 따라 통째로 바뀐 것처럼 보이는
+# 노이즈가 7/16·7/20 두 번 재발 → git이 줄끝을 절대 건드리지 않게 고정. 디스크에 있는 그대로 저장·비교한다.
+* -text
