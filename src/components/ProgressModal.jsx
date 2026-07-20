@@ -458,7 +458,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const projectName = row['Project'] || row['프로젝트명'] || row['공사명'] || row.project || '프로젝트';
     // B-3: 만점은 totalCommissioningPoints 우선(수정 팝업은 tCP만 갱신 → point는 옛 값일 수 있음), 없으면 point,
     //   그래도 없으면 메인표 '포인트'(상세팝업서 입력한 만점) 폴백 — 진행실적이 만점 못 읽어 시운전%가 0이던 문제 해결 (2026-06-29)
-    const totalPt = Number(pmsData?.totalCommissioningPoints || pmsData?.point || row?.['포인트']) || 0;
+    // 2단계(2026-07-20): 하위(공종)가 있으면 총점 = 하위 '포인트' 합 자동 (List 메인표·그래프와 동일 규칙). 합 0이면 기존 폴백 유지.
+    const subPtSum = subRows.reduce((s, r) => s + (Number(r?.pt) || 0), 0);
+    const totalPt = subPtSum > 0 ? subPtSum : (Number(pmsData?.totalCommissioningPoints || pmsData?.point || row?.['포인트']) || 0);
 
     const computeApplyData = () => {
         if (!baseDate) return null;

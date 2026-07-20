@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, parseExcelHeaders } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders } from './projectListData';
 
 const VERSION = 'v6.8.7';
 
@@ -187,6 +187,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   판별 = 실행번호가 's' 또는 '-'로 시작 — 월간보고·진행실적 팝업·모바일과 완전히 같은 규칙.
     //   ※ 추후 팀 협의로 엑셀 원본에 하위 줄이 생겨도(실행번호 열에 s) 업로드만 하면 그대로 인식됨(코드 추가 불필요).
     const isSubListRow = (r) => { const e = String(r?.['실행번호'] || '').trim().toLowerCase(); return e === 's' || e.startsWith('-'); };
+    // ── 2단계: 메인 POINT 총점 = 하위 합계 자동 (2026-07-20 팀장님 확정) ─────────────────
+    //   · 하위(실행번호 s/-)가 있는 메인 행의 총점 = 하위 '포인트' 합 (파생 계산 — 저장 안 함, 그래프 실적 합산과 동일 방식)
+    //   · 하위 총점이 전부 빈칸(합 0)이면 부모에 원래 입력된 총점 유지 (전환기 안전)
+    //   · 손입력 잠금: 부모 메인표 POINT 칸(실적)·부모 상세팝업 '포인트'(총점) — 입력 입구는 진행실적 팝업·하위 행으로 통일
+    const subPtByParent = useMemo(() => {
+        const map = {};                                     // { 부모_id: { count, sum } } — 하위 있는 메인 행만 키 존재
+        let lastMain = null;
+        activeRows.forEach(r => {
+            if (!isSubListRow(r)) { lastMain = r; return; }
+            if (!lastMain) return;                          // 부모 없는 하위(비정상 데이터)는 합계 대상 아님
+            const e = map[lastMain._id] || (map[lastMain._id] = { count: 0, sum: 0 });
+            e.count += 1;
+            e.sum = Math.round((e.sum + (Number(r['포인트']) || 0)) * 1000) / 1000;   // 소수 오차 방지
+        });
+        return map;
+    }, [activeRows]);   // eslint-disable-line react-hooks/exhaustive-deps
+    const getSubPt = (rowId) => subPtByParent[rowId] || null;   // 하위 없으면 null
+    // 화면·그래프·엑셀 공통 '유효 총점' — 하위 합>0이면 합, 아니면 부모 자체 총점
+    const effTotalPt = (row) => { const sp = getSubPt(row._id); const own = Number(row['포인트']) || 0; return sp && sp.sum > 0 ? sp.sum : own; };
     // 프로젝트 이름이 표시되는 열 — └ 하위 마커 표시용
     const projectNameCol = useMemo(() => {
         const nameKeys = ['프로젝트명', '프로젝트', 'Project', '공사명', '건명', '명칭'];
@@ -416,45 +435,65 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } finally { setIsLoading(false); }
     };
 
-    // ── Firebase에 확정 저장 ─────────────────────────────────────────────
+    // ── Firebase에 확정 저장 = 보존 병합 (3단계, 2026-07-20 팀장님 확정) ──────────────
+    //   옛 방식(기존 전량삭제 → 엑셀로 교체)은 pid가 전부 바뀌어 진행실적 장부·하위 행·이력이 통째로 끊겼다.
+    //   새 방식: 매칭(연도+번호→연도+이름) 행은 기존 문서를 유지한 채 엑셀 컬럼 값만 갱신(엑셀 절대우선),
+    //   신규는 추가, 엑셀에 없는 행·하위(공종) 행은 그대로 유지. 삭제는 하지 않는다(개별 삭제 = 우클릭 완전삭제).
+    //   저장 직전 현재 클라우드 데이터를 JSON으로 자동 백업(다운로드)한다.
     const handleSaveToFirebase = async () => {
-        // ★ 관리자 전용 (2026-07-14): 기존 행을 전량 삭제하고 엑셀로 교체 → 그 시각 남이 하던 수정·pid·이력이 모두 사라짐
-        if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.\n\n[엑셀 확정 저장]은 클라우드의 기존 데이터를\n전부 지우고 엑셀로 교체합니다.'); return; }
+        // ★ 관리자 전용 (2026-07-14)
+        if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.\n\n[엑셀 확정 저장]은 엑셀과 클라우드를 보존 병합합니다\n(매칭 행 갱신 · 신규 추가 · 하위/누락 행 유지).'); return; }
         const src = pendingData || localData;
         if (!src?.rows?.length) return;
+        const hdrs = src.headers || activeHeaders;
+        const mains = fbRows.filter(r => !isSubListRow(r));            // 하위 제외 = 하위는 병합에서 완전 보존
+        const subCnt = fbRows.length - mains.length;
+        const plan = computeMergePlan(mains, src.rows, hdrs);
+        const ok = window.confirm(
+`[엑셀 확정 저장 — 보존 병합]
+
+✓ 갱신 ${plan.counts.updates}건 (값 변경 ${plan.counts.changed}건만 실제 저장 · pid/실행번호/이력/포인트실적 보존)
+＋ 신규 ${plan.counts.news}건
+· 엑셀에 없음 ${plan.counts.missing}건 → 그대로 유지 (삭제 안 함)
+· 하위(공종) ${subCnt}건 → 보존
+
+매칭 기준: 연도+번호(${plan.numCol || '없음'}) → 연도+이름(${plan.nameCol || '없음'})
+저장 직전, 현재 클라우드 데이터 백업(JSON)이 자동 다운로드됩니다.
+
+진행할까요?`);
+        if (!ok) return;
         setIsLoading(true);
         try {
-            // 기존 행 삭제
-            const oldSnap = await getDocs(rowsColRef(currentTeam));
-            if (!oldSnap.empty) {
-                let delBatch = writeBatch(db), delCnt = 0;
-                for (const d of oldSnap.docs) {
-                    delBatch.delete(d.ref);
-                    if (++delCnt >= 400) { await delBatch.commit(); delBatch = writeBatch(db); delCnt = 0; }
-                }
-                if (delCnt > 0) await delBatch.commit();
-                addLog(`기존 행 ${oldSnap.size}개 삭제`);
-            }
-            // 메타 저장
+            // 0) 자동 백업 (JSON) — 문제가 생기면 이 파일이 되돌리기 기준
+            await loadFileSaver();
+            const _bs = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+            window.saveAs(new Blob([JSON.stringify({ team: currentTeam, savedAt: new Date().toISOString(), headers: activeHeaders, colGroups: activeColGroups, rows: fbRows }, null, 1)], { type: 'application/json' }),
+                `ProjectList백업_${currentTeam}_${_bs}.json`);
+            // 1) 메타(헤더·그룹) = 엑셀 기준으로 갱신 (표 구조는 엑셀이 기준 — 기존 동작 유지)
             await setDoc(metaDocRef(currentTeam), {
                 headers: src.headers, colGroups: src.colGroups,
                 updatedAt: new Date().toISOString()
             });
-            // 행 저장
+            // 2) 쓰기 = 값이 바뀐 갱신 행 + 신규 행만. 삭제 0건 (하위·엑셀에 없음 행은 문서 그대로).
             let batch = writeBatch(db), cnt = 0;
-            for (const row of src.rows) {
-                const { _id, ...d } = row;
-                batch.set(rowDocRef(currentTeam, _id), d);
-                if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
+            const flush = async () => { if (cnt > 0) { await batch.commit(); batch = writeBatch(db); cnt = 0; } };
+            for (const u of plan.updates) {
+                if (!u.changed) continue;                                  // 값 전부 동일 → 쓰기 생략 (도장 오염·쓰기량 방지)
+                batch.set(rowDocRef(currentTeam, u._id), stampSave(u.data));
+                if (++cnt >= 400) await flush();
             }
-            if (cnt > 0) await batch.commit();
+            for (const c of plan.creates) {
+                batch.set(rowDocRef(currentTeam, c._id), stampSave(c.data));
+                if (++cnt >= 400) await flush();
+            }
+            await flush();
 
             // 성공 후 로컬/pending 초기화
             setPendingData(null);
             setLocalData(null);
             await idbDelete(currentTeam);
-            addLog(`[Firebase] 확정 저장 완료 (${src.rows.length}건)`);
-            setAlertMsg(`Firebase 확정 저장 완료!\n${src.rows.length}건이 클라우드에 저장되었습니다.`);
+            addLog(`[Firebase] 보존 병합 저장 완료 — 갱신 ${plan.counts.changed}/${plan.counts.updates} · 신규 ${plan.counts.news} · 유지 ${plan.counts.missing} · 하위 ${subCnt}`);
+            setAlertMsg(`엑셀 확정 저장(보존 병합) 완료!\n\n갱신 ${plan.counts.updates}건 (실제 쓰기 ${plan.counts.changed}건) · 신규 ${plan.counts.news}건\n엑셀에 없음 ${plan.counts.missing}건 유지 · 하위(공종) ${subCnt}건 보존`);
         } catch (err) {
             addLog(`[Firebase 오류] ${err.message}`);
             setAlertMsg(`Firebase 저장 오류: ${err.message}`);
@@ -1204,13 +1243,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const _doneCol     = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사완료'));
         const _sd = _contractCol ? toDateInputVal(row[_contractCol]) : '';
         const _ed = _doneCol     ? toDateInputVal(row[_doneCol])     : '';
+        const _spTot = effTotalPt(row);   // 2단계(2026-07-20): 하위 합계 자동 총점 (합 0이면 부모 총점)
         const graphObj = {
             ...(linked || {}),
             pid,
             execNo: row[EXEC_NO_COL] || linked?.execNo,
             project: nm,
-            totalCommissioningPoints: Number(row['포인트']) || linked?.totalCommissioningPoints || linked?.point || 0,
-            point: Number(row['포인트']) || linked?.point || 0,
+            totalCommissioningPoints: _spTot || linked?.totalCommissioningPoints || linked?.point || 0,
+            point: _spTot || linked?.point || 0,
             monthlyData: linked?.monthlyData || [],
             startDate: _sd || linked?.startDate || '',
             endDate:   _ed || linked?.endDate   || '',
@@ -1271,7 +1311,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 cell.border = { top:{style:'thin',color:{argb:'FF334155'}}, bottom:{style:'thin',color:{argb:'FF334155'}}, left:{style:'thin',color:{argb:'FF334155'}}, right:{style:'thin',color:{argb:'FF334155'}} };
             });
             sortedRows.forEach(row => {
-                const exRow = ws.addRow(Object.fromEntries(visH.map(h => [h, row[h]||''])));
+                const rec = Object.fromEntries(visH.map(h => [h, row[h]||'']));
+                // 2단계(2026-07-20): 하위 합계 자동 총점을 엑셀에도 동일 반영 (화면=엑셀 일치)
+                const _ptH = visH.find(isPointCol);
+                if (_ptH) { const _sp = getSubPt(row._id); if (_sp && _sp.sum > 0) rec[_ptH] = _sp.sum; }
+                const exRow = ws.addRow(rec);
                 exRow.eachCell(cell => {
                     cell.border = { top:{style:'thin',color:{argb:'FFCBD5E1'}}, bottom:{style:'thin',color:{argb:'FFCBD5E1'}}, left:{style:'thin',color:{argb:'FFCBD5E1'}}, right:{style:'thin',color:{argb:'FFCBD5E1'}} };
                     cell.font = { name:'맑은 고딕' }; cell.alignment = { vertical:'middle' };
@@ -2131,6 +2175,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             subs.push({
                                 name: activeRows[i]['공사명'] || activeRows[i]['프로젝트명'] || activeRows[i]['Project'] || activeRows[i]['사업명'] || `서브${subs.length + 1}`,
                                 key: activeRows[i]._id,
+                                pt: Number(activeRows[i]['포인트']) || 0,   // 2단계(2026-07-20): 부모 총점 = 하위 합 (ProgressModal 합산용)
                             });
                         } else break;
                     }
@@ -2165,6 +2210,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
+                    subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                 />
             )}
 
@@ -2532,7 +2578,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {isAdmin && (dataSource === 'pending' || dataSource === 'local') && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToFirebase(); }}
                                             className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-emerald-600 flex items-center gap-2 transition-colors">
-                                            <CloudUpload size={14}/> Firebase 확정 저장
+                                            <CloudUpload size={14}/> 엑셀 확정 저장 (보존 병합)
                                         </button>
                                     )}
                                     {/* 로컬 삭제 (local) */}
@@ -2639,7 +2685,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         </div>
                         <h2 className="text-3xl font-extrabold text-slate-200 mb-3 tracking-tight">등록된 프로젝트 List가 없습니다</h2>
                         <p className="text-slate-500 text-base mb-2">엑셀 파일을 업로드하면 헤더를 자동으로 인식하여<br/>테이블 형태로 표시됩니다.</p>
-                        <p className="text-slate-600 text-sm mb-10">업로드 후 검토 → 로컬 임시 저장 → Firebase 확정 저장 순으로 진행하세요.</p>
+                        <p className="text-slate-600 text-sm mb-10">업로드 후 검토 → 병합 미리보기 → 엑셀 확정 저장(보존 병합) 순으로 진행하세요.</p>
                         {isAdmin ? (<>
                         <button onClick={() => { if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
                             className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-base shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
@@ -2900,6 +2946,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                             setEditingCell({id:row._id,key:h,value:displayDate(val)});
                                                         } else if (isPointCol(h)) {
                                                             // 포인트 칸 클릭 → 만점(row['포인트']) 아닌 '실적'(포인트실적) 편집 (2026-06-29)
+                                                            // 2단계(2026-07-20): 하위(공종) 있는 메인 줄은 직접 키인 잠금 — 실적=진행실적 팝업, 총점=하위 행
+                                                            if (getSubPt(row._id)) { setAlertMsg('하위(공종)가 있는 프로젝트는 포인트 직접 입력이 잠겨 있습니다.\n\n· 실적 → 우클릭 → [진행실적 등록] (하위별 주차 키인 후 적용)\n· 총점 → 하위 행 상세팝업의 \'포인트\' (자동 합산)'); return; }
                                                             setEditingCell({id:row._id,key:h,value: String(row['포인트실적'] ?? '')});
                                                         } else {
                                                             setEditingCell({id:row._id,key:h,value: isPctCol(h) ? String(val||'').replace(/%/g,'') : (val||'')});
@@ -2918,7 +2966,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (val ? ((Number(row['포인트실적'])||0) > (Number(val)||0) ? <span title={`총점 ${val} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{String(val)}</span></span> : <span style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{String(val)}</span></span>) : <span className="text-slate-700">—</span>) : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
+                                                    })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
+                                                        // 2단계(2026-07-20): 하위 있는 메인 줄 총점 = 하위 합계 자동(Σ 표시). 합 0이면 기존 부모 총점 유지.
+                                                        const _sp = getSubPt(row._id);
+                                                        const _auto = !!(_sp && _sp.sum > 0);
+                                                        const _tot = _auto ? _sp.sum : (Number(val) || 0);
+                                                        if (!_tot && !val) return <span className="text-slate-700">—</span>;
+                                                        const _act = Number(row['포인트실적']) || 0;
+                                                        const _tip = _auto ? `총점 ${_tot} = 하위 ${_sp.count}개 '포인트' 합계 (자동)` : undefined;
+                                                        if (_act > _tot) return <span title={`총점 ${_tot} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{_auto ? 'Σ' : ''}{String(_tot)}</span></span>;
+                                                        return <span title={_tip} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{_auto ? 'Σ' : ''}{String(_tot)}</span></span>;
+                                                    })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}

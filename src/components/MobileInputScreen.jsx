@@ -101,6 +101,7 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                     subs.push({
                         name: rows[i]['공사명'] || rows[i]['프로젝트명'] || rows[i]['Project'] || rows[i]['사업명'] || `서브${subs.length + 1}`,
                         key: rows[i]._id,
+                        pt: Number(rows[i]['포인트']) || 0,   // 2단계(2026-07-20): 부모 총점 = 하위 합 (ProgressModal 합산용)
                     });
                 } else break;
             }

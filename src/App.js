@@ -4635,6 +4635,30 @@ const TechTeamPMS = () => {
       return { timeline, totalPoints, totalAcc, progressPercent, lastProgress, startDateStr, endDateStr, rangeLabel, rangeNote, rangeWarn };
   }, [graphProject, teamSettings, currentTeam, progressRecordsMap]);
 
+  // ★ 실적 그래프 자동 스크롤 (2026-07-20 팀장님 A안 확정): 열릴 때 '마지막 실적 달'(없으면 오늘 달)이 보이게 이동.
+  //   옛 계약(예: 2025-01) 장기 프로젝트는 기간이 계약월부터라 앞쪽 빈 구간이 먼저 보여 "그래프가 안 뜬다"로 오해 →
+  //   데이터 위치로 처음부터 데려다 준다. 기간 규칙(공사계약~완료, 7/13 확정)·계산은 그대로, 순수 화면 이동만.
+  useEffect(() => {
+      if (!graphProject || !graphData || !graphData.timeline || !graphData.timeline.length) return;
+      const tl = graphData.timeline;
+      const _now = new Date();
+      const todayKey = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
+      let idx = -1;
+      for (let i = tl.length - 1; i >= 0; i--) { if (tl[i].hasData || tl[i].progressPct > 0) { idx = i; break; } }   // 마지막 실적 달
+      if (idx < 0) idx = tl.findIndex(t => t.date === todayKey);                                                      // 없으면 오늘 달
+      if (idx < 0) return;                                                                                             // 그래도 없으면 그대로(맨 앞)
+      const timer = setTimeout(() => {
+          const el = gChartScrollRef.current;
+          if (!el || el.scrollWidth <= el.clientWidth) return;                                                         // 스크롤 필요 없으면 그대로
+          const frac = (idx + 1) / tl.length;                                                                          // 목표 달의 위치 비율
+          const target = Math.min(el.scrollWidth * frac - el.clientWidth * 0.7, el.scrollWidth - el.clientWidth);      // 화면 70% 지점에 오게
+          el.scrollLeft = Math.max(0, target);
+          if (gTableScrollRef.current) gTableScrollRef.current.scrollLeft = el.scrollLeft;                             // 하단 표 동기화
+      }, 60);
+      return () => clearTimeout(timer);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphProject]);
+
   // ── 팀 전체 실적 그래프 데이터 ───────────────────────────────────────────
   const teamGraphData = useMemo(() => {
       if (!currentTeam) return null;

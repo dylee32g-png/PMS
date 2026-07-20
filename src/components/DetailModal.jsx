@@ -22,6 +22,7 @@ export default function DetailModal({
     statusOptions, assignees, // 팀 마스터 목록(없으면 기본값 폴백)
     copiedFromRow = false,    // 추가 모드: 선택 행 복사로 열렸는지
     suggestions = {},         // { 항목명: [기존값들] } — 발주처·업체담당자 자동완성 목록
+    subPtInfo = null,         // 2단계(2026-07-20): 메인 행에 하위(공종)가 있으면 {count, sum} — '포인트' 칸 잠금+합계 표시
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     if (!detailRow) return null;
@@ -50,6 +51,8 @@ export default function DetailModal({
     const isInternal  = (h) => String(h).startsWith('_'); // _pid·_regDate 등 내부 필드는 일반 필드 목록에서 제외
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 입력: 숫자만. 메인표와 동일 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k => s.includes(k)); };
+    // 포인트(총점) 칸 판별 — 메인표 isPointCol과 동일 규칙 (2026-07-20 2단계)
+    const isPointColDM = (h) => { const s = String(h).replace(/\s/g,''); return s === '포인트' || /^point$/i.test(s); };
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
 
     // ── 묶음 섹션 빌드 (엑셀 순서 그대로) ──
@@ -91,7 +94,15 @@ export default function DetailModal({
                     {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800, flexShrink:0 }}>▼</span>}
                 </div>
                 <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'center' }}>
-                    {isCheck ? (
+                    {(subPtInfo && isPointColDM(h)) ? (
+                        // 2단계(2026-07-20): 하위(공종) 있는 메인 행의 총점 = 하위 합계 자동 → 이 칸 잠금(읽기전용)
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
+                            title={subPtInfo.sum > 0 ? `총점 = 하위 ${subPtInfo.count}개 '포인트' 합계 (자동)` : `하위 ${subPtInfo.count}개의 총점이 아직 빈칸 — 입력 전까지 기존 부모 총점 유지`}>
+                            <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{subPtInfo.sum > 0 ? `Σ ${subPtInfo.sum}` : (String(val).trim() ? val : '—')}</span>
+                            <span style={{ fontSize:'11px', fontWeight:700, color:'#7c3aed', whiteSpace:'nowrap' }}>하위 {subPtInfo.count}개 합계 자동{subPtInfo.sum > 0 ? '' : ' 대기'}</span>
+                            <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
+                        </div>
+                    ) : isCheck ? (
                         <button type="button"
                             onClick={() => setDetailRow(p => ({...p, [h]: (String(val).toUpperCase()==='O' ? '' : 'O')}))}
                             style={{ width:'100%', border:'none', outline:'none', padding:'4px 9px', fontSize:'13px', fontWeight:700, backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer', textAlign:'left', color: String(val).toUpperCase()==='O' ? '#047857' : '#aaa' }}>

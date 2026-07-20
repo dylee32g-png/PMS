@@ -114,6 +114,57 @@ export function computeMergePreview(existingRows, pendingRows, headers) {
         counts: { updates: updates.length, news: news.length, missing: missing.length, changed: updates.filter(u => u.diffs.length > 0).length } };
 }
 
+// ─── 3단계: 보존 병합 '실행 계획' (2026-07-20 팀장님 확정) ────────────────────────────
+//   확정저장이 실제로 쓸 문서 목록을 계산하는 순수 함수 (Firebase 없음 → 시뮬 테스트 가능).
+//   · updates = 매칭된 기존 행: 기존 _id 유지 + 엑셀 컬럼만 엑셀 값으로(엑셀 절대우선),
+//               웹 전용 값(_pid·실행번호·_regDate·_changeHistory·포인트실적 등)은 그대로 보존.
+//               changed=false(값 전부 동일)면 쓰기 생략 대상.
+//   · creates = 신규 행 (업로드 때 발급된 _id·_pid 그대로 사용).
+//   · missing = 같은 연도인데 엑셀에 없는 기존 행 → 그대로 유지 (지우지도 쓰지도 않음).
+//   · 하위(실행번호 s/-) 행은 호출 쪽에서 existingRows에서 빼고 전달 → 완전 불변
+//     (부모 _id가 안 바뀌므로 자리·실적 장부·Σ합계 전부 그대로).
+export function computeMergePlan(existingRows, pendingRows, headers) {
+    const numCol  = a4cNumCol(headers);
+    const nameCol = a4cNameCol(headers);
+    const cols    = (headers || []).filter(Boolean);
+    const byNum = new Map(), byName = new Map();
+    (existingRows || []).forEach(r => {
+        const y = r._year || '';
+        if (numCol)  { const v = String(r[numCol] ?? '').trim(); if (v) byNum.set(`${y}||${v}`, r); }
+        if (nameCol) { const v = a4cNormName(r[nameCol]);        if (v) byName.set(`${y}||${v}`, r); }
+    });
+    const matchedIds = new Set();
+    const updates = [], creates = [];
+    (pendingRows || []).forEach(p => {
+        const y = p._year || '';
+        let m = null;
+        if (numCol)        { const v = String(p[numCol] ?? '').trim(); if (v) m = byNum.get(`${y}||${v}`) || null; }
+        if (!m && nameCol) { const v = a4cNormName(p[nameCol]);        if (v) m = byName.get(`${y}||${v}`) || null; }
+        if (m && !matchedIds.has(m._id)) {
+            matchedIds.add(m._id);
+            const { _id, ...base } = m;                     // 기존 행 전부 (웹 전용 값 포함)
+            const data = { ...base };
+            let changed = false;
+            cols.forEach(c => {
+                const nv = String(p[c] ?? '').trim();
+                if (String(m[c] ?? '') !== nv) changed = true;
+                data[c] = nv;                               // 엑셀 컬럼 = 엑셀 값 (절대우선)
+            });
+            if ((p._year || '') && data._year !== p._year) { data._year = p._year; changed = true; }
+            updates.push({ _id: m._id, data, changed });
+        } else {
+            // 미매칭, 또는 이미 다른 엑셀 행이 그 기존 행과 매칭됨(중복 번호) → 신규 추가 (덮어쓰기 사고 방지)
+            const { _id, ...rest } = p;
+            creates.push({ _id, data: rest });
+        }
+    });
+    const upYears = new Set((pendingRows || []).map(p => p._year || ''));
+    const missing = (existingRows || []).filter(r => upYears.has(r._year || '') && !matchedIds.has(r._id));
+    return { numCol, nameCol, updates, creates, missing,
+        counts: { updates: updates.length, changed: updates.filter(u => u.changed).length,
+                  news: creates.length, missing: missing.length } };
+}
+
 // ─── 엑셀 헤더 파싱 ────────────────────────────────────────────────────────
 export function parseExcelHeaders(raw, addLog) {
     let startRow = 0;
