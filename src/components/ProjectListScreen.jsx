@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import {
     Upload, Download, Trash2, X, Shuffle,
     AlertTriangle, ListChecks, Search,
@@ -199,18 +199,64 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (!lastMain) return;                          // 부모 없는 하위(비정상 데이터)는 합계 대상 아님
             const e = map[lastMain._id] || (map[lastMain._id] = { count: 0, sum: 0 });
             e.count += 1;
-            e.sum = Math.round((e.sum + (Number(r['포인트']) || 0)) * 1000) / 1000;   // 소수 오차 방지
+            e.sum = Math.round((e.sum + (Number(r['포인트'] ?? r['총']) || 0)) * 1000) / 1000;   // 소수 오차 방지
         });
         return map;
     }, [activeRows]);   // eslint-disable-line react-hooks/exhaustive-deps
     const getSubPt = (rowId) => subPtByParent[rowId] || null;   // 하위 없으면 null
     // 화면·그래프·엑셀 공통 '유효 총점' — 하위 합>0이면 합, 아니면 부모 자체 총점
-    const effTotalPt = (row) => { const sp = getSubPt(row._id); const own = Number(row['포인트']) || 0; return sp && sp.sum > 0 ? sp.sum : own; };
+    const effTotalPt = (row) => { const sp = getSubPt(row._id); const own = Number(row['포인트'] ?? row['총']) || 0; return sp && sp.sum > 0 ? sp.sum : own; };   // 총점 = '포인트' 없으면 '총'(최종 엑셀 폴백) (2026-07-21)
     // 프로젝트 이름이 표시되는 열 — └ 하위 마커 표시용
     const projectNameCol = useMemo(() => {
         const nameKeys = ['프로젝트명', '프로젝트', 'Project', '공사명', '건명', '명칭'];
         return nameKeys.find(k => activeHeaders.includes(k)) || activeHeaders.find(h => /프로젝트|공사|건명/.test(h)) || '';
     }, [activeHeaders]);
+
+    // ── 열 고정 (2026-07-21 팀장님): 기본 = Project 열까지(번호·발주처·Project) — 엑셀 셀고정처럼 좌측 따라옴.
+    //   헤더 더블클릭 = 그 열까지 고정/해제(기존 기능). 바꾼 설정은 이 PC에 팀별 기억(localStorage).
+    const frozenKey = (t) => `pms_list_frozenUpTo_${t}`;
+    useEffect(() => {
+        if (!activeHeaders.length) return;
+        let v = null;
+        try { v = localStorage.getItem(frozenKey(currentTeam)); } catch (e) {}
+        if (v === 'NONE') { setFrozenUpTo(null); return; }              // 사용자가 명시적으로 해제해 둔 상태
+        if (v && activeHeaders.includes(v)) { setFrozenUpTo(v); return; } // 기억된 열
+        setFrozenUpTo(projectNameCol || null);                            // 기본: Project 열까지
+    }, [currentTeam, projectNameCol]); // eslint-disable-line react-hooks/exhaustive-deps
+    const toggleFreeze = (h) => setFrozenUpTo(p => {
+        const nv = p === h ? null : h;
+        try { localStorage.setItem(frozenKey(currentTeam), nv === null ? 'NONE' : nv); } catch (e) {}
+        return nv;
+    });
+    // 우클릭 메뉴로 열 고정 지정/해제 (2026-07-21 팀장님)
+    const freezeTo = (h) => {
+        try { localStorage.setItem(frozenKey(currentTeam), h === null ? 'NONE' : h); } catch (e) {}
+        setFrozenUpTo(h);
+    };
+    const [headerMenu, setHeaderMenu] = useState(null);   // { h, x, y } — 헤더 우클릭 메뉴
+    // ★ 고정 열 오프셋 '실측' (2026-07-21): 표가 내용맞춤(한 줄 펼침)이라 저장 너비(getW) 누적과 실제 폭이 달라
+    //   넓은 열(Project 등) 뒤로 고정하면 겹치는 버그 → 첫 데이터 행의 실제 위치(offsetLeft)를 재서 쓴다.
+    const tbodyRef = useRef(null);
+    const [frzMeasured, setFrzMeasured] = useState({});
+    useLayoutEffect(() => {
+        if (!frozenUpTo) { setFrzMeasured(p => (Object.keys(p).length ? {} : p)); return; }
+        const tr = tbodyRef.current ? tbodyRef.current.querySelector('tr') : null;
+        if (!tr) return;
+        const tds = tr.children;
+        const base = tds.length ? tds[0].offsetLeft : 0;   // ★ 첫 칸 기준 정규화 — 표 앞 여백·기준 오차가 있어도 첫 칸=0 보장(멈춘 상태 잘림 원천 차단)
+        const map = {};
+        for (let i = 0; i < mainVisibleHeaders.length && i < tds.length; i++) {
+            map[mainVisibleHeaders[i]] = tds[i].offsetLeft - base;
+            if (mainVisibleHeaders[i] === frozenUpTo) break;
+        }
+        setFrzMeasured(p => {
+            const keys = Object.keys(map);
+            // ±2px 허용 오차 — sticky 적용 시 테두리 반올림으로 1~2px 오가는 값에 반응하지 않음 (무한루프 방지 2중 장치)
+            const same = keys.length === Object.keys(p).length && keys.every(k => Math.abs((p[k] ?? -9999) - map[k]) <= 2);
+            return same ? p : map;
+        });
+    // ★ 의존성 명시 = 레이아웃이 바뀌는 경우에만 실측 (열구성·너비·배율·컴팩트·데이터). 이전의 '매 렌더 실측'은 무한루프 원인이라 금지.
+    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // (2026-06-27) 엑셀 전체 항목 표시 — 기본 자동 숨김 제거.
     //   담당자가 필요없는 항목은 상세팝업의 표시/숨김 토글로 끄면 메인표에서 빠짐(hiddenCols).
@@ -262,6 +308,32 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 편집: % 떼고 숫자만. 데이터는 숫자로 저장 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k=>s.includes(k)); };
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
+    // 프로젝트별 '미적용' 항목 (2026-07-21): _naItems(헤더명 배열)에 든 공정/시운전 칸 = 이 프로젝트엔 해당 없음 → 메인표 회색 ×
+    // ★ 기본 미적용 (2026-07-21 팀장님): 엑셀에 열이 없는 진행 항목(도면입수·I/O Map·화면작성·기준정보·자체시운전 등)은
+    //   전 프로젝트 기본 off — 상세팝업에서 켠 항목(_naOn)만 예외. 기본값 방식이라 기존 행·신규 행·엑셀 재업로드 전부 자동 적용.
+    const PROG_NA_ALL = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
+    const _naNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+    const defaultNaItems = PROG_NA_ALL.filter(name => !(activeHeaders || []).some(h => !String(h).startsWith('_') && _naNorm(h).includes(_naNorm(name))));
+    const naItemsOf = (row) => {
+        const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
+        const on = Array.isArray(row && row._naOn) ? row._naOn : [];
+        return [...new Set([...ex, ...defaultNaItems.filter(n => !on.includes(n))])];
+    };
+    const isNaItemCell = (row, h) => isPctCol(h) && naItemsOf(row).includes(h);
+    // _naItems(헤더명) → progressItems({설정키:false}) — 진행실적 팝업·실적 그래프 계산에서 미적용 항목 제외 (2026-07-21)
+    const naToProgressItems = (row) => {
+        const na = naItemsOf(row);
+        if (!na.length) return undefined;
+        const pi = {};
+        na.forEach(h => {
+            const k = progItemKeyOf(h);
+            const c = String(h).replace(/\s/g, '');
+            if (k) pi[k] = false;
+            else if (c.includes('자체시운전')) pi.internalTest = false;
+            else if (c.includes('통합시운전')) pi.integratedTest = false;
+        });
+        return Object.keys(pi).length ? pi : undefined;
+    };
     // 포인트 칸 — 메인표에서 '실적/만점' 형식. 만점=상세팝업 row['포인트'](고정), 실적=row['포인트실적'](메인표 입력/진행실적) 2026-06-29
     const isPointCol = (h) => { const s = String(h).replace(/\s/g,''); return s === '포인트' || /^point$/i.test(s); };
     // 번호 칸 판별 — 정확히 '번호'만 (실행번호·전화번호 등 제외). 값 패딩은 padProjectNo (2026-07-20)
@@ -636,10 +708,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             return;
         }
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
-        // 포인트 칸 편집은 '실적'(포인트실적)에만 저장 — 만점(포인트)은 상세팝업 고정값이라 안 건드림 (2026-06-29)
-        const patch = isPointCol(editingCell.key)
-            ? { '포인트실적': editingCell.value }
-            : { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20)
+        // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
+        const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20)
         const contentChanged = isProgressContentCol(editingCell.key)
             && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
         if (contentChanged) {
@@ -855,6 +925,75 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { console.warn('[reverseSync] progressRecords 반영 실패:', e); }
     };
 
+    // ── 일회성: 메인표 공정률(%) → 진행실적 주간 장부 '심기' (2026-07-21) ────────────
+    //   엑셀 업로드는 표 칸만 채우고 주간 장부(progressRecords)는 안 채워, 진행실적 팝업·그래프가 비어 보인다.
+    //   값이 있는 공정률 7개(도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI)를 '오늘이 속한 현재 주차'에 한 번 심는다.
+    //   누적%라 현재 주차 1칸이면 의미가 맞고, 이후 주별 갱신이 그대로 이어진다.
+    //   ★ 값이 '90'이든 '90%'(엑셀 퍼센트 서식)든 인식 — 앱 편집 로직과 동일하게 '%' 떼고 숫자만 본다.
+    //   ★ 검증된 역방향 동기화(syncProgressCellToLedger) 그대로 재사용 — 메인표 값은 안 건드린다(주간 장부만 씀).
+    //   시운전·포인트는 대상 아님(progItemKeyOf가 자동 제외). 관리자·클라우드 상태 전용.
+    const handleSeedProgressFromMain = async () => {
+        if (!isAdmin) { setAlertMsg('진행실적 심기는 관리자만 할 수 있습니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 실행할 수 있습니다.\n(엑셀 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
+        const progHeaders = (activeHeaders || []).filter(h => progItemKeyOf(h));   // 공정률 7개 헤더만
+        const accCol = (activeHeaders || []).find(h => String(h).replace(/\s/g, '') === '누적');      // 누적 = 진행 포인트 (2026-07-21 팀장님: 포인트=총점·누적=진행)
+        const intCol = (activeHeaders || []).find(h => String(h).replace(/\s/g, '') === '통합시운전');
+        const targets = [];
+        let cellCnt = 0, intCnt = 0;
+        for (const r of fbRows) {
+            const cells = [];
+            for (const h of progHeaders) {
+                const raw = String(r[h] ?? '').replace(/%/g, '').trim();   // '%'·공백 제거 후 숫자만 (엑셀이 90%로 저장한 경우 대응)
+                if (/^-?\d+(\.\d+)?$/.test(raw)) cells.push({ h, val: raw });
+            }
+            // 누적(진행 포인트) → 통합시운전 심기 (2026-07-21 팀장님: 통합시운전% = 누적÷포인트 자동)
+            const _accRaw = accCol ? String(r[accCol] ?? '').replace(/%/g, '').trim() : '';
+            const _accPts = /^\d+(\.\d+)?$/.test(_accRaw) ? Number(_accRaw) : 0;
+            const _tot = effTotalPt(r);
+            const seedInt = (!isSubListRow(r) && _accPts > 0 && _tot > 0) ? { pts: _accPts, tot: _tot } : null;
+            if (cells.length || seedInt) { targets.push({ r, cells, seedInt }); cellCnt += cells.length; if (seedInt) intCnt++; }
+        }
+        if (!targets.length) { setAlertMsg('심을 값이 없습니다.\n(공정률 % 또는 누적 포인트가 있는 행이 없음)'); return; }
+        const now = new Date();
+        const cy = now.getFullYear(), cm = now.getMonth() + 1;
+        const cw = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
+        if (!window.confirm(`[진행실적 심기]\n\n대상 ${targets.length}개 프로젝트 → '${cy}년 ${cm}월 ${cw}주차'에 심습니다.\n\n· 공정률 값 ${cellCnt}개 (PLC·ETOS·HMI 등 — 주간 장부만)\n· 시운전 누적 ${intCnt}건 (통합시운전 장부 + %칸 자동 = 누적÷포인트)\n\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            for (const { r, cells, seedInt } of targets) {
+                for (const { h, val } of cells) { await syncProgressCellToLedger(r, h, val); }
+                if (seedInt) {
+                    // 누적(진행 포인트) → 통합시운전 주간장부(이번 주차 — 재실행해도 같은 칸 덮어쓰기라 안전) + %칸 자동
+                    const _dk = r._pid || r.pid || r['실행번호'] || r.execNo || String(r._id || r.id || '');
+                    if (_dk) { try {
+                        const _ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, _dk);
+                        const _snap = await getDoc(_ref);
+                        const _data = _snap.exists() ? _snap.data() : { docKey: _dk, execNo: (r['실행번호'] || r.execNo || '') };
+                        const _weekly = { ...(_data.weekly || {}) };
+                        const _iw = { ...(_weekly.intCommissioning || {}) };
+                        _iw[`${cy}-${cm}-${cw}`] = seedInt.pts;
+                        _weekly.intCommissioning = _iw;
+                        await setDoc(_ref, { ..._data, weekly: _weekly, updatedAt: new Date().toISOString() });
+                        const _pct = Math.min(100, Math.round(seedInt.pts / seedInt.tot * 100));
+                        if (intCol && String(r[intCol] ?? '').replace(/%/g, '').trim() !== String(_pct)) {
+                            await setDoc(rowDocRef(currentTeam, r._id), { [intCol]: String(_pct) }, { merge: true });
+                        }
+                    } catch (e) { console.warn('[심기-시운전] 실패:', e); } }
+                }
+                // ★ 그래프 즉시 반영: App.js progressRecordsMap 메모리 갱신 (심기는 Firestore 직접 write라 맵이 안 바뀜)
+                const dk = r._pid || r.pid || r['실행번호'] || r.execNo || String(r._id || r.id || '');
+                if (dk && onProgressSaved) {
+                    try { const s = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dk)); if (s.exists()) onProgressSaved({ docKey: dk, weeklyData: s.data().weekly || {} }); } catch (e) {}
+                }
+            }
+            addLog(`[진행실적 심기] ${targets.length}행 · 공정률 ${cellCnt}값 · 시운전누적 ${intCnt}건 → ${cy}-${cm}-${cw} 주차`);
+            setAlertMsg(`진행실적 심기 완료!\n\n${targets.length}개 프로젝트 — 공정률 ${cellCnt}개 값 · 시운전 누적 ${intCnt}건을 ${cm}월 ${cw}주차에 심었습니다.\n통합시운전 %는 누적÷포인트로 자동 반영되었습니다.\n진행실적 팝업·실적 그래프에서 확인해보세요.`);
+        } catch (err) {
+            addLog(`[진행실적 심기 오류] ${err.message}`);
+            setAlertMsg(`진행실적 심기 오류: ${err.message}`);
+        } finally { setIsLoading(false); }
+    };
+
     // 진행실적 백지 초기화 — progressRecords 주차값 + 메인표(List 행) 반영 필드 모두 비움 (2026-07-06)
     const PROGRESS_RESET_FIELDS = ['자체시운전','통합시운전','포인트실적','포인트소스','도면입수','I/O Map','화면작성','기준정보','PLC','ETOS','HMI'];
     const handleResetProgress = async (row) => {
@@ -979,6 +1118,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (cf) { setConflictDlg({ ...cf, mine: { ...popupChanges }, onOverwrite: () => { setConflictDlg(null); saveDetailRow(true); } }); return; }
         }
         let working = { ...latest, ...popupChanges };
+        if (Array.isArray(detailRow._naItems)) working._naItems = detailRow._naItems;   // 프로젝트별 적용/미적용 저장 (2026-07-21)
+        if (Array.isArray(detailRow._naOn)) working._naOn = detailRow._naOn;             // 기본 미적용 항목의 예외(켬) 저장 (2026-07-21)
         if (working['번호'] !== undefined) working['번호'] = padProjectNo(working['번호']);   // 번호 3자리 통일 (2026-07-20)
         const contentChanged = activeHeaders.some(h =>
             isProgressContentCol(h) && String(detailRowOriginal?.[h] ?? '') !== String(detailRow[h] ?? ''));
@@ -1282,6 +1423,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const graphObj = {
             ...(linked || {}),
             pid,
+            progressItems: naToProgressItems(row) || (linked ? linked.progressItems : undefined),   // 프로젝트별 미적용 → 그래프 공정률서 제외 (2026-07-21)
             execNo: row[EXEC_NO_COL] || linked?.execNo,
             project: nm,
             totalCommissioningPoints: _spTot || linked?.totalCommissioningPoints || linked?.point || 0,
@@ -2223,6 +2365,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 return (
                     <ProgressModal
                         row={progressRow}
+                        progressItems={naToProgressItems(progressRow)}   /* 미적용 항목 → 팝업 진척률서 제외 (2026-07-21) */
                         team={currentTeam}
                         subRows={subs}
                         baseDate={baseDate}
@@ -2252,6 +2395,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     suggestions={fieldSuggestions}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                 />
+            )}
+
+            {/* ── 헤더 우클릭: 열 고정 메뉴 (2026-07-21 팀장님) ── */}
+            {headerMenu && (
+                <>
+                    <div className="fixed inset-0 z-[490]" onClick={() => setHeaderMenu(null)} onContextMenu={e => { e.preventDefault(); setHeaderMenu(null); }}/>
+                    <div className="fixed z-[500] shadow-2xl" style={{ left: Math.min(headerMenu.x, (window.innerWidth || 1200) - 250), top: Math.min(headerMenu.y, (window.innerHeight || 800) - 130), backgroundColor:'#fff', border:'1.5px solid #c4ccd8', borderRadius:8, overflow:'hidden', minWidth:210 }}>
+                        <div style={{ padding:'7px 12px', fontSize:'11px', fontWeight:800, color:'#666', borderBottom:'1px solid #e5eaf3', backgroundColor:'#f8fafc' }}>{headerMenu.h}</div>
+                        <button onClick={() => { freezeTo(headerMenu.h); setHeaderMenu(null); }}
+                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#1358a0]">
+                            📌 이 열까지 고정 <span style={{ fontWeight:400, color:'#8a97a8' }}>— 여기까지 왼쪽이 따라옴</span>
+                        </button>
+                        {frozenUpTo && (
+                            <button onClick={() => { freezeTo(null); setHeaderMenu(null); }}
+                                className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600">
+                                고정 해제 <span style={{ fontWeight:400, color:'#c98a8a' }}>(현재: {frozenUpTo}까지)</span>
+                            </button>
+                        )}
+                    </div>
+                </>
             )}
 
             {/* 삭제 확인 */}
@@ -2655,6 +2818,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Hash size={14} className="text-[#1e7ac8]"/> 번호 3자리 정리 (1→001)
                                     </button>
+                                    <button onClick={() => { setSettingsOpen(false); handleSeedProgressFromMain(); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <TrendingUp size={14} className="text-emerald-600"/> 진행실적 심기 (표 %→주간)
+                                    </button>
                                     <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); setStatusMgrColors(Object.fromEntries(STATUS_OPTIONS.map(s => [s, STATUS_COLORS[s] || STATUS_COLOR_PRESETS[8]]))); setStatusColorOpenIdx(null); setStatusDelIdx(null); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
@@ -2818,14 +2985,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 const mgrSz   = compactMode===0 ? 'text-[11px]' : compactMode===1 ? 'text-[10px]' : 'text-[9px]';
                                 const iconSz  = compactMode===2 ? 12 : 14;
 
-                                // ── 고정 열 오프셋 계산 (No.=52px 이후 누적) ──
-                                const frozenOffsets = {};
+                                // ── 고정 열 오프셋 — 실측값 우선 (2026-07-21: 내용맞춤 표라 getW 누적은 겹침 버그), 실측 전엔 getW 누적 폴백 ──
+                                let frozenOffsets = {};
                                 if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo)) {
-                                    let left = 0; // No. 칸 제거로 시작 오프셋 0 (2026-06-26)
-                                    for (const h of mainVisibleHeaders) {
-                                        frozenOffsets[h] = left;
-                                        left += getW(h);
-                                        if (h === frozenUpTo) break;
+                                    if (Object.keys(frzMeasured).length) {
+                                        frozenOffsets = frzMeasured;
+                                    } else {
+                                        let left = 0;
+                                        for (const h of mainVisibleHeaders) {
+                                            frozenOffsets[h] = left;
+                                            left += getW(h);
+                                            if (h === frozenUpTo) break;
+                                        }
                                     }
                                 }
                                 const isFrz  = h => frozenOffsets[h] !== undefined;
@@ -2847,9 +3018,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             );
                                             return (
                                                 <th key={`sg-${gi}`} rowSpan={2}
-                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
+                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                                     style={{...(isStatusCol(h)?{}:{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
-                                                    onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
+                                                    onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
@@ -2874,9 +3045,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         );
                                         return (
                                         <th key={h}
-                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
+                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                             style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
-                                            onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
+                                            onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                             {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
                                             <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                 onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
@@ -2891,9 +3062,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             if (!g.label) return null;
                                             return g.cols.map((h,ci) => (
                                                 <th key={`sub-${gi}-${ci}`}
-                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
+                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
-                                                    onDoubleClick={()=>setFrozenUpTo(p=>p===h?null:h)}>
+                                                    onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h)
                                                         ? <ComboFilter h={h} small/>
                                                         : <SortHeader h={h} small/>}
@@ -2905,7 +3076,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     </tr>
                                 )}
                             </thead>
-                            <tbody className="divide-y divide-slate-800/50">
+                            <tbody ref={tbodyRef} className="divide-y divide-slate-800/50">
                                 {sortedRows.length === 0 ? (
                                     <tr>
                                         <td colSpan={mainVisibleHeaders.length+2} className="py-20 text-center">
@@ -2961,7 +3132,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             return (
                                                 <td key={h}
                                                     className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20 transition-colors
-                                                        ${isPinH(h)?'border-r-2 border-blue-400/50':'border-r border-slate-400'}
+                                                        ${isPinH(h)?'border-r-2 border-blue-400/50 frz-edge':'border-r border-slate-400'}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
                                                         ${isDateCol(h)?'text-slate-400 text-[11px]':'text-slate-300 text-[11px]'}
                                                         ${isHl?'bg-amber-950/20 text-amber-200':''}
@@ -2970,6 +3141,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     title={val||''}
                                                     onClick={e=>{
                                                         e.stopPropagation();
+                                                        if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
                                                         const closeAll = () => { setStatusDropdown(null); setAssigneeDropdown(null); setClientDropdown(null); setVendorDropdown(null); };
                                                         if (isStatusCol(h)) {
                                                             closeAll();
@@ -2990,15 +3162,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         } else if (isDateCol(h)) {
                                                             setEditingCell({id:row._id,key:h,value:displayDate(val)});
                                                         } else if (isPointCol(h)) {
-                                                            // 포인트 칸 클릭 → 만점(row['포인트']) 아닌 '실적'(포인트실적) 편집 (2026-06-29)
-                                                            // 2단계(2026-07-20): 하위(공종) 있는 메인 줄은 직접 키인 잠금 — 실적=진행실적 팝업, 총점=하위 행
-                                                            if (getSubPt(row._id)) { setAlertMsg('하위(공종)가 있는 프로젝트는 포인트 직접 입력이 잠겨 있습니다.\n\n· 실적 → 우클릭 → [진행실적 등록] (하위별 주차 키인 후 적용)\n· 총점 → 하위 행 상세팝업의 \'포인트\' (자동 합산)'); return; }
-                                                            setEditingCell({id:row._id,key:h,value: String(row['포인트실적'] ?? '')});
+                                                            // 포인트 칸 = 엑셀 값 자체 편집 (2026-07-21). 하위(공종) 있으면 Σ 자동합이라 잠금 유지 (2026-07-20 2단계)
+                                                            if (getSubPt(row._id)) { setAlertMsg('하위(공종)가 있는 프로젝트는 포인트가 하위 합계로 자동 계산됩니다.\n하위 행에서 수정하세요.'); return; }
+                                                            setEditingCell({id:row._id,key:h,value: String(val ?? '')});
                                                         } else {
                                                             setEditingCell({id:row._id,key:h,value: isPctCol(h) ? String(val||'').replace(/%/g,'') : (val||'')});
                                                         }
                                                     }}>
-                                                    {isStatusCol(h) && val ? (() => {
+                                                    {isNaItemCell(row, h) ? (<span title="이 프로젝트엔 해당 없는 항목 (상세설정에서 적용/미적용)" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>) : isStatusCol(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;
                                                         const c = STATUS_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
@@ -3012,22 +3183,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                             </div>
                                                         );
                                                     })() : isDateCol(h) && val ? displayDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
-                                                        // 2단계(2026-07-20): 하위 있는 메인 줄 총점 = 하위 합계 자동(Σ 표시). 합 0이면 기존 부모 총점 유지.
+                                                        // 포인트 칸 = 엑셀 값만 표시 ('실적/총점' 복합표시 폐지, 2026-07-21 팀장님). 하위 있으면 Σ 자동합 (2026-07-20 2단계).
                                                         const _sp = getSubPt(row._id);
                                                         const _auto = !!(_sp && _sp.sum > 0);
-                                                        const _tot = _auto ? _sp.sum : (Number(val) || 0);
-                                                        if (!_tot && !val) return <span className="text-slate-700">—</span>;
-                                                        const _act = Number(row['포인트실적']) || 0;
-                                                        const _tip = _auto ? `총점 ${_tot} = 하위 ${_sp.count}개 '포인트' 합계 (자동)` : undefined;
-                                                        if (_act > _tot) return <span title={`총점 ${_tot} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:4,padding:'0 3px',whiteSpace:'nowrap'}}>⚠ {String(row['포인트실적'] || 0)}<span style={{color:'#b45454',fontWeight:400}}>{' / '}{_auto ? 'Σ' : ''}{String(_tot)}</span></span>;
-                                                        return <span title={_tip} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{String(row['포인트실적'] || 0)}<span style={{color:'#94a3b8',fontWeight:400}}>{' / '}{_auto ? 'Σ' : ''}{String(_tot)}</span></span>;
+                                                        if (!_auto && String(val ?? '').trim() === '') return <span className="text-slate-700">—</span>;
+                                                        const _tot = _auto ? _sp.sum : String(val).trim();
+                                                        const _tip = _auto ? `포인트 ${_tot} = 하위 ${_sp.count}개 합계 (자동)` : undefined;
+                                                        return <span title={_tip} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{_auto ? 'Σ ' : ''}{String(_tot)}</span>;
                                                     })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}
                                         <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 transition-colors shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
                                             {(() => {
-                                                const wKey = row['실행번호'] || row.execNo || '';
+                                                const wKey = row._pid || row['실행번호'] || row.execNo || '';   // 주간보고 연결 키 = pid (실행번호 폐지, 2026-07-21)
                                                 const hasLink = wKey && weeklyLinks?.[wKey];
                                                 const isActivePanelRow = weeklyPanel?.projectId === wKey;
                                                 const projName = row['공사명'] || row['프로젝트명'] || row['Project'] || '';
@@ -3056,21 +3225,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                             </>
                                                         ) : (
                                                             <button
-                                                                onClick={e => {
-                                                                    e.stopPropagation();
-                                                                    if (wKey) {
-                                                                        // 다른 클라이언트에서도 버튼이 표시되도록 실행번호를 Firebase에 저장
-                                                                        if (dataSource !== 'firebase') {
-                                                                            const { _id, ...rest } = row;
-                                                                            setDoc(rowDocRef(currentTeam, _id), { ...rest, '실행번호': wKey }).catch(() => {});
-                                                                        }
-                                                                        onOpenWeeklyLinkModal?.(wKey, projName);
-                                                                    } else {
-                                                                        setAlertMsg('먼저 실행번호를 등록해주세요.');
-                                                                    }
-                                                                }}
+                                                                onClick={e => { e.stopPropagation(); onOpenWeeklyLinkModal?.(wKey, projName); }}   /* pid 키 — 실행번호 검사 폐지 (2026-07-21) */
                                                                 className="p-1.5 hover:bg-indigo-500/20 rounded text-slate-500 hover:text-indigo-400 transition-colors"
-                                                                title={wKey ? '주간보고 연결' : '실행번호 미등록'}>
+                                                                title="주간보고 연결 (엑셀 첨부)">
                                                                 <Link size={13}/>
                                                             </button>
                                                         )}

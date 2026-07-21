@@ -74,6 +74,30 @@ export async function idbDelete(teamId) {
 // 번호 3자리 패딩 (2026-07-20 팀장님): '1'→'001', '26'→'026' — 문자열 정렬에서도 1,2,…,10,…,100 순서 보장.
 //   숫자 1~3자리만 변환, 그 외(빈칸·문자·4자리 이상)는 그대로. 업로드·병합 매칭·웹 편집이 같은 규칙을 쓴다.
 export const padProjectNo = (v) => { const s = String(v ?? '').trim(); return /^\d{1,3}$/.test(s) ? s.padStart(3, '0') : s; };
+
+// ── 프로젝트별 진행항목 적용/미적용 → ProgressModal progressItems 변환 (2026-07-21 팀장님) ──
+//   기본 미적용: 헤더(없으면 행의 키)에 열이 없는 항목은 기본 off — _naOn(켬 예외)·_naItems(끔 목록) 반영.
+//   ProjectListScreen과 동일 규칙. 모바일(MobileInputScreen)에서 재사용.
+export function naProgressItemsOf(row, headers) {
+    const ALL = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
+    const norm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+    const hs = (headers && headers.length ? headers : Object.keys(row || {})).filter(h => !String(h).startsWith('_'));
+    const defs = ALL.filter(name => !hs.some(h => norm(h).includes(norm(name))));
+    const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
+    const on = Array.isArray(row && row._naOn) ? row._naOn : [];
+    const na = [...new Set([...ex, ...defs.filter(n => !on.includes(n))])];
+    if (!na.length) return undefined;
+    const KEY = { '도면입수': 'drawing', 'I/OMAP': 'iomap', '화면작성': 'screen', '기준정보': 'baseinfo', 'PLC': 'plc', 'ETOS': 'etos', 'HMI': 'hmi' };
+    const pi = {};
+    na.forEach(h => {
+        const k = KEY[norm(h)];
+        const c = String(h).replace(/\s/g, '');
+        if (k) pi[k] = false;
+        else if (c.includes('자체시운전')) pi.internalTest = false;
+        else if (c.includes('통합시운전')) pi.integratedTest = false;
+    });
+    return Object.keys(pi).length ? pi : undefined;
+}
 const a4cNormName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 const a4cNumCol  = (headers) => (headers||[]).find(h => h === '번호') || (headers||[]).find(h => h.includes('번호') && !h.includes('전화') && !h.includes('사업')) || null;
 const a4cNameCol = (headers) => {

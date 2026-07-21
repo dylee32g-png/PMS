@@ -4529,7 +4529,9 @@ const TechTeamPMS = () => {
       if (!graphProject) return null;
       const totalPoints = Math.trunc(safeNumber(graphProject.totalCommissioningPoints ?? graphProject.point));
       const md = graphProject.monthlyData || [];
-      const mergedSelfPts = getMergedPointsByMonth(graphProject).self; // 통일 계산기 (A→C→B)
+      // 그래프 포인트 = 자체+통합 합산 (2026-07-21 팀장님: 포인트=총점·누적=진행분 — 통합시운전 팀도 막대·달성률에 잡히게)
+      const _mpAll = getMergedPointsByMonth(graphProject); // 통일 계산기 (A→C→B)
+      const mergedSelfPts = (() => { const out = { ...(_mpAll.self || {}) }; Object.entries(_mpAll.intg || {}).forEach(([k, v]) => { out[k] = (out[k] || 0) + (Number(v) || 0); }); return out; })();
       const recMonthlyProgress = getRecordMonthlyProgress(graphProject, totalPoints); // List 진행실적 기반 공정률 (2026-07-06)
 
       // ── 그래프 기간(첫 달 ~ 끝 달) 결정 — 2026-07-13 팀장님 규칙 ─────────────────

@@ -172,8 +172,18 @@ export default function DetailModal({
                             onBlur={e => e.target.style.backgroundColor='transparent'}/>
                     )}
                 </div>
-                {/* 메인표 표시 토글 — 행 오른쪽 끝(2026-07-10). 추가 모드에서는 부모가 onToggleCol을 안 넘겨 표시 안 됨 */}
-                {onToggleCol && (
+                {/* 오른쪽 토글: 공정/시운전 9칸 = 이 프로젝트 적용/미적용(_naItems·메인표 ×) · 그 외 = 메인표 표시/숨김(팀 공통) (2026-07-21) */}
+                {isPctCol(h) ? (
+                    <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
+                        <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: naItems.includes(h) ? '#b0b8c4' : '#1e7ac8' }}>{naItems.includes(h) ? '미적용' : '적용'}</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); toggleNa(h); }}
+                            title={naItems.includes(h) ? '이 프로젝트엔 미적용 — 누르면 적용' : '이 프로젝트에 적용 중 — 누르면 미적용(메인표 ×)'}
+                            style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
+                                backgroundColor: naItems.includes(h) ? '#cbd5e1' : '#1e7ac8' }}>
+                            <span style={{ position:'absolute', top:'2px', left: naItems.includes(h) ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                        </button>
+                    </div>
+                ) : onToggleCol ? (
                     <div style={{ flexShrink:0, display:'flex', alignItems:'center', padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
                         <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
                             title={hidden ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
@@ -182,7 +192,7 @@ export default function DetailModal({
                             <span style={{ position:'absolute', top:'2px', left: hidden ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
                         </button>
                     </div>
-                )}
+                ) : null}
             </div>
         );
     };
@@ -210,6 +220,51 @@ export default function DetailModal({
         </div>
     );
 
+    // 프로젝트별 적용/미적용 (2026-07-21): 공정/시운전 칸 오른쪽 토글 = 이 프로젝트에 그 항목 적용 여부.
+    //   off(미적용) = _naItems(헤더명 배열)에 추가 → 메인표 회색 ×, (2단계) 진척률·그래프서 제외.
+    // (naItems·toggleNa는 missingProgItems 계산 뒤에 정의 — 기본 미적용 규칙 적용, 아래 참조)
+    // 엑셀에 열이 없는 진행 항목 — '공사 진행' 섹션 끝에 값칸 없는 적용/미적용 토글 줄로 표시 (2026-07-21 팀장님)
+    //   저장 이름 = 진행실적 설정키와 매칭되는 표준 표기('기준정보' 등) → naToProgressItems가 그대로 인식(계산 제외 연동).
+    const PROG_ALL_ITEMS = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
+    const _npNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+    const missingProgItems = PROG_ALL_ITEMS.filter(name =>
+        !(activeHeaders || []).some(h => !isInternal(h) && _npNorm(h).includes(_npNorm(name))));
+    const isProgSec = (sec) => !!(sec && sec.label) && _npNorm(sec.label).includes('공사진행');
+    // ★ 기본 미적용 (2026-07-21 팀장님): 엑셀에 열 없는 항목(missingProgItems)은 전 프로젝트 기본 off.
+    //   켜면 _naOn(예외 목록)에 저장. 엑셀 열 있는 항목은 기존대로 _naItems(끈 목록)에 저장.
+    const _exNa = Array.isArray(detailRow._naItems) ? detailRow._naItems : [];
+    const _exOn = Array.isArray(detailRow._naOn) ? detailRow._naOn : [];
+    const naItems = [...new Set([..._exNa, ...missingProgItems.filter(n => !_exOn.includes(n))])];
+    const toggleNa = (h) => setDetailRow(p => {
+        const ex = Array.isArray(p._naItems) ? p._naItems : [];
+        const on = Array.isArray(p._naOn) ? p._naOn : [];
+        const defOff = missingProgItems.includes(h);
+        const isOff = ex.includes(h) || (defOff && !on.includes(h));
+        if (isOff) return { ...p, _naItems: ex.filter(x => x !== h), _naOn: defOff ? [...new Set([...on, h])] : on };
+        return { ...p, _naItems: defOff ? ex : [...new Set([...ex, h])], _naOn: on.filter(x => x !== h) };
+    });
+    const renderNaOnlyField = (name) => {
+        const off = naItems.includes(name);
+        return (
+            <div key={'na-' + name} style={fieldBox}>
+                <div style={labelBox(off)}>
+                    <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, minWidth:0 }} title={name}>{name}</span>
+                </div>
+                <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', padding:'4px 8px' }}>
+                    <span style={{ fontSize:'11px', color:'#9aa6bb' }}>주간 키인 전용 · 메인표 열 없음</span>
+                </div>
+                <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
+                    <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: off ? '#b0b8c4' : '#1e7ac8' }}>{off ? '미적용' : '적용'}</span>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); toggleNa(name); }}
+                        title={off ? '이 프로젝트엔 미적용 — 누르면 적용' : '이 프로젝트에 적용 중 — 누르면 미적용(진척률서 제외)'}
+                        style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
+                            backgroundColor: off ? '#cbd5e1' : '#1e7ac8' }}>
+                        <span style={{ position:'absolute', top:'2px', left: off ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                    </button>
+                </div>
+            </div>
+        );
+    };
     return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4"
                      onClick={() => setDetailRow(null)}>
@@ -283,6 +338,7 @@ export default function DetailModal({
                                     {/* 모든 섹션 2열 통일 (2026-07-10) — 칸 폭 일관성. 긴 항목(내용·Project·참조)만 renderField에서 한 줄 전체 차지 */}
                                     <div style={grid2}>
                                         {sec.cols.map(h => renderField(h))}
+                                        {isProgSec(sec) && missingProgItems.map(name => renderNaOnlyField(name))}
                                     </div>
                                 </div>
                             ))}

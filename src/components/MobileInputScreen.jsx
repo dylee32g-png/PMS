@@ -15,6 +15,7 @@ import { metaDocRef, rowsColRef, rowDocRef } from './projectListData';
 import { extractName, normalizeStatus } from './projectColumns';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import ProgressModal from './ProgressModal';
+import { naProgressItemsOf } from './projectListData';
 
 const TEAMS = ['기술1팀', '기술2팀', '기술3팀', 'Software팀'];
 
@@ -259,6 +260,7 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                     row={progress.row}
                     team={progress.team}
                     subRows={progress.subs}
+                    progressItems={naProgressItemsOf(progress.row)}   /* 기본 미적용·프로젝트별 적용 반영 (2026-07-21) */
                     mobileMode={true}
                     mobileNav={mobileNav}
                     baseDate={baseDate}

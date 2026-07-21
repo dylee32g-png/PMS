@@ -415,3 +415,7 @@ tbody td:first-child {
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ── 고정 열 경계 그림자 (2026-07-21): 스크롤 시 열이 고정판 밑으로 지나갈 때 층(레이어) 느낌 — 구글시트 방식 ── */
+.frz-edge { box-shadow: 7px 0 10px -4px rgba(15, 40, 80, 0.32) !important; }
+
