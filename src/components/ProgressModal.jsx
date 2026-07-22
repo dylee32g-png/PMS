@@ -53,7 +53,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null }) => {
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [] }) => {
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -432,6 +432,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     };
 
     const updateWeekly = (itemKey, wKey, val) => {
+        if (lockedItems.includes(itemKey)) return;   // NAS 진척자료 자동 항목 — 키인 잠금 (2026-07-22)
         // 0 입력 = 빈칸으로 처리 (2026-07-10 팀장님 결정): 공정률은 빈칸=직전값 이월(회색 힌트) 유지, 시운전은 0=빈칸 동일이라 무해.
         const n = Number(val);
         const parsed = (val === '' || n === 0) ? undefined : Math.max(0, n);
@@ -742,7 +743,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 <div key={itemKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: BORDER_D }}>
                     <div style={{ width: 4, height: 22, background: color, borderRadius: 2, flexShrink: 0 }}/>
                     <div style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-                    <input type="number" min="0" inputMode="numeric" value={val ?? ''} placeholder={showPrev ? String(prevVal) : ''}
+                    <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey)} value={val ?? ''} placeholder={showPrev ? String(prevVal) : ''}
                         onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onWheel={e => e.target.blur()}
                         onFocus={e => { if (e.target.select) e.target.select(); }}
                         style={{ width: 108, height: 48, fontSize: 21, fontWeight: 800, textAlign: 'center', borderRadius: 10,
@@ -839,7 +840,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:700, color:'#374151', background:bgLabel, position:'sticky', left:0, zIndex:1, height:38 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                         <div style={{ width:4, height:16, background:color, borderRadius:2, flexShrink:0 }}/>
-                        <span style={{ fontSize:12 }}>{label}</span>
+                        <span style={{ fontSize:12 }}>{label}</span>{lockedItems.includes(itemKey) && <span title="NAS 진척자료 자동 반영 — 키인 잠금" style={{ fontSize:10, color:'#0369a1', fontWeight:800, whiteSpace:'nowrap' }}>🔒 NAS</span>}
                     </div>
                 </td>
                 {DISP_WEEKS.map(({ key: wKey, year, month, week }) => {
@@ -852,7 +853,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
                     return (
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
-                            <input type="number" min="0" inputMode="numeric" value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
+                            <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey)} value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
                                     border:'none', outline:'none', color: hasVal?'var(--brand)':'#94a3b8',
                                     fontSize: cellFontFit(hasVal ? val : (showPrev ? prevVal : '')), fontWeight: hasVal?700:400,

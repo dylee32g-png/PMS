@@ -7584,7 +7584,7 @@ const TechTeamPMS = () => {
                               <div style={{marginTop:6,textAlign:'center',lineHeight:1.4}}>
                                   <div style={{fontSize:9.5,color:'#7c93aa',fontWeight:700}}>누적 실적 ÷ 총점</div>
                                   <div style={{fontSize:10.5,fontWeight:800}}>
-                                      <span style={{color:'#059669'}}>{totalAcc.toLocaleString()}</span>
+                                      <span style={{color:'#1e7ac8'}}>{totalAcc.toLocaleString()}</span>{/* 포인트 계열=파랑 통일 (2026-07-22) */}
                                       <span style={{color:'#9fb0c2'}}> ÷ </span>
                                       <span style={{color:'#dc2626'}}>{totalPoints.toLocaleString()}</span>
                                       <span style={{color:'#9fb0c2'}}> pt</span>
@@ -7628,20 +7628,20 @@ const TechTeamPMS = () => {
 
                           {/* 지표 카드 3종 — 각각 '무슨 뜻인지' 설명 부제 */}
                           <div style={{display:'flex',gap:8,flexShrink:0}}>
-                              <div style={{width:112,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #bfe3cd',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
-                                  <div style={{fontSize:9.5,color:'#5b7a63',fontWeight:800}}>누적 실적</div>
-                                  <div style={{fontSize:16,fontWeight:800,color:'#059669',lineHeight:1.25}}>{totalAcc.toLocaleString()} <span style={{fontSize:10,fontWeight:700}}>pt</span></div>
-                                  <div style={{fontSize:9,color:'#8fa79a',fontWeight:600,marginTop:2,lineHeight:1.35}}>지금까지 등록된<br/>시운전 포인트 합</div>
+                              <div style={{width:112,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #b9d7ef',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                                  <div style={{fontSize:9.5,color:'#3b6182',fontWeight:800}}>누적 실적</div>
+                                  <div style={{fontSize:16,fontWeight:800,color:'#1e7ac8',lineHeight:1.25}}>{totalAcc.toLocaleString()} <span style={{fontSize:10,fontWeight:700}}>pt</span></div>
+                                  <div style={{fontSize:9,color:'#7c93aa',fontWeight:600,marginTop:2,lineHeight:1.35}}>지금까지 등록된<br/>시운전 포인트 합</div>
                               </div>
                               <div style={{width:112,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #fbd9a5',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
                                   <div style={{fontSize:9.5,color:'#7a5b16',fontWeight:800}}>잔여</div>
                                   <div style={{fontSize:16,fontWeight:800,color:'#d97706',lineHeight:1.25}}>{Math.max(totalPoints-totalAcc,0).toLocaleString()} <span style={{fontSize:10,fontWeight:700}}>pt</span></div>
                                   <div style={{fontSize:9,color:'#b39463',fontWeight:600,marginTop:2,lineHeight:1.35}}>총점 − 누적 실적<br/>(남은 포인트)</div>
                               </div>
-                              <div style={{width:124,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #b9d7ef',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
-                                  <div style={{fontSize:9.5,color:'#3b6182',fontWeight:800}}>공정률 (금월)</div>
-                                  <div style={{fontSize:16,fontWeight:800,color:'#1e7ac8',lineHeight:1.25}}>{lastProgress} <span style={{fontSize:10,fontWeight:700}}>%</span></div>
-                                  <div style={{fontSize:9,color:'#7c93aa',fontWeight:600,marginTop:2,lineHeight:1.35}}>공정 항목(PLC·ETOS<br/>·HMI 등) 평균 진척</div>
+                              <div style={{width:124,padding:'7px 10px',borderRadius:11,background:'#fff',border:'1.5px solid #bfe3cd',boxShadow:'0 1px 3px rgba(16,42,73,0.05)'}}>
+                                  <div style={{fontSize:9.5,color:'#5b7a63',fontWeight:800}}>공정률 (금월)</div>
+                                  <div style={{fontSize:16,fontWeight:800,color:'#059669',lineHeight:1.25}}>{lastProgress} <span style={{fontSize:10,fontWeight:700}}>%</span></div>
+                                  <div style={{fontSize:9,color:'#8fa79a',fontWeight:600,marginTop:2,lineHeight:1.35}}>공정 항목(PLC·ETOS<br/>·HMI 등) 평균 진척</div>
                               </div>
                           </div>
                       </div>

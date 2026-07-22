@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutList, Plus, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업  +  프로젝트 추가 팝업 (2026-07-13 통합)
@@ -23,10 +23,12 @@ export default function DetailModal({
     copiedFromRow = false,    // 추가 모드: 선택 행 복사로 열렸는지
     suggestions = {},         // { 항목명: [기존값들] } — 발주처·업체담당자 자동완성 목록
     subPtInfo = null,         // 2단계(2026-07-20): 메인 행에 하위(공종)가 있으면 {count, sum} — '포인트' 칸 잠금+합계 표시
+    extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     if (!detailRow) return null;
     const isAdd = mode === 'add';
+    const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
 
     // 팀 마스터 목록 우선(진행현황 관리 / 담당자 관리) — 없으면 기본 상수
     const STATUS_OPTS   = (statusOptions && statusOptions.length) ? statusOptions : DEFAULT_STATUS_OPTIONS;
@@ -82,7 +84,7 @@ export default function DetailModal({
         const val = detailRow[h] || '';
         const wide = isWideField(h);
         const isStatus = isStatusCol(h);
-        const isAssignee = isAssigneeCol(h);
+        const isAssignee = isAssigneeCol(h) || isManagerCol(h);   // 관리자 = 담당자와 같은 선택 형식 (2026-07-22)
         const isCheck = isCheckCol(h);
         const hidden = hiddenCols?.has(h);
         return (
@@ -100,6 +102,14 @@ export default function DetailModal({
                             title={subPtInfo.sum > 0 ? `총점 = 하위 ${subPtInfo.count}개 '포인트' 합계 (자동)` : `하위 ${subPtInfo.count}개의 총점이 아직 빈칸 — 입력 전까지 기존 부모 총점 유지`}>
                             <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{subPtInfo.sum > 0 ? `Σ ${subPtInfo.sum}` : (String(val).trim() ? val : '—')}</span>
                             <span style={{ fontSize:'11px', fontWeight:700, color:'#7c3aed', whiteSpace:'nowrap' }}>하위 {subPtInfo.count}개 합계 자동{subPtInfo.sum > 0 ? '' : ' 대기'}</span>
+                            <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
+                        </div>
+                    ) : isExtLockedDM(h) ? (
+                        // NAS 진척자료 자동 반영 값 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀에서
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
+                            title="NAS 진척자료에서 자동으로 들어오는 값 — 수정은 NAS 원본 엑셀에서">
+                            <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val).trim() !== '' ? String(val).replace(/%/g,'') + '%' : '—'}</span>
+                            <span style={{ fontSize:'11px', fontWeight:700, color:'#0369a1', whiteSpace:'nowrap' }}>NAS 자동</span>
                             <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
                         </div>
                     ) : isCheck ? (

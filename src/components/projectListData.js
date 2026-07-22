@@ -257,6 +257,15 @@ export function parseExcelHeaders(raw, addLog) {
         }
     }
 
+    // '관리자' 열 자동 보장 (2026-07-22 팀장님): 엑셀에 없으면 담당자 앞에 웹 전용 열로 삽입 (idx -1 = 값은 빈칸 시작)
+    if (!colDefs.some(cd => String(cd.name).replace(/\s+/g, '') === '관리자')) {
+        const ai = colDefs.findIndex(cd => { const n = String(cd.name).replace(/\s+/g, ''); return n.includes('담당자') && !n.includes('업체') && !n.includes('발주처'); });
+        if (ai >= 0) {
+            colDefs.splice(ai, 0, { idx: -1, name: '관리자', groupLabel: colDefs[ai].groupLabel });
+            addLog(`'관리자' 열 자동 추가 (담당자 앞)`);
+        }
+    }
+
     const colGroups = [];
     for (const cd of colDefs) {
         if (!cd.groupLabel) {
@@ -270,3 +279,152 @@ export function parseExcelHeaders(raw, addLog) {
     addLog(`열 ${colDefs.length}개, 그룹 ${colGroups.filter(g=>g.label).length}개`);
     return { colDefs, colGroups, dataStart };
 }
+
+// ─── NAS 진척자료 자동 반영 (2026-07-22) ─────────────────────────────────────
+//   프로젝트 행 _extSync = { uncPath, rules: [ { target, filePattern, sheet, cells, op, decimals } ] }
+//   · target      : 값이 들어갈 메인표 헤더 (예: 'PLC')
+//   · filePattern : 폴더에서 찾을 파일 이름 조각 (예: '01 진행현황' — 공백·대소문자 무시 포함검색)
+//   · sheet       : 읽을 시트 이름 (예: '#1 L1 진행현황')
+//   · cells       : 읽을 셀 주소 배열 (예: ['L5','M5','L14','M14'])
+//   · op          : 'avg'(평균) | 'sum'(합계)
+//   · decimals    : 반올림 소수 자리 (기본 1)
+//   폴더 핸들(파일 접근 허가증)은 PC별 IndexedDB에만 저장 — 규칙·경로(_extSync)만 클라우드 공유.
+const extNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+export const extRulesOf = (row) => (row && row._extSync && Array.isArray(row._extSync.rules)) ? row._extSync.rules : [];
+export const extLockedColsOf = (row) => extRulesOf(row).map(r => r.target);
+export const isExtLockedCol = (row, header) => extLockedColsOf(row).some(t => extNorm(t) === extNorm(header));
+// 대상 헤더명 → 진행실적 팝업 항목 키 (팝업·모바일 키인 잠금 전달용)
+const EXT_KEY_MAP = { '도면입수': 'drawing', 'I/OMAP': 'iomap', '화면작성': 'screen', '기준정보': 'baseinfo', 'PLC': 'plc', 'ETOS': 'etos', 'HMI': 'hmi', '자체시운전': 'commissioning', '통합시운전': 'intCommissioning' };
+export const extLockedItemKeysOf = (row) => extLockedColsOf(row).map(t => EXT_KEY_MAP[extNorm(t)]).filter(Boolean);
+
+// 파일명에서 마지막 6자리 날짜(YYMMDD) 추출 — 없으면 0
+export const extNameDate = (name) => {
+    const m = String(name || '').match(/\d{6}/g);
+    return m && m.length ? Number(m[m.length - 1]) : 0;
+};
+
+// 폴더의 파일 목록에서 규칙에 맞는 '최신' 파일 고르기. files = [{ name, lastModified }]
+//   ① 이름이 filePattern 포함(공백·대소문자 무시) + 엑셀 확장자 + 임시(~$) 제외
+//   ② 파일명 마지막 6자리 날짜(YYMMDD) 큰 것 → ③ 없거나 같으면 수정시각(lastModified) 큰 것
+export const pickLatestExtFile = (files, filePattern) => {
+    const pat = extNorm(filePattern);
+    const list = (files || []).filter(f => {
+        const n = String(f.name || '');
+        if (n.startsWith('~$')) return false;
+        if (!/\.(xlsx|xlsm|xls)$/i.test(n)) return false;
+        return pat ? extNorm(n).includes(pat) : true;
+    });
+    if (!list.length) return null;
+    return list.reduce((best, f) => {
+        if (!best) return f;
+        const da = extNameDate(f.name), db = extNameDate(best.name);
+        if (da !== db) return da > db ? f : best;
+        return (f.lastModified || 0) > (best.lastModified || 0) ? f : best;
+    }, null);
+};
+
+// 'F24:M25' 같은 범위를 셀 목록으로 펼침 — 단일 셀은 그대로 (2026-07-22, 파일2 ETOS 16칸을 범위 하나로)
+export const expandExtCells = (cells) => {
+    const colNum = (s) => s.split('').reduce((n, ch) => n * 26 + (ch.charCodeAt(0) - 64), 0);
+    const colStr = (n) => { let s = ''; while (n > 0) { s = String.fromCharCode(65 + ((n - 1) % 26)) + s; n = Math.floor((n - 1) / 26); } return s; };
+    const out = [];
+    for (const raw of (cells || [])) {
+        const t = String(raw).trim().toUpperCase();
+        const m = t.match(/^([A-Z]{1,3})(\d{1,5}):([A-Z]{1,3})(\d{1,5})$/);
+        if (m) {
+            const c1 = colNum(m[1]), c2 = colNum(m[3]), r1 = Number(m[2]), r2 = Number(m[4]);
+            for (let r = Math.min(r1, r2); r <= Math.max(r1, r2); r++)
+                for (let c = Math.min(c1, c2); c <= Math.max(c1, c2); c++) out.push(colStr(c) + r);
+        } else out.push(t);
+    }
+    return out;
+};
+
+// 워크북(SheetJS)에서 규칙값 계산 → { value } 또는 { error }
+//   셀값 0~1.5 = 비율로 보고 ×100 (0.9714 → 97.14%), 그보다 크면 이미 % 숫자. 문자 '97%'도 인식.
+//   (엑셀 수식 칸은 '마지막 저장 시점의 계산값'을 읽는다)
+export const computeExtRuleValue = (wb, rule) => {
+    const names = Object.keys((wb && wb.Sheets) || {});
+    const sheetName = names.find(n => extNorm(n) === extNorm(rule.sheet));
+    if (!sheetName) return { error: `시트 '${rule.sheet}' 없음` };
+    const ws = wb.Sheets[sheetName];
+    const nums = [];
+    const addrs = expandExtCells(rule.cells);
+    if (addrs.length > 200) return { error: `셀이 ${addrs.length}개 — 범위를 확인하세요(200개 초과)` };
+    for (const addr of addrs) {
+        const c = ws[String(addr).trim().toUpperCase()];
+        let v = c ? c.v : undefined;
+        if (typeof v === 'string') v = Number(v.replace(/[%\s,]/g, ''));
+        if (typeof v !== 'number' || !Number.isFinite(v)) return { error: `셀 ${addr} 값이 숫자가 아님(빈칸?)` };
+        nums.push(v >= 0 && v <= 1.5 ? v * 100 : v);
+    }
+    if (!nums.length) return { error: '읽을 셀이 없음' };
+    const total = nums.reduce((s, v) => s + v, 0);
+    const raw = rule.op === 'sum' ? total : total / nums.length;
+    const d = Number.isFinite(rule.decimals) ? rule.decimals : 1;
+    const p = Math.pow(10, d);
+    return { value: Math.round(raw * p) / p, cellsRead: nums.length };
+};
+
+// ─── 하위 공종표 규칙 (2026-07-22 — 파일2 '진척률요약(Main)') ─────────────────
+//   rule = { type:'subTable', filePattern, sheet, nameCol, subCols:{표항목:엑셀열}, subPtCol,
+//            parentCols:{표항목:엑셀열}, parentAccCol, decimals }
+//   · 공종 데이터 행 = 이름열에 글자 + 총점열·첫 %열이 숫자인 행 (위쪽 설정표는 자동 제외)
+//   · 'B/이름열=총계' 행을 만나면 부모용 총계로 쓰고 중단 → 행이 위아래로 밀려도 이름 기준이라 안전
+export const computeExtSubTable = (wb, rule) => {
+    const names = Object.keys((wb && wb.Sheets) || {});
+    const sheetName = names.find(n => extNorm(n) === extNorm(rule.sheet));
+    if (!sheetName) return { error: `시트 '${rule.sheet}' 없음` };
+    const ws = wb.Sheets[sheetName];
+    const val = (col, r) => { const c = ws[String(col).toUpperCase() + r]; return c ? c.v : undefined; };
+    const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+    const d = Number.isFinite(rule.decimals) ? rule.decimals : 1;
+    const P = Math.pow(10, d);
+    const pct = (v) => Math.round((v >= 0 && v <= 1.5 ? v * 100 : v) * P) / P;
+    const subCols = rule.subCols || {};
+    const firstCol = Object.values(subCols)[0];
+    const rows = [];
+    let total = null;
+    for (let r = 1; r <= 400; r++) {
+        const rawName = val(rule.nameCol || 'C', r);
+        const isTotal = extNorm(val('B', r)) === '총계' || extNorm(rawName) === '총계';
+        if (isTotal) {
+            const values = {};
+            for (const [target, col] of Object.entries(rule.parentCols || {})) {
+                const v = val(col, r);
+                if (!isNum(v)) return { error: `총계행 ${col}${r} 값이 숫자가 아님` };
+                values[target] = pct(v);
+            }
+            let acc;
+            if (rule.parentAccCol) {
+                const v = val(rule.parentAccCol, r);
+                if (!isNum(v)) return { error: `총계행 ${rule.parentAccCol}${r}(누적) 값이 숫자가 아님` };
+                acc = v;
+            }
+            total = { values, acc };
+            break;
+        }
+        if (rawName === undefined || String(rawName).trim() === '') continue;
+        if (!isNum(val(rule.subPtCol, r)) || !isNum(val(firstCol, r))) continue;
+        const values = {};
+        let bad = '';
+        for (const [target, col] of Object.entries(subCols)) {
+            const v = val(col, r);
+            if (!isNum(v)) { bad = col + r; break; }
+            values[target] = pct(v);
+        }
+        if (bad) return { error: `공종 '${String(rawName).trim()}' ${bad} 값이 숫자가 아님` };
+        rows.push({ name: String(rawName).trim(), row: r, values, pt: val(rule.subPtCol, r), acc: (rule.parentAccCol && isNum(val(rule.parentAccCol, r))) ? val(rule.parentAccCol, r) : undefined });   // 누적 = 같은 열의 공종 행 값 (2026-07-22)
+    }
+    if (!rows.length) return { error: '공종 행을 못 찾음 (이름열·시트 확인)' };
+    if (!total) return { error: "'총계' 행을 못 찾음" };
+    return { rows, total };
+};
+
+// 행의 잠금 항목 키 전체 (자기 규칙 + 하위공종표의 부모 항목 + 통합시운전) — 진행실적 팝업·모바일용
+export const extLockedItemKeysAllOf = (row) => {
+    const cols = extLockedColsOf(row).filter(t => t !== '하위 공종표');
+    const st = extRulesOf(row).find(r => r.type === 'subTable');
+    if (st) cols.push(...Object.keys(st.parentCols || {}), '통합시운전');
+    return [...new Set(cols.map(t => EXT_KEY_MAP[extNorm(t)]).filter(Boolean))];
+};

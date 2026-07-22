@@ -12,6 +12,7 @@ export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); re
 export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
 export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
 export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체') && !h.includes('발주처'); // ③ '발주처 담당자'는 내부 작업자 아님 → 담당자 드롭다운 제외
+export const isManagerCol   = (h) => String(h ?? '').replace(/\s+/g, '') === '관리자'; // 관리자 열 — 담당자와 같은 드롭다운 형식 (2026-07-22 팀장님)
 export const isClientCol    = (h) => h.includes('발주처') && !h.includes('담당'); // ③ 회사 '발주처'만 드롭다운; '발주처 담당자' 제외
 export const isVendorAssCol = (h) => h.includes('업체') && h.includes('담당자');
 export const toDateInputVal = v => {

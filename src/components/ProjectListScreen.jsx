@@ -14,8 +14,8 @@ import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo } from './projectListData';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf } from './projectListData';
 
 const VERSION = 'v6.8.7';
 
@@ -37,6 +37,22 @@ const colWidthsKey = (team) => `pms_list_colWidths_${team || 'default'}`;
 const loadColWidths = (team) => { try { const raw = localStorage.getItem(colWidthsKey(team)); const o = raw ? JSON.parse(raw) : {}; return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } catch (e) { return {}; } };
 const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(team), JSON.stringify(obj || {})); } catch (e) {} };
 
+// (2026-07-22) NAS 폴더 핸들(읽기 허가증) IndexedDB — 이 PC 브라우저 한정.
+//   규칙·경로는 클라우드(행 _extSync)로 공유하고, 실제 파일 접근 허가증(핸들)만 PC별로 보관한다.
+const openExtIDB = () => new Promise((res, rej) => {
+    const q = indexedDB.open('PmsExtSyncDB', 1);
+    q.onupgradeneeded = e => { const d = e.target.result; if (!d.objectStoreNames.contains('handles')) d.createObjectStore('handles'); };
+    q.onsuccess = e => res(e.target.result); q.onerror = e => rej(e.target.error);
+});
+const extIdbSet = async (key, handle) => { const d = await openExtIDB(); return new Promise((res, rej) => { const q = d.transaction('handles', 'readwrite').objectStore('handles').put(handle, key); q.onsuccess = res; q.onerror = e => rej(e.target.error); }); };
+const extIdbGet = async (key) => { const d = await openExtIDB(); return new Promise((res, rej) => { const q = d.transaction('handles', 'readonly').objectStore('handles').get(key); q.onsuccess = e => res(e.target.result || null); q.onerror = e => rej(e.target.error); }); };
+const extIdbDel = async (key) => { const d = await openExtIDB(); return new Promise((res, rej) => { const q = d.transaction('handles', 'readwrite').objectStore('handles').delete(key); q.onsuccess = res; q.onerror = e => rej(e.target.error); }); };
+const EXT_TARGET_OPTIONS = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
+// 파일2(진척자료_YYMMDD) 하위 공종표 프리셋 — 공종별 6항목%+총점(AG), 부모 총계 4항목%+누적(AN) (2026-07-22 팀장님 확정)
+const EXT_SUBTABLE_PRESET = { type: 'subTable', target: '하위 공종표', filePattern: '진척자료', sheet: '진척률요약(Main)', nameCol: 'C',
+    subCols: { '도면입수': 'H', 'I/O Map': 'M', '화면작성': 'R', '기준정보': 'Z', '자체시운전': 'AH', '통합시운전': 'AP' },
+    subPtCol: 'AG', parentCols: { '도면입수': 'H', 'I/O Map': 'M', '화면작성': 'R', '기준정보': 'Z', 'HMI': 'Z' }, parentAccCol: 'AN', decimals: 1 };   // HMI = 기준정보생성 총계 진척율 (2026-07-22 팀장님)
+
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
@@ -47,6 +63,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : DEFAULT_STATUS_OPTIONS;
     const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : ASSIGNEE_LIST;
     const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ...STATUS_CHIP_COLORS, ..._teamCfg.listStatusColors } : STATUS_CHIP_COLORS;
+    // ── NAS 진척자료 자동 반영 상태 (2026-07-22) ──────────────────────────────
+    const [extModalRowId, setExtModalRowId] = useState(null);   // NAS 연결 모달(행 _id)
+    const [extStatus, setExtStatus] = useState({});             // { rowId: {state,msg,fileName,value,checkedAt} }
+    const [extBusy, setExtBusy] = useState(false);
+    const [extProposals, setExtProposals] = useState(null);     // 변경 감지 → 반영 확인창 목록
+    const [extRuleDraft, setExtRuleDraft] = useState(null);     // 규칙 추가 폼(관리자)
+    const [extPathDraft, setExtPathDraft] = useState(null);     // 경로 입력 중 값(관리자, null=표시 모드)
+    const [extLocalDraft, setExtLocalDraft] = useState(null);   // 이 PC용 주소(드라이브 별명) 입력 중 값 — localStorage 저장 (2026-07-22)
+    const extAutoRef = useRef({});                              // 팀별 자동확인 1회 가드
     const [statusMgr, setStatusMgr] = useState(null); // 진행현황 관리 모달 — 편집 중 상태이름 배열(null=닫힘) (2026-07-06 2단계)
     const [statusMgrOrig, setStatusMgrOrig] = useState([]); // 열 때의 원본 이름들 — '기존 이름 잠금' 판별용 (2026-07-07 안전안: 이름수정 금지, 추가·삭제만)
     const [managerMgr, setManagerMgr] = useState(null); // 담당자 관리 모달 — 편집 중 이름 배열(null=닫힘) (2026-07-07 3단계)
@@ -78,6 +103,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [colDropOpen, setColDropOpen]       = useState(false);
     const [activeStatusChips, setActiveStatusChips] = useState(new Set(['진행중', '추진중']));
     const [activeAssignees, setActiveAssignees]     = useState(new Set());
+    const [activeManagers, setActiveManagers]       = useState(new Set());   // 관리자 칩 필터 (2026-07-22 팀장님 — 담당자와 동일 형식)
     const [settingsOpen, setSettingsOpen]           = useState(false);
     const [compactMode, setCompactMode]             = useState(() => {
         try { const raw = localStorage.getItem('pms_list_compactMode'); const v = Number(raw); return (raw !== null && (v === 0 || v === 1 || v === 2)) ? v : 1; } catch (e) { return 1; }
@@ -863,6 +889,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!srcRow) return;
         const patch = {};
         Object.entries(mainTable).forEach(([h, v]) => { if (v !== null && v !== undefined) patch[h] = String(v); });
+        Object.keys(patch).forEach(h => { if (isExtLockedCell(srcRow, h)) delete patch[h]; });   // NAS 자동 칸은 파일이 주인 — 적용하기로 덮지 않음 (2026-07-22)
         if (!Object.keys(patch).length) return;
         const changes = Object.keys(patch).map(k => ({ field: k, from: String(srcRow[k] ?? ''), to: String(patch[k]) })).filter(c => c.from !== c.to);
         const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
@@ -925,6 +952,349 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { console.warn('[reverseSync] progressRecords 반영 실패:', e); }
     };
 
+    // ─── NAS 진척자료 자동 반영 (2026-07-22) ─────────────────────────────────
+    //   개념: 원본은 NAS 폴더의 최신 진척 엑셀(복사본 안 올림). 이 PC에 '폴더 읽기 허가증'을 한 번 받아두면
+    //   List 화면을 열 때(또는 [지금 확인]) 최신 파일을 다시 읽어 규칙(시트·셀·계산)대로 값을 뽑고,
+    //   바뀐 값만 '미리보기 → 반영' 확인창을 거쳐 메인표 + 주간 진행실적 장부에 기록한다.
+    const extSupported = typeof window !== 'undefined' && !!window.showDirectoryPicker;
+    const extHandleKey = (rowId) => `${currentTeam}_${rowId}`;
+    const extSetStatus = (rowId, st) => setExtStatus(prev => ({ ...prev, [rowId]: { ...st, checkedAt: new Date().toISOString() } }));
+    // 행별 잠금 열 — 자기 규칙 + (하위 행이면) 부모의 공종표 규칙 항목들, (부모면) 공종표의 부모 항목·누적·통합시운전 (2026-07-22)
+    const extLockedColsRow = (row) => {
+        const own = extLockedColsOf(row).filter(t => t !== '하위 공종표');
+        if (isSubListRow(row)) {
+            const pidStr = String(row._id).replace(/_sub\d+$/, '');
+            const par = pidStr !== String(row._id) ? fbRows.find(r => r._id === pidStr) : null;
+            const st2 = par ? extRulesOf(par).find(r => r.type === 'subTable') : null;
+            return st2 ? [...own, ...Object.keys(st2.subCols || {}), '포인트', '누적'] : own;
+        }
+        const st2 = extRulesOf(row).find(r => r.type === 'subTable');
+        return st2 ? [...own, ...Object.keys(st2.parentCols || {}), '누적', '통합시운전'] : own;
+    };
+    const isExtLockedCell = (row, h) => { const nh = String(h ?? '').replace(/\s+/g, '').toUpperCase(); return extLockedColsRow(row).some(t => String(t).replace(/\s+/g, '').toUpperCase() === nh); };
+
+    // 한 행 검사 — 핸들 → 최신 파일 → 규칙 계산 → 현재값과 비교. silent=true면 허용창을 안 띄움(이미 허용된 폴더만).
+    const extCheckRow = async (row, { silent = true } = {}) => {
+        const rules = extRulesOf(row);
+        if (!rules.length) return [];
+        if (!extSupported) { extSetStatus(row._id, { state: 'error', msg: '이 브라우저 미지원 — 크롬·엣지(PC)에서 하세요' }); return []; }
+        let handle = null;
+        try { handle = await extIdbGet(extHandleKey(row._id)); } catch (e) {}
+        if (!handle) { extSetStatus(row._id, { state: 'nofolder', msg: '이 PC에 폴더 지정 안 됨' }); return []; }
+        try {
+            let perm = await handle.queryPermission({ mode: 'read' });
+            if (perm === 'prompt' && !silent) perm = await handle.requestPermission({ mode: 'read' });
+            if (perm !== 'granted') { extSetStatus(row._id, { state: 'perm', msg: '폴더 읽기 허용 필요 — NAS 버튼 → [지금 확인]' }); return []; }
+            // 폴더 안 엑셀 파일 목록(이름 + 수정시각) — 하위 폴더까지 자동 탐색 (2026-07-22)
+            //   실제 NAS 구조: 01 진척자료 > 01 진행현황_L1L2 > 엑셀 (한 층 아래) → 재귀 필요.
+            //   Backup·백업 이름 폴더는 옛 복사본이라 제외, 깊이는 3층까지(과도한 탐색 방지).
+            const metas = [];
+            const walk = async (dir, depth, rel) => {
+                for await (const entry of dir.values()) {
+                    if (entry.kind === 'directory') {
+                        if (depth >= 3) continue;
+                        if (/backup|백업/i.test(String(entry.name || ''))) continue;
+                        try { await walk(entry, depth + 1, rel ? rel + '\\' + entry.name : entry.name); } catch (e) {}
+                        continue;
+                    }
+                    const nm = String(entry.name || '');
+                    if (nm.startsWith('~$') || !/\.(xlsx|xlsm|xls)$/i.test(nm)) continue;
+                    try { const f = await entry.getFile(); metas.push({ name: nm, rel: rel ? rel + '\\' + nm : nm, lastModified: f.lastModified, _file: f }); } catch (e) {}
+                }
+            };
+            await walk(handle, 0, '');
+            const XLSX = await loadXLSX();
+            const wbCache = {};
+            const out = [];
+            const usedFiles = [];   // 이번 검사에서 실제 읽은 파일들 — 파일별 [경로 복사]용 (2026-07-22)
+            let okInfo = null, errMsg = '';
+            for (const rule of rules) {
+                // ── 하위 공종표 규칙 (2026-07-22 파일2): 공종 8행 생성/갱신 + 부모 총계 반영 제안 ──
+                if (rule.type === 'subTable') {
+                    const picked2 = pickLatestExtFile(metas, rule.filePattern);
+                    if (!picked2) { errMsg = `'${rule.filePattern}' 파일을 폴더에서 못 찾음`; continue; }
+                    if (!wbCache[picked2.name]) { const ab2 = await picked2._file.arrayBuffer(); wbCache[picked2.name] = XLSX.read(ab2, { type: 'array' }); }
+                    if (!usedFiles.some(f => f.rel === picked2.rel)) usedFiles.push({ name: picked2.name, rel: picked2.rel });
+                    const res2 = computeExtSubTable(wbCache[picked2.name], rule);
+                    if (res2.error) { errMsg = `하위 공종표: ${res2.error} (${picked2.name})`; continue; }
+                    okInfo = { fileName: picked2.name, rel: picked2.rel, value: `공종 ${res2.rows.length}개`, target: '하위표' };
+                    const hdrOf = (nm) => (activeHeaders || []).find(x => String(x).replace(/\s+/g, '').toUpperCase() === String(nm).replace(/\s+/g, '').toUpperCase()) || nm;
+                    const subs2 = fbRows.filter(rr => String(rr._id).startsWith(row._id + '_sub'));
+                    const nrm = (s) => String(s ?? '').replace(/^[-\s]+/, '').replace(/\s+/g, '').toUpperCase();
+                    for (const exr of res2.rows) {
+                        const want = { ...exr.values, '포인트': exr.pt };
+                        if (exr.acc !== undefined) want['누적'] = exr.acc;   // 공종별 누적(진행 pt)도 자동 키인 (2026-07-22 팀장님)
+                        const found = subs2.find(rr => nrm(projectNameCol ? rr[projectNameCol] : '') === nrm(exr.name));
+                        if (!found) {
+                            out.push({ rowId: row._id, kind: 'subCreate', target: `└ ${exr.name} 신규`, from: '—', to: Object.entries(want).map(([k, v]) => `${k} ${v}`).join(' · '), fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row), _sub: { name: exr.name, want } });
+                        } else {
+                            const chg = [];
+                            for (const [cn, v] of Object.entries(want)) {
+                                const cur = String(found[hdrOf(cn)] ?? '').replace(/%/g, '').trim();
+                                const curN = cur === '' ? null : Number(cur);
+                                if (!(curN !== null && Number.isFinite(curN) && Math.abs(curN - v) < 0.05)) chg.push({ col: cn, from: cur === '' ? '—' : cur, to: v });
+                            }
+                            if (chg.length) out.push({ rowId: found._id, kind: 'subSet', target: `└ ${exr.name}`, from: `${chg.length}칸`, to: chg.map(c => `${c.col} ${c.from}→${c.to}`).join(' · '), fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row), _sub: { name: exr.name, changes: chg } });
+                        }
+                    }
+                    const pWant = { ...(res2.total.values || {}) };
+                    if (res2.total.acc !== undefined) pWant['누적'] = res2.total.acc;
+                    const ptSum2 = res2.rows.reduce((s2, x) => s2 + (Number(x.pt) || 0), 0);
+                    if (res2.total.acc !== undefined && ptSum2 > 0) pWant['통합시운전'] = Math.round(res2.total.acc / ptSum2 * 1000) / 10;   // 누적÷Σ총점 — 파일 총계와 동일식
+                    for (const [cn, v] of Object.entries(pWant)) {
+                        const cur = String(row[hdrOf(cn)] ?? '').replace(/%/g, '').trim();
+                        const curN = cur === '' ? null : Number(cur);
+                        if (!(curN !== null && Number.isFinite(curN) && Math.abs(curN - v) < 0.05))
+                            out.push({ rowId: row._id, target: cn, from: cur === '' ? '—' : cur, to: v, fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row) });
+                    }
+                    // 부모 팝업 '하위별 통합' 줄 자동 채움(모니터링·그래프) — 현재 주차 장부와 다르면 제안 (2026-07-22 팀장님)
+                    try {
+                        const dkP = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
+                        if (dkP) {
+                            const snapP = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkP));
+                            const wkP = snapP.exists() ? ((snapP.data() || {}).weekly || {}) : {};
+                            const nowP = new Date(); const wKeyP = `${nowP.getFullYear()}-${nowP.getMonth() + 1}-${Math.min(5, Math.max(1, Math.ceil(nowP.getDate() / 7)))}`;
+                            const diffP = res2.rows.some((exr, i) => Number(((wkP[`sub_${i}_intCommissioning`] || {})[wKeyP]) || 0) !== Number(exr.acc || 0));
+                            if (diffP) out.push({ rowId: row._id, kind: 'subLedger', target: '팝업 하위별 통합', from: '—', to: res2.rows.map(exr => `${exr.name} ${exr.acc || 0}`).join(' · '), fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row), _ints: res2.rows.map(exr => Number(exr.acc || 0)) });
+                        }
+                    } catch (eP) {}
+                    continue;
+                }
+                const picked = pickLatestExtFile(metas, rule.filePattern);
+                if (!picked) { errMsg = `'${rule.filePattern}' 파일을 폴더에서 못 찾음`; continue; }
+                if (!wbCache[picked.name]) {
+                    const ab = await picked._file.arrayBuffer();
+                    wbCache[picked.name] = XLSX.read(ab, { type: 'array' });
+                }
+                if (!usedFiles.some(f => f.rel === picked.rel)) usedFiles.push({ name: picked.name, rel: picked.rel });
+                const res = computeExtRuleValue(wbCache[picked.name], rule);
+                if (res.error) { errMsg = `${rule.target}: ${res.error} (${picked.name})`; continue; }
+                const curRaw = String(row[rule.target] ?? '').replace(/%/g, '').trim();
+                const cur = curRaw === '' ? null : Number(curRaw);
+                const same = cur !== null && Number.isFinite(cur) && Math.abs(cur - res.value) < 0.05;
+                okInfo = { fileName: picked.name, rel: picked.rel, value: res.value, target: rule.target };
+                if (!same) out.push({ rowId: row._id, target: rule.target, from: curRaw === '' ? '—' : curRaw, to: res.value, fileName: picked.name, fileRel: picked.rel, projectName: pickProjectName(row) });
+            }
+            if (errMsg) extSetStatus(row._id, { state: 'error', msg: errMsg, files: usedFiles });
+            else if (out.length) extSetStatus(row._id, { state: 'changed', msg: `변경 감지 ${out.length}건 — 반영 대기`, fileName: out[0].fileName, fileRel: out[0].fileRel, files: usedFiles });
+            else if (okInfo) extSetStatus(row._id, { state: 'ok', msg: `최신 상태 (${okInfo.target} ${okInfo.value})`, fileName: okInfo.fileName, fileRel: okInfo.rel, value: okInfo.value, files: usedFiles });
+            return out;
+        } catch (e) {
+            extSetStatus(row._id, { state: 'error', msg: 'NAS 읽기 실패: ' + e.message });
+            return [];
+        }
+    };
+
+    // 규칙 있는 모든 행 검사 — silent(자동)면 이미 허용된 폴더만 조용히
+    const extCheckAll = async ({ silent = true } = {}) => {
+        if (dataSource !== 'firebase') return;
+        const targets = fbRows.filter(r => extRulesOf(r).length);
+        if (!targets.length) return;
+        setExtBusy(true);
+        try {
+            const all = [];
+            for (const r of targets) { const ps = await extCheckRow(r, { silent }); all.push(...ps); }
+            if (all.length) setExtProposals(all);
+        } finally { setExtBusy(false); }
+    };
+
+    // 폴더 지정(허가증 발급) — 이 PC 한정 · 읽기 전용. NAS 파일은 절대 수정하지 않는다.
+    const extPickFolder = async (row) => {
+        if (!extSupported) { setAlertMsg('이 브라우저는 폴더 지정을 지원하지 않습니다.\n크롬 또는 엣지(PC)에서 해주세요.'); return; }
+        try {
+            const handle = await window.showDirectoryPicker({ mode: 'read' });
+            await extIdbSet(extHandleKey(row._id), handle);
+            extSetStatus(row._id, { state: 'ok', msg: `폴더 지정됨: ${handle.name}` });
+            const ps = await extCheckRow(row, { silent: false });
+            if (ps.length) setExtProposals(ps);
+        } catch (e) { if (e && e.name !== 'AbortError') setAlertMsg('폴더 지정 실패: ' + e.message); }
+    };
+
+    // 통합시운전 주간장부 심기(현재 주차, 재실행 안전) — NAS 자동 반영 공용 (2026-07-22)
+    const extSeedIntLedger = async (row, pts) => { try {
+        const dk = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
+        if (!dk) return;
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dk);
+        const snap = await getDoc(ref);
+        const data = snap.exists() ? snap.data() : { docKey: dk, execNo: (row['실행번호'] || '') };
+        const weekly = { ...(data.weekly || {}) };
+        const now = new Date(); const cy = now.getFullYear(), cm = now.getMonth() + 1, cw = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
+        const iw = { ...(weekly.intCommissioning || {}) };
+        iw[`${cy}-${cm}-${cw}`] = Number(pts) || 0;
+        weekly.intCommissioning = iw;
+        await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+    } catch (e) {} };
+
+    // 하위(공종) 행의 진행실적 = 부모 팝업으로 통일 (2026-07-22 팀장님: 팝업 하나로, 하위 팝업 별도 의미 없음)
+    const progressRowFor = (row) => {
+        if (!row || !isSubListRow(row)) return row;
+        const pId = String(row._id).replace(/_sub\d+$/, '');
+        return (pId !== String(row._id) && activeRows.find(r => r._id === pId)) || row;
+    };
+
+    // 반영 — 메인표 값(도장+이력+백로그) + 주간 진행실적 장부(현재 주차) + 그래프 갱신 + 반영 기록
+    const extApplyProposals = async (list) => {
+        if (!list || !list.length) return;
+        setExtBusy(true);
+        try {
+            const histAcc = {};   // 같은 행 연속 반영 시 변경이력 누적 (덮어쓰기 방지)
+            const naAcc = {};     // 같은 행 _naOn 누적 + 하위 생성 번호 카운터
+            const hOfA = (nm) => (activeHeaders || []).find(x => String(x).replace(/\s+/g, '').toUpperCase() === String(nm).replace(/\s+/g, '').toUpperCase()) || nm;
+            for (const p of list) {
+                // ── 부모 장부 '하위별 통합' 심기 (팝업 모니터링·그래프) ──
+                if (p.kind === 'subLedger') {
+                    const parentRow = fbRows.find(r => r._id === p.rowId);
+                    if (!parentRow) continue;
+                    try {
+                        const dkP = parentRow._pid || parentRow.pid || parentRow['실행번호'] || parentRow.execNo || String(parentRow._id || '');
+                        if (!dkP) continue;
+                        const refP = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkP);
+                        const snapP = await getDoc(refP);
+                        const dataP = snapP.exists() ? snapP.data() : { docKey: dkP, execNo: (parentRow['실행번호'] || '') };
+                        const weeklyP = { ...(dataP.weekly || {}) };
+                        const nowP = new Date(); const wKeyP = `${nowP.getFullYear()}-${nowP.getMonth() + 1}-${Math.min(5, Math.max(1, Math.ceil(nowP.getDate() / 7)))}`;
+                        p._ints.forEach((pts, i) => {
+                            const k = `sub_${i}_intCommissioning`;
+                            const iw = { ...(weeklyP[k] || {}) };
+                            iw[wKeyP] = pts;
+                            weeklyP[k] = iw;
+                        });
+                        await setDoc(refP, { ...dataP, weekly: weeklyP, updatedAt: new Date().toISOString() });
+                        if (onProgressSaved) onProgressSaved({ docKey: dkP, weeklyData: weeklyP });
+                        extSetStatus(parentRow._id, { state: 'ok', msg: `반영됨 하위별 통합 ${p._ints.length}건`, fileName: p.fileName, fileRel: p.fileRel });
+                    } catch (eL) {}
+                    continue;
+                }
+                // ── 하위 공종 행 신규 생성 (하위표 규칙) ──
+                if (p.kind === 'subCreate') {
+                    const parentRow = fbRows.find(r => r._id === p.rowId);
+                    if (!parentRow) continue;
+                    let maxSeq = 0;
+                    fbRows.forEach(r => { if (String(r._id).startsWith(`${parentRow._id}_sub`)) { const m = String(r._id).match(/_sub(\d+)$/); if (m) maxSeq = Math.max(maxSeq, Number(m[1])); } });
+                    maxSeq += (naAcc[`_seq_${parentRow._id}`] || 0);                     // 한 번에 여러 공종 생성 시 번호 겹침 방지
+                    naAcc[`_seq_${parentRow._id}`] = (naAcc[`_seq_${parentRow._id}`] || 0) + 1;
+                    const newId = `${parentRow._id}_sub${String(maxSeq + 1).padStart(2, '0')}`;
+                    const _d = new Date();
+                    const newRow = { _pid: generatePid(), _year: parentRow._year || String(_d.getFullYear()), _regDate: `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`, _subParent: parentRow._pid || '' };
+                    (activeHeaders || []).forEach(h => { newRow[h] = ''; });
+                    (activeHeaders || []).forEach(h => { const hn = String(h).replace(/\s+/g, ''); if (hn.includes('공장') || hn === '발주처' || isAssigneeCol(h) || isManagerCol(h)) newRow[h] = parentRow[h] || ''; });
+                    newRow['실행번호'] = 's';
+                    const stCol2 = (activeHeaders || []).find(h => isStatusCol(h));
+                    if (stCol2) newRow[stCol2] = 'sub';
+                    if (projectNameCol) newRow[projectNameCol] = `- ${p._sub.name}`;
+                    Object.entries(p._sub.want).forEach(([cn, v]) => { newRow[hOfA(cn)] = String(v); });
+                    newRow._naOn = ['도면입수', 'I/O Map', '화면작성', '기준정보', '자체시운전'];   // 기본 미적용 5항목 → 값 보이게 켬
+                    await setDoc(rowDocRef(currentTeam, newId), stampSave(newRow));
+                    recordAudit(AUDIT_ACTIONS.ADD, { ...newRow, _id: newId }, [{ field: '하위 공종 자동 생성 (NAS)', from: '', to: p._sub.name }]);
+                    // 주간 장부에도 심기 — 진행실적 팝업·실적 그래프 일치 (2026-07-22)
+                    const subObjC = { ...newRow, _id: newId };
+                    for (const [cn2, v2] of Object.entries(p._sub.want)) {
+                        const nn2 = String(cn2).replace(/\s+/g, '').toUpperCase();
+                        if (nn2 === '누적') await extSeedIntLedger(subObjC, v2);
+                        else if (nn2 !== '포인트') await syncProgressCellToLedger(subObjC, hOfA(cn2), v2);   // 공정률 4개만 통과(자체·통합%는 자동 무시)
+                    }
+                    if (subObjC._pid && onProgressSaved) { try { const s3 = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, subObjC._pid)); if (s3.exists()) onProgressSaved({ docKey: subObjC._pid, weeklyData: s3.data().weekly || {} }); } catch (e3) {} }
+                    continue;
+                }
+                // ── 기존 하위 공종 행 값 갱신 ──
+                if (p.kind === 'subSet') {
+                    const subRow = fbRows.find(r => r._id === p.rowId);
+                    if (!subRow) continue;
+                    const patch2 = {};
+                    p._sub.changes.forEach(c => { patch2[hOfA(c.col)] = String(c.to); });
+                    const prevOn2 = naAcc[subRow._id] || (Array.isArray(subRow._naOn) ? subRow._naOn : []);
+                    const nextOn2 = [...new Set([...prevOn2, '도면입수', 'I/O Map', '화면작성', '기준정보', '자체시운전'])];
+                    naAcc[subRow._id] = nextOn2;
+                    const entry2 = { datetime: new Date().toISOString(), changes: p._sub.changes.map(c => ({ field: c.col, from: String(c.from), to: String(c.to) })) };
+                    const baseH2 = histAcc[subRow._id] || (Array.isArray(subRow._changeHistory) ? subRow._changeHistory : []);
+                    histAcc[subRow._id] = [...baseH2, entry2];
+                    await setDoc(rowDocRef(currentTeam, subRow._id), stampSave({ ...patch2, _naOn: nextOn2, _changeHistory: histAcc[subRow._id] }), { merge: true });
+                    recordAudit(AUDIT_ACTIONS.EDIT, subRow, entry2.changes.map(c => ({ field: c.field + ' (NAS 자동)', from: c.from, to: c.to })));
+                    // 주간 장부에도 심기 — 진행실적 팝업·실적 그래프 일치 (2026-07-22)
+                    for (const c2 of p._sub.changes) {
+                        const nn3 = String(c2.col).replace(/\s+/g, '').toUpperCase();
+                        if (nn3 === '누적') await extSeedIntLedger(subRow, c2.to);
+                        else if (nn3 !== '포인트') await syncProgressCellToLedger(subRow, hOfA(c2.col), c2.to);
+                    }
+                    const dkS = subRow._pid || '';
+                    if (dkS && onProgressSaved) { try { const s4 = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkS)); if (s4.exists()) onProgressSaved({ docKey: dkS, weeklyData: s4.data().weekly || {} }); } catch (e4) {} }
+                    continue;
+                }
+                // ── 값 1개 반영 (단일 규칙 + 하위표의 부모 총계) ──
+                const row = fbRows.find(r => r._id === p.rowId);
+                if (!row) continue;
+                const tgtH = hOfA(p.target);
+                const valStr = String(p.to);
+                const entry = { datetime: new Date().toISOString(), changes: [{ field: tgtH, from: String(row[tgtH] ?? ''), to: valStr }] };
+                const baseH = histAcc[row._id] || (Array.isArray(row._changeHistory) ? row._changeHistory : []);
+                histAcc[row._id] = [...baseH, entry];
+                const patch = {
+                    [tgtH]: valStr,
+                    _changeHistory: histAcc[row._id],
+                    _extSync: { ...(row._extSync || {}), lastApplied: { ...((row._extSync || {}).lastApplied || {}), [p.target]: { value: p.to, fileName: p.fileName, rel: p.fileRel || '', at: new Date().toISOString() } } },
+                };
+                // 부모 총계 %(도면입수·I/O Map·화면작성·기준정보) = 기본 미적용 항목 → 자동 '적용' 켬
+                const tn = String(p.target).replace(/\s+/g, '').toUpperCase();
+                if (['도면입수', 'I/OMAP', '화면작성', '기준정보'].includes(tn)) {
+                    const prevOn = naAcc[row._id] || (Array.isArray(row._naOn) ? row._naOn : []);
+                    const onName = tn === 'I/OMAP' ? 'I/O Map' : p.target;
+                    patch._naOn = [...new Set([...prevOn, onName])];
+                    naAcc[row._id] = patch._naOn;
+                }
+                await setDoc(rowDocRef(currentTeam, row._id), stampSave(patch), { merge: true });
+                recordAudit(AUDIT_ACTIONS.EDIT, { ...row, [tgtH]: valStr }, [{ field: tgtH + ' (NAS 자동)', from: entry.changes[0].from, to: valStr }]);
+                await syncProgressCellToLedger(row, tgtH, p.to);
+                // 누적(진행 pt) 반영 시 — 심기와 동일하게 통합시운전 주간장부에도 기록 → 그래프·팝업 일치
+                if (tn === '누적') { try {
+                    const _dk2 = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
+                    if (_dk2) {
+                        const _ref2 = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, _dk2);
+                        const _snap2 = await getDoc(_ref2);
+                        const _data2 = _snap2.exists() ? _snap2.data() : { docKey: _dk2, execNo: (row['실행번호'] || '') };
+                        const _weekly2 = { ...(_data2.weekly || {}) };
+                        const now2 = new Date(); const cy2 = now2.getFullYear(), cm2 = now2.getMonth() + 1, cw2 = Math.min(5, Math.max(1, Math.ceil(now2.getDate() / 7)));
+                        const _iw2 = { ...(_weekly2.intCommissioning || {}) };
+                        _iw2[`${cy2}-${cm2}-${cw2}`] = Number(p.to) || 0;
+                        _weekly2.intCommissioning = _iw2;
+                        await setDoc(_ref2, { ..._data2, weekly: _weekly2, updatedAt: new Date().toISOString() });
+                    }
+                } catch (e2) {} }
+                const dk = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
+                if (dk && onProgressSaved) { try { const s = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dk)); if (s.exists()) onProgressSaved({ docKey: dk, weeklyData: s.data().weekly || {} }); } catch (e) {} }
+                extSetStatus(row._id, { state: 'ok', msg: `반영됨 ${p.target}=${p.to}`, fileName: p.fileName, fileRel: p.fileRel, value: p.to });
+            }
+            // 완료 안내 — 건수가 많으면 요약 (전체 나열 시 화면을 넘어가는 문제, 2026-07-22)
+            const _lines = list.map(p => {
+                if (p.kind === 'subCreate') return `· └ ${p._sub.name} 하위 생성 (6항목+총점·누적)`;
+                if (p.kind === 'subSet') return `· └ ${p._sub.name} 갱신 ${p._sub.changes.length}칸`;
+                if (p.kind === 'subLedger') return `· 팝업 하위별 통합 ${p._ints.length}건 기록`;
+                return `· ${p.target}: ${p.from} → ${p.to}`;
+            });
+            const _shown = _lines.slice(0, 8).join('\n');
+            const _more = _lines.length > 8 ? `\n· … 외 ${_lines.length - 8}건 (전체 내역은 백로그에서 확인)` : '';
+            setAlertMsg(`NAS 진척자료 반영 완료! (총 ${list.length}건)\n\n${_shown}${_more}\n\n주간 진행실적 장부에도 함께 기록되었습니다.`);
+        } catch (e) { setAlertMsg('NAS 반영 오류: ' + e.message); }
+        finally { setExtBusy(false); setExtProposals(null); }
+    };
+
+    // 규칙·경로 저장(관리자) — 행 _extSync에 병합 저장
+    const extSaveSync = async (row, next) => {
+        try {
+            await setDoc(rowDocRef(currentTeam, row._id), stampSave({ _extSync: { ...(row._extSync || {}), ...next } }), { merge: true });
+            recordAudit(AUDIT_ACTIONS.EDIT, row, [{ field: 'NAS 자동 규칙', from: '', to: (next.rules ? next.rules.map(r => r.target).join(',') : '경로 변경') }]);
+        } catch (e) { setAlertMsg('규칙 저장 오류: ' + e.message); }
+    };
+
+    // 화면 진입 후 1회 자동 확인 — 이미 허용된 폴더만 조용히 검사(팀별 1번), 변경 있으면 반영 확인창
+    useEffect(() => {
+        if (dataSource !== 'firebase' || !fbRows.length) return;
+        if (extAutoRef.current[currentTeam]) return;
+        if (!fbRows.some(r => extRulesOf(r).length)) return;
+        extAutoRef.current[currentTeam] = true;
+        extCheckAll({ silent: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dataSource, currentTeam, fbRows]);
+
     // ── 일회성: 메인표 공정률(%) → 진행실적 주간 장부 '심기' (2026-07-21) ────────────
     //   엑셀 업로드는 표 칸만 채우고 주간 장부(progressRecords)는 안 채워, 진행실적 팝업·그래프가 비어 보인다.
     //   값이 있는 공정률 7개(도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI)를 '오늘이 속한 현재 주차'에 한 번 심는다.
@@ -950,7 +1320,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const _accRaw = accCol ? String(r[accCol] ?? '').replace(/%/g, '').trim() : '';
             const _accPts = /^\d+(\.\d+)?$/.test(_accRaw) ? Number(_accRaw) : 0;
             const _tot = effTotalPt(r);
-            const seedInt = (!isSubListRow(r) && _accPts > 0 && _tot > 0) ? { pts: _accPts, tot: _tot } : null;
+            const seedInt = (_accPts > 0 && _tot > 0) ? { pts: _accPts, tot: _tot } : null;   // 하위(공종) 행도 포함 — NAS 하위표 누적을 장부로 (2026-07-22)
             if (cells.length || seedInt) { targets.push({ r, cells, seedInt }); cellCnt += cells.length; if (seedInt) intCnt++; }
         }
         if (!targets.length) { setAlertMsg('심을 값이 없습니다.\n(공정률 % 또는 누적 포인트가 있는 행이 없음)'); return; }
@@ -975,7 +1345,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         _weekly.intCommissioning = _iw;
                         await setDoc(_ref, { ..._data, weekly: _weekly, updatedAt: new Date().toISOString() });
                         const _pct = Math.min(100, Math.round(seedInt.pts / seedInt.tot * 100));
-                        if (intCol && String(r[intCol] ?? '').replace(/%/g, '').trim() !== String(_pct)) {
+                        if (intCol && String(r[intCol] ?? '').replace(/%/g, '').trim() !== String(_pct) && !isExtLockedCell(r, intCol)) {   // NAS 자동 칸 보호 (2026-07-22)
                             await setDoc(rowDocRef(currentTeam, r._id), { [intCol]: String(_pct) }, { merge: true });
                         }
                     } catch (e) { console.warn('[심기-시운전] 실패:', e); } }
@@ -1342,7 +1712,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         activeHeaders.forEach(h => { newRow[h] = ''; });
         activeHeaders.forEach(h => {                       // 부모에게 물려받는 값 — 현장(공장동)·발주처·담당자
             const hn = String(h).replace(/\s+/g, '');
-            if (hn.includes('공장') || hn === '발주처' || isAssigneeCol(h)) newRow[h] = parentRow[h] || '';
+            if (hn.includes('공장') || hn === '발주처' || isAssigneeCol(h) || isManagerCol(h)) newRow[h] = parentRow[h] || '';
         });
         newRow['실행번호'] = 's';                           // 하위 표식
         const stCol = activeHeaders.find(h => isStatusCol(h));
@@ -1400,7 +1770,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     useEffect(() => {
         if (!openProgressPid) return;
         const row = activeRows.find(r => String(r._pid || '') === String(openProgressPid));
-        if (row) setProgressRow(row);
+        if (row) setProgressRow(progressRowFor(row));
         else setAlertMsg('이 화면(기준연도/필터)에서 해당 프로젝트를 찾지 못했습니다.');
         onProgressOpened?.();   // 소비 완료 — 같은 pid를 다시 눌러도 열리도록 초기화
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1593,6 +1963,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return map;
     }, [monthFilteredRows, assigneeFilterCol]);
 
+    // 관리자 칩 필터 (2026-07-22 팀장님): 명단 나열이 아니라 '관리자 열에 실제 들어있는 이름만' 건수순 자동 나열.
+    //   같은 사람의 표기 변형('김준혁 팀장'·'김준혁TL')은 이름 핵심으로 묶고, 가장 많이 쓰인 원문을 칩 이름으로 보여준다.
+    const managerFilterCol = useMemo(() => activeHeaders.find(h => isManagerCol(h)), [activeHeaders]);
+    const managerChips = useMemo(() => {
+        if (!managerFilterCol) return [];
+        const agg = {};
+        monthFilteredRows.forEach(r => {
+            if (isSubListRow(r)) return;   // 하위 제외 — 부모 상속이라 이중 계산 방지
+            const raw = String(r[managerFilterCol] || '').trim();
+            if (!raw) return;
+            const key = extractName(normalizeAssignee(raw));
+            if (!key) return;
+            if (!agg[key]) agg[key] = { key, count: 0, labelCnt: {} };
+            agg[key].count += 1;
+            agg[key].labelCnt[raw] = (agg[key].labelCnt[raw] || 0) + 1;
+        });
+        return Object.values(agg)
+            .map(a => ({ key: a.key, count: a.count, label: Object.entries(a.labelCnt).sort((x, y) => y[1] - x[1])[0][0] }))
+            .sort((a, b) => b.count - a.count);
+    }, [monthFilteredRows, managerFilterCol]);
+
     // ── 필터 고유값 + 카운트 맵 (연도 필터 적용 후 기준) ─────────────────
     const uniqueVals = useMemo(() => {
         const res = {};
@@ -1636,6 +2027,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const selectedNames = new Set([...activeAssignees].map(extractName));
             out = out.filter(r => selectedNames.has(extractName(normalizeAssignee(r[assigneeFilterCol]))));
         }
+        if (activeManagers.size > 0 && managerFilterCol) {
+            const selM = new Set([...activeManagers].map(extractName));
+            out = out.filter(r => selM.has(extractName(normalizeAssignee(r[managerFilterCol]))));
+        }
         if (searchTerm) {
             const t = searchTerm.toLowerCase();
             const hit = (r) => activeHeaders.some(h => String(r[h]||'').toLowerCase().includes(t));
@@ -1676,7 +2071,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             }
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         }));
-    }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol]); // eslint-disable-line
+    }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol, activeManagers, managerFilterCol]); // eslint-disable-line
 
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
@@ -1684,7 +2079,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const visibleHeaders    = activeHeaders.filter(h => !hiddenCols.has(h));
     const activeFilterCount = Object.values(columnFilters).reduce((acc, v) => acc + (v instanceof Set ? v.size : (v ? 1 : 0)), 0)
                            + activeStatusChips.size
-                           + activeAssignees.size;
+                           + activeAssignees.size
+                           + activeManagers.size;
 
     const visibleGroups = useMemo(() =>
         activeColGroups.map(g => ({ ...g, cols: g.cols.filter(c => !hiddenCols.has(c)) })).filter(g => g.cols.length > 0),
@@ -2187,7 +2583,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <Edit2 size={16} className="text-[#1e7ac8]"/> 상세/수정
                         </button>
-                        <button onClick={() => { setProgressRow(contextMenu.row); setContextMenu(null); }}
+                        <button onClick={() => { setProgressRow(progressRowFor(contextMenu.row)); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
                         </button>
@@ -2366,6 +2762,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <ProgressModal
                         row={progressRow}
                         progressItems={naToProgressItems(progressRow)}   /* 미적용 항목 → 팝업 진척률서 제외 (2026-07-21) */
+                        lockedItems={extLockedItemKeysAllOf(progressRow)}   /* NAS 자동 항목 키인 잠금 (2026-07-22) */
                         team={currentTeam}
                         subRows={subs}
                         baseDate={baseDate}
@@ -2394,6 +2791,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
+                    extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
                 />
             )}
 
@@ -2476,6 +2874,235 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     </div>
                 </div>
             )}
+
+            {/* NAS 진척자료 반영 확인창 (2026-07-22) — 변경 감지 미리보기 → 원클릭 반영 */}
+            {extProposals && extProposals.length > 0 && (
+                <div className="fixed inset-0 z-[9800] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}>
+                    <div style={{ background: '#fff', border: '1px solid #c8d4e0', borderRadius: 10, width: 460, maxWidth: '92vw', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
+                        <div style={{ padding: '13px 18px', borderBottom: '1px solid #d0d8e4', background: '#eff6ff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <HardDrive size={16} color="#2563eb"/>
+                            <span style={{ fontWeight: 800, fontSize: 14, color: '#1e3a5f' }}>NAS 진척자료 변경 감지</span>
+                        </div>
+                        <div style={{ padding: '12px 18px', maxHeight: '46vh', overflowY: 'auto' }}>
+                            {extProposals.map((p, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', marginBottom: 6, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.projectName || p.rowId}</div>
+                                        <div style={{ fontSize: 10.5, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.fileName}>{p.fileName}</div>
+                                    </div>
+                                    <span style={{ fontSize: 12, fontWeight: 800, color: '#0369a1', whiteSpace: 'nowrap' }}>{p.target}</span>
+                                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.from}</span>
+                                    <span style={{ fontSize: 12, color: '#94a3b8' }}>→</span>
+                                    <span style={{ fontSize: 13, fontWeight: 800, color: '#2563eb', whiteSpace: p.kind ? 'normal' : 'nowrap', maxWidth: 230, textAlign: 'right', lineHeight: 1.45 }}>{p.to}</span>
+                                </div>
+                            ))}
+                            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>반영하면 메인표 값과 주간 진행실적 장부에 함께 기록됩니다.</div>
+                        </div>
+                        <div style={{ padding: '11px 18px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button onClick={() => setExtProposals(null)} disabled={extBusy}
+                                style={{ padding: '7px 14px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid #cbd5e1', background: '#fff', color: '#475569', cursor: 'pointer' }}>나중에</button>
+                            <button onClick={() => extApplyProposals(extProposals)} disabled={extBusy}
+                                style={{ padding: '7px 16px', fontSize: 12, fontWeight: 800, borderRadius: 7, border: '1px solid #2563eb', background: extBusy ? '#93c5fd' : '#2563eb', color: '#fff', cursor: 'pointer' }}>{extBusy ? '반영 중...' : `모두 반영 (${extProposals.length}건)`}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* NAS 진척자료 연결 모달 (2026-07-22) — 경로(공유)·규칙(관리자)·이 PC 폴더 지정/확인 */}
+            {extModalRowId && (() => {
+                const exRow = activeRows.find(r => r._id === extModalRowId) || fbRows.find(r => r._id === extModalRowId);
+                if (!exRow) return null;
+                const ex = exRow._extSync || {};
+                const st = extStatus[extModalRowId];
+                const exRules = extRulesOf(exRow);
+                const inSt = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 9px', fontSize: 12, color: '#1e293b', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', background: '#fff' };
+                const bSt = (bg, bd, fg) => ({ padding: '7px 12px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid ' + bd, background: bg, color: fg, cursor: 'pointer', whiteSpace: 'nowrap' });
+                const secT = { fontSize: 11.5, fontWeight: 800, color: '#475569', margin: '0 0 6px' };
+                const dotColor = st ? (st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#94a3b8') : '#94a3b8';
+                const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); };
+                const extJoin = (base, rel) => { const b = String(base || '').replace(/[\\/]+$/, ''); return (b && rel) ? (b + '\\' + rel) : ''; };
+                const extLocalKey = 'pms_ext_localbase_' + currentTeam + '_' + exRow._id;
+                const extLocalBase = () => { try { return (localStorage.getItem(extLocalKey) || '').trim(); } catch (er) { return ''; } };
+                const extBase = () => extLocalBase() || ex.uncPath || '';   // 열기·복사는 이 PC용 주소 우선 (이름찾기 실패 대비)
+                return (
+                    <div className="fixed inset-0 z-[9700] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} onMouseDown={e => { if (e.target === e.currentTarget) closeAllExt(); }}>
+                        <div style={{ background: '#fff', border: '1px solid #c8d4e0', borderRadius: 10, width: 580, maxWidth: '94vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ padding: '13px 18px', borderBottom: '1px solid #d0d8e4', background: '#f0f4f8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                    <HardDrive size={16} color="#1e7ac8"/>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontWeight: 800, fontSize: 14, color: '#1a1a1a' }}>NAS 진척자료 자동 연결</div>
+                                        <div style={{ fontSize: 11.5, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>{pickProjectName(exRow)}</div>
+                                    </div>
+                                </div>
+                                <button onClick={closeAllExt} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 4 }}><X size={18}/></button>
+                            </div>
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
+                                <div style={{ fontSize: 11.5, color: '#475569', background: '#f0f7ff', border: '1px solid #cfe3f7', borderRadius: 7, padding: '8px 11px', marginBottom: 12, lineHeight: 1.55 }}>
+                                    원본은 NAS 폴더의 최신 엑셀 하나입니다. 직원들은 평소처럼 열어 <b>수정·저장만</b> 하면 되고,
+                                    이 화면을 여는 PC가 최신 파일을 읽어 <b>바뀐 값만 확인 후 자동 반영</b>합니다. (파일 복사본은 올리지 않음 · 읽기 전용)
+                                </div>
+
+                                <div style={{ marginBottom: 13 }}>
+                                    <div style={secT}>① NAS 폴더 주소 (전 직원 공통 · 표시용)</div>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <input style={{ ...inSt, background: isAdmin ? '#fff' : '#f8fafc' }} readOnly={!isAdmin} title={extPathDraft !== null ? extPathDraft : (ex.uncPath || '')}
+                                            placeholder="\\neconsys_pj\001 Project\..."
+                                            value={extPathDraft !== null ? extPathDraft : (ex.uncPath || '')}
+                                            onChange={e => isAdmin && setExtPathDraft(e.target.value)}/>
+                                        <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')}
+                                            onClick={() => { const v = extPathDraft !== null ? extPathDraft : (ex.uncPath || ''); if (v) { navigator.clipboard?.writeText(v); setAlertMsg('경로가 복사되었습니다.\n탐색기 주소창에 붙여넣으면 폴더가 열립니다.'); setTimeout(() => setAlertMsg(''), 2500); } }}>복사</button>
+                                        {isAdmin && extPathDraft !== null && extPathDraft !== (ex.uncPath || '') && (
+                                            <button style={bSt('#059669', '#059669', '#fff')} onClick={async () => { await extSaveSync(exRow, { uncPath: extPathDraft }); setExtPathDraft(null); }}>저장</button>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                        <input style={inSt} title={extLocalDraft !== null ? extLocalDraft : extLocalBase()}
+                                            placeholder="이 PC용 주소(선택) — 예: Z:\001 Project\...\01 진척자료 (내 별명 드라이브)"
+                                            value={extLocalDraft !== null ? extLocalDraft : extLocalBase()}
+                                            onChange={e => setExtLocalDraft(e.target.value)}/>
+                                        {extLocalDraft !== null && (
+                                            <button style={bSt('#059669', '#059669', '#fff')} onClick={() => { try { localStorage.setItem(extLocalKey, String(extLocalDraft || '').trim()); } catch (er) {} setExtLocalDraft(null); setAlertMsg('이 PC용 주소 저장 완료!\n(이 PC에서만 사용 — 열기·경로 복사가 이 주소를 우선 씁니다)'); setTimeout(() => setAlertMsg(''), 2500); }}>저장</button>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>회사 주소(\\neconsys_pj)가 이 PC에서 안 열리면, 아래 칸에 내 드라이브 별명 주소(Z:\...)를 넣어두세요 — [원본 파일 열기]·[파일 경로 복사]가 이 주소를 우선 사용합니다.</div>
+                                </div>
+
+                                <div style={{ marginBottom: 13 }}>
+                                    <div style={secT}>② 자동 반영 규칙 (클라우드 공유 — 모든 PC 동일)</div>
+                                    {exRules.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 2px' }}>등록된 규칙 없음{isAdmin ? ' — 아래 [규칙 추가]로 등록하세요' : ''}</div>}
+                                    {exRules.map((r, i) => (
+                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', marginBottom: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7 }}>
+                                            <span style={{ fontSize: 12.5, fontWeight: 800, color: '#0369a1', whiteSpace: 'nowrap' }}>{r.target}</span>
+                                            <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                title={r.type === 'subTable' ? `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 공종별 6항목%+총점, 부모 총계 5항목%+누적` : `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 셀 ${(r.cells || []).join(', ')} ${r.op === 'sum' ? '합계' : '평균'}`}>
+                                                {r.type === 'subTable'
+                                                    ? <>← '{r.filePattern}' 최신 파일 · 시트 '{r.sheet}' · 공종 하위행 자동생성+6항목%·총점, 부모 5항목%·누적(HMI=기준정보생성)</>
+                                                    : <>← '{r.filePattern}' 최신 파일 · 시트 '{r.sheet}' · {(r.cells || []).join(',')} {r.op === 'sum' ? '합계' : '평균'}</>}
+                                            </span>
+                                            {isAdmin && <button style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', padding: 2, fontWeight: 800 }} title="규칙 삭제"
+                                                onClick={() => { if (window.confirm(`'${r.target}' 자동 규칙을 삭제할까요?\n(잠금이 풀리고 직접 수정 가능해집니다)`)) extSaveSync(exRow, { rules: exRules.filter((_, j) => j !== i) }); }}>✕</button>}
+                                        </div>
+                                    ))}
+                                    {isAdmin && !extRuleDraft && (
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            <button style={bSt('#f0f7ff', '#bcd6f0', '#1358a0')}
+                                                onClick={() => setExtRuleDraft({ target: 'PLC', filePattern: '01 진행현황', sheet: '#1 L1 진행현황', cells: 'L5,M5,L14,M14', op: 'avg', decimals: 1 })}>+ 규칙 추가</button>
+                                            {!exRules.some(r => r.type === 'subTable') && (
+                                                <button style={bSt('#f5f0ff', '#c9b3f0', '#6d28d9')}
+                                                    title="파일2(진척자료_YYMMDD) 진척률요약(Main) — 공종 8개 하위 행 자동 생성/갱신 + 부모 총계 반영"
+                                                    onClick={async () => {
+                                                        await extSaveSync(exRow, { rules: [...exRules, EXT_SUBTABLE_PRESET] });
+                                                        setAlertMsg('하위 공종표 규칙 등록 완료!\n\n[지금 확인]을 누르면 공종 하위 행 생성/갱신과\n부모 총계 반영 미리보기가 뜹니다.');
+                                                    }}>+ 하위 공종표 규칙 (파일2)</button>
+                                            )}
+                                        </div>
+                                    )}
+                                    {isAdmin && extRuleDraft && (
+                                        <div style={{ border: '1px dashed #7bb8e8', borderRadius: 8, padding: '10px 12px', marginTop: 4, background: '#fbfdff' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '96px 1fr', gap: '7px 8px', alignItems: 'center', fontSize: 12 }}>
+                                                <span style={{ color: '#475569', fontWeight: 700 }}>들어갈 칸</span>
+                                                <select style={inSt} value={extRuleDraft.target} onChange={e => setExtRuleDraft(d => ({ ...d, target: e.target.value }))}>
+                                                    {EXT_TARGET_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                                <span style={{ color: '#475569', fontWeight: 700 }}>파일 이름 조각</span>
+                                                <input style={inSt} value={extRuleDraft.filePattern} onChange={e => setExtRuleDraft(d => ({ ...d, filePattern: e.target.value }))} placeholder="예: 01 진행현황 (이 글자가 든 최신 파일)"/>
+                                                <span style={{ color: '#475569', fontWeight: 700 }}>시트 이름</span>
+                                                <input style={inSt} value={extRuleDraft.sheet} onChange={e => setExtRuleDraft(d => ({ ...d, sheet: e.target.value }))} placeholder="예: #1 L1 진행현황"/>
+                                                <span style={{ color: '#475569', fontWeight: 700 }}>셀 주소들</span>
+                                                <input style={inSt} value={extRuleDraft.cells} onChange={e => setExtRuleDraft(d => ({ ...d, cells: e.target.value }))} placeholder="예: L5,M5,L14,M14 또는 F24:M25 (범위 가능, 쉼표 구분)"/>
+                                                <span style={{ color: '#475569', fontWeight: 700 }}>계산</span>
+                                                <div style={{ display: 'flex', gap: 6 }}>
+                                                    <select style={{ ...inSt, width: 110 }} value={extRuleDraft.op} onChange={e => setExtRuleDraft(d => ({ ...d, op: e.target.value }))}>
+                                                        <option value="avg">평균</option><option value="sum">합계</option>
+                                                    </select>
+                                                    <select style={{ ...inSt, width: 130 }} value={extRuleDraft.decimals} onChange={e => setExtRuleDraft(d => ({ ...d, decimals: Number(e.target.value) }))}>
+                                                        <option value={0}>정수(90)</option><option value={1}>소수 1자리(89.6)</option><option value={2}>소수 2자리</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 9 }}>
+                                                <button style={bSt('#fff', '#cbd5e1', '#475569')} onClick={() => setExtRuleDraft(null)}>취소</button>
+                                                <button style={bSt('#059669', '#059669', '#fff')} onClick={async () => {
+                                                    const cs = String(extRuleDraft.cells || '').split(',').map(s => s.trim().toUpperCase()).filter(s => /^[A-Z]{1,3}\d{1,5}(:[A-Z]{1,3}\d{1,5})?$/.test(s));   // 단일 셀 + 범위(F24:M25) 허용 (2026-07-22)
+                                                    if (!cs.length) { setAlertMsg('셀 주소를 확인하세요 (예: L5,M5,L14,M14)'); return; }
+                                                    if (!String(extRuleDraft.sheet || '').trim()) { setAlertMsg('시트 이름을 입력하세요'); return; }
+                                                    if (exRules.some(r => String(r.target) === String(extRuleDraft.target))) { setAlertMsg(`'${extRuleDraft.target}' 규칙이 이미 있습니다. 기존 규칙을 삭제 후 추가하세요.`); return; }
+                                                    await extSaveSync(exRow, { rules: [...exRules, { target: extRuleDraft.target, filePattern: String(extRuleDraft.filePattern || '').trim(), sheet: String(extRuleDraft.sheet).trim(), cells: cs, op: extRuleDraft.op, decimals: extRuleDraft.decimals }] });
+                                                    setExtRuleDraft(null);
+                                                    setAlertMsg(`규칙 저장 완료!\n${extRuleDraft.target} ← 시트 '${extRuleDraft.sheet}' ${cs.join(',')} ${extRuleDraft.op === 'sum' ? '합계' : '평균'}\n\n이제 아래 ③에서 [폴더 지정]을 해주세요.`);
+                                                }}>규칙 저장</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div style={{ marginBottom: 13 }}>
+                                    <div style={secT}>③ 이 PC 연결 (폴더 읽기 허가증 — PC마다 1회)</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, fontSize: 12, color: '#334155' }}>
+                                        <span style={{ width: 9, height: 9, borderRadius: '50%', background: dotColor, flexShrink: 0 }}/>
+                                        <span style={{ flex: 1, minWidth: 0 }}>
+                                            {st ? (st.msg || st.state) : '아직 확인 안 함'}
+                                            {st?.fileName ? <span style={{ color: '#94a3b8' }}> · {st.fileName}</span> : null}
+                                            {st?.checkedAt ? <span style={{ color: '#b6c2d0' }}> · {new Date(st.checkedAt).toLocaleTimeString()}</span> : null}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        <button style={bSt('#1e7ac8', '#1e7ac8', '#fff')} disabled={extBusy} onClick={() => extPickFolder(exRow)}>폴더 지정/변경</button>
+                                        <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} disabled={extBusy} onClick={async () => {
+                                            if (!extRulesOf(exRow).length) { setAlertMsg('아직 자동 반영 규칙이 없습니다.\n\n위 ② [+ 규칙 추가] → [규칙 저장]을 먼저 해주세요.\n(폼에 파일1 규칙이 미리 채워져 있습니다)'); return; }
+                                            const ps = await extCheckRow(exRow, { silent: false });
+                                            if (ps.length) setExtProposals(ps);
+                                            else { const s2 = extStatus[exRow._id]; if (!s2 || s2.state === 'ok') { setAlertMsg('확인 완료 — 변경 없음 (메인표가 최신)'); setTimeout(() => setAlertMsg(''), 2500); } }
+                                        }}>{extBusy ? '확인 중...' : '지금 확인'}</button>
+                                        <button style={bSt('#fff', '#e2c4c4', '#b91c1c')} disabled={extBusy} onClick={async () => { await extIdbDel(extHandleKey(exRow._id)); extSetStatus(exRow._id, { state: 'nofolder', msg: '이 PC 지정 해제됨' }); }}>이 PC 지정 해제</button>
+                                    </div>
+                                    {(() => {
+                                        const seen = {};
+                                        const files = [];
+                                        (st && st.files ? st.files : []).forEach(f => { if (f && f.rel && !seen[f.rel]) { seen[f.rel] = 1; files.push(f); } });
+                                        Object.values(ex.lastApplied || {}).forEach(v => { if (v && v.rel && !seen[v.rel]) { seen[v.rel] = 1; files.push({ name: v.fileName, rel: v.rel }); } });
+                                        if (!files.length) return null;
+                                        return (
+                                            <div style={{ marginTop: 9 }}>
+                                                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>찾은 원본 파일 — [경로 복사] → Win+R(또는 탐색기 주소창) 붙여넣고 엔터</div>
+                                                {files.map((f, i) => (
+                                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 9px', marginBottom: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+                                                        <FileSpreadsheet size={13} style={{ color: '#1e7ac8', flexShrink: 0 }}/>
+                                                        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel}>{f.name}</span>
+                                                        <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} onClick={() => {
+                                                            if (!extBase()) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
+                                                            navigator.clipboard?.writeText('"' + extJoin(extBase(), f.rel) + '"');
+                                                            setAlertMsg(`'${f.name}'\n경로가 복사되었습니다 (따옴표 포함).\nWin+R 또는 탐색기 주소창에 붙여넣고 엔터 → 엑셀이 열립니다.`);
+                                                            setTimeout(() => setAlertMsg(''), 3000);
+                                                        }}>경로 복사</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
+                                    <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 7, lineHeight: 1.5 }}>
+                                        담당 PC 한 대만 지정해도 그 PC에서 List를 열 때마다 팀 전체 값이 최신으로 유지됩니다.<br/>
+                                        지정한 폴더의 <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) — 프로젝트 진척자료 폴더 하나만 지정하면 됩니다.<br/>
+                                        브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.
+                                    </div>
+                                </div>
+
+                                {ex.lastApplied && Object.keys(ex.lastApplied).length > 0 && (
+                                    <div>
+                                        <div style={secT}>④ 마지막 자동 반영</div>
+                                        {Object.entries(ex.lastApplied).map(([k, v]) => (
+                                            <div key={k} style={{ fontSize: 11.5, color: '#475569', padding: '3px 2px' }}>
+                                                <b style={{ color: '#0369a1' }}>{k}</b> = {String(v.value)} · <span style={{ color: '#94a3b8' }}>{v.fileName}</span> · {v.at ? new Date(v.at).toLocaleString() : ''}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* 진행현황 관리 모달 (2026-07-06 2단계) */}
             {statusMgr && (
@@ -2629,7 +3256,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <span className="text-[11px] font-bold text-gray-500 mr-1">기준연도:</span>
                             <select
                                 value={selectedYear}
-                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); }}
+                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); setActiveManagers(new Set()); }}
                                 className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer">
                                 {(availableYears.length ? availableYears : [selectedYear]).map(y => <option key={y} value={y}>{y}년</option>)}
                             </select>
@@ -2939,6 +3566,31 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             )}
                             {/* 구분선 */}
                             {assigneeFilterCol && <div style={{ width: '1px', height: '18px', backgroundColor: '#c4ccd8', margin: '0 4px', flexShrink: 0 }}/>}
+                            {/* 관리자 (2026-07-22 팀장님 — 담당자와 동일 형식, 담당자 앞) */}
+                            {managerFilterCol && managerChips.length > 0 && (<>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>관리자</span>
+                                <button onClick={() => setActiveManagers(new Set())}
+                                    style={{ padding: '3px 8px', fontSize: '11px', fontWeight: activeManagers.size === 0 ? 800 : 600, backgroundColor: activeManagers.size === 0 ? 'rgba(30,122,200,0.12)' : '#fff', color: activeManagers.size === 0 ? '#1358a0' : '#888', border: activeManagers.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer' }}>
+                                    전체
+                                </button>
+                                {managerChips.map(({ key, label, count }) => {
+                                    const isActive = activeManagers.has(label);
+                                    return (
+                                        <button key={key}
+                                            onClick={() => setActiveManagers(prev => { const n = new Set(prev); if (n.has(label)) n.delete(label); else n.add(label); return n; })}
+                                            style={{ padding: '3px 8px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? 'rgba(30,122,200,0.12)' : '#fff', color: isActive ? '#1358a0' : '#888', border: isActive ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
+                                            {label}
+                                            <span style={{ fontSize:'10px', opacity:0.8 }}>({count})</span>
+                                        </button>
+                                    );
+                                })}
+                                {activeManagers.size > 0 && (
+                                    <button onClick={() => setActiveManagers(new Set())}
+                                        style={{ fontSize: '10px', fontWeight: 700, color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                        <X size={10}/> 초기화
+                                    </button>
+                                )}
+                            </>)}
                             {/* 담당자 */}
                             {assigneeFilterCol && (<>
                                 <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>담당자</span>
@@ -3142,12 +3794,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     onClick={e=>{
                                                         e.stopPropagation();
                                                         if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
+                                                        if (isExtLockedCell(row, h)) { setAlertMsg(`'${h}' 칸은 NAS 진척자료에서 자동으로 들어옵니다.\n수정은 NAS 원본 엑셀에서 하세요.\n(관리 칸의 NAS 버튼 = 상태 확인·새로고침)`); return; }   // NAS 자동 칸 잠금 (2026-07-22)
                                                         const closeAll = () => { setStatusDropdown(null); setAssigneeDropdown(null); setClientDropdown(null); setVendorDropdown(null); };
                                                         if (isStatusCol(h)) {
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setStatusDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 120), ...dropAnchor(rect, e.clientY) });
-                                                        } else if (isAssigneeCol(h)) {
+                                                        } else if (isAssigneeCol(h) || isManagerCol(h)) {   // 관리자 = 담당자와 같은 드롭다운 (2026-07-22)
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setAssigneeDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 160), ...dropAnchor(rect, e.clientY) });
@@ -3229,6 +3882,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 className="p-1.5 hover:bg-indigo-500/20 rounded text-slate-500 hover:text-indigo-400 transition-colors"
                                                                 title="주간보고 연결 (엑셀 첨부)">
                                                                 <Link size={13}/>
+                                                            </button>
+                                                        )}
+                                                        {(extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (
+                                                            <button onClick={e => { e.stopPropagation(); setExtModalRowId(row._id); }}
+                                                                className="p-1.5 hover:bg-sky-500/20 rounded transition-colors"
+                                                                title={(() => { const st = extStatus[row._id]; if (!extRulesOf(row).length) return 'NAS 진척자료 자동 연결 (규칙 등록)'; return 'NAS 자동: ' + (st ? (st.msg || st.state) : '연결됨 — 클릭하여 상태 확인'); })()}>
+                                                                <HardDrive size={13} color={(() => { const st = extStatus[row._id]; if (!extRulesOf(row).length) return '#94a3b8'; if (!st) return '#64748b'; return st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#64748b'; })()}/>
                                                             </button>
                                                         )}
                                                         <button onClick={e => { e.stopPropagation(); confirmSaveRow(row); }}
