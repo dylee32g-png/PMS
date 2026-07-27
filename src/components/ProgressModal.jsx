@@ -1389,8 +1389,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                         {DISP_WEEKS.map(({ key, year, month, week }) => {
                                             const isCur = isCurrentWeek(year, month, week);
                                             const extraCls = key === startWKey ? 'pw-start' : key === endWKey ? 'pw-end' : '';
-                                            return <th key={key} className={extraCls} style={{ ...TH, fontSize:10, padding:'3px 0',
-                                                color: isCur?'#d97706':'#9ca3af', background: isCur?'#fef3c7':'#f8fafc', fontWeight: isCur?800:600 }}>W{week}</th>;
+                                            // 주차는 '날짜로 자른' 구간이라 달력 주(월~일)와 다르다 → 날짜 범위를 같이 보여줘 혼동 제거 (2026-07-27 팀장님)
+                                            const dayR = ['1~7', '8~14', '15~21', '22~28', '29~'][week - 1] || '';
+                                            return <th key={key} className={extraCls}
+                                                title={`${month}월 ${week}주 = ${dayR}일${isCur ? ' (오늘이 속한 주)' : ''}`}
+                                                style={{ ...TH, fontSize:10, padding:'2px 0', lineHeight:1.15,
+                                                color: isCur?'#d97706':'#9ca3af', background: isCur?'#fef3c7':'#f8fafc', fontWeight: isCur?800:600 }}>
+                                                W{week}
+                                                <div style={{ fontSize:7.5, fontWeight:600, letterSpacing:'-0.4px', color: isCur?'#b45309':'#c3cad4' }}>{dayR}</div>
+                                            </th>;
                                         })}
                                     </tr>
                                 </thead>
