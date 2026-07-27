@@ -34,3 +34,6 @@ yarn-error.log*
 *.xlsx
 PMS백업_*.json
 커밋메시지_*.txt
+
+# 작업용 임시 폴더 (Claude 패치 스크립트 등 — 삭제해도 무방, 2026-07-27)
+_to_delete/

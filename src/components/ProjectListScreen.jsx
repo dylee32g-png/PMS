@@ -37,6 +37,16 @@ const colWidthsKey = (team) => `pms_list_colWidths_${team || 'default'}`;
 const loadColWidths = (team) => { try { const raw = localStorage.getItem(colWidthsKey(team)); const o = raw ? JSON.parse(raw) : {}; return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } catch (e) { return {}; } };
 const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(team), JSON.stringify(obj || {})); } catch (e) {} };
 
+// (2026-07-27) 메인 PC 자동 반영 — 항상 켜져 있는 공용 PC 1대를 '메인 PC'로 지정하면
+//   30분마다 NAS를 조용히 다시 읽어 값 갱신을 자동 저장한다(하위 행 '신규 생성'만 확인창).
+//   이 PC 한정(localStorage) — 클라우드 공유가 아니라 여러 대를 메인으로 둬도 서로 안 부딪힘(같은 값을 쓰므로).
+const EXT_MAINPC_KEY = 'pms_ext_mainpc';
+const EXT_AUTO_MS = 30 * 60 * 1000;                       // 자동 검사 간격 30분 (2026-07-27 팀장님 확정)
+const EXT_TICK_MS = 60 * 1000;                            // 1분 심장박동 — 절전·백그라운드 지연을 벽시계로 따라잡음
+const loadMainPc = () => { try { return localStorage.getItem(EXT_MAINPC_KEY) === '1'; } catch (e) { return false; } };
+const saveMainPc = (v) => { try { if (v) localStorage.setItem(EXT_MAINPC_KEY, '1'); else localStorage.removeItem(EXT_MAINPC_KEY); } catch (e) {} };
+const extHHMM = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
 // (2026-07-22) NAS 폴더 핸들(읽기 허가증) IndexedDB — 이 PC 브라우저 한정.
 //   규칙·경로는 클라우드(행 _extSync)로 공유하고, 실제 파일 접근 허가증(핸들)만 PC별로 보관한다.
 const openExtIDB = () => new Promise((res, rej) => {
@@ -68,6 +78,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extStatus, setExtStatus] = useState({});             // { rowId: {state,msg,fileName,value,checkedAt} }
     const [extBusy, setExtBusy] = useState(false);
     const [extProposals, setExtProposals] = useState(null);     // 변경 감지 → 반영 확인창 목록
+    // ── 메인 PC 자동 반영 (2026-07-27) ────────────────────────────────────
+    const [extMainPc, setExtMainPc]       = useState(loadMainPc);   // 이 PC가 메인 PC인가 (이 PC에만 저장)
+    const [extToast, setExtToast]         = useState('');           // 자동 반영 알림 — 모달과 달리 화면을 안 막음
+    const [extToastWarn, setExtToastWarn] = useState(false);
+    const [extLastAuto, setExtLastAuto]   = useState('');           // 마지막 자동 검사 시각 HH:MM (설정 메뉴 표시)
+    const extStatusRef   = useRef({});                              // extStatus 즉시 읽기용 (setState 지연 회피)
+    const extAutoFnRef   = useRef(null);                            // 타이머가 부를 '최신' 실행 함수
+    const extLastRunRef  = useRef(0);                               // 마지막 자동 실행 시각(벽시계)
+    const extToastTimerRef = useRef(null);
+    const showExtToast = (msg, warn = false) => {
+        setExtToast(msg); setExtToastWarn(!!warn);
+        if (extToastTimerRef.current) clearTimeout(extToastTimerRef.current);
+        extToastTimerRef.current = setTimeout(() => setExtToast(''), warn ? 30000 : 12000);
+    };
     const [extRuleDraft, setExtRuleDraft] = useState(null);     // 규칙 추가 폼(관리자)
     const [extPathDraft, setExtPathDraft] = useState(null);     // 경로 입력 중 값(관리자, null=표시 모드)
     const [extLocalDraft, setExtLocalDraft] = useState(null);   // 이 PC용 주소(드라이브 별명) 입력 중 값 — localStorage 저장 (2026-07-22)
@@ -958,7 +982,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   바뀐 값만 '미리보기 → 반영' 확인창을 거쳐 메인표 + 주간 진행실적 장부에 기록한다.
     const extSupported = typeof window !== 'undefined' && !!window.showDirectoryPicker;
     const extHandleKey = (rowId) => `${currentTeam}_${rowId}`;
-    const extSetStatus = (rowId, st) => setExtStatus(prev => ({ ...prev, [rowId]: { ...st, checkedAt: new Date().toISOString() } }));
+    const extSetStatus = (rowId, st) => {
+        const v = { ...st, checkedAt: new Date().toISOString() };
+        extStatusRef.current = { ...extStatusRef.current, [rowId]: v };   // 자동 반영이 곧바로 읽음 (2026-07-27)
+        setExtStatus(prev => ({ ...prev, [rowId]: v }));
+    };
     // 행별 잠금 열 — 자기 규칙 + (하위 행이면) 부모의 공종표 규칙 항목들, (부모면) 공종표의 부모 항목·누적·통합시운전 (2026-07-22)
     const extLockedColsRow = (row) => {
         const own = extLockedColsOf(row).filter(t => t !== '하위 공종표');
@@ -1133,7 +1161,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     // 반영 — 메인표 값(도장+이력+백로그) + 주간 진행실적 장부(현재 주차) + 그래프 갱신 + 반영 기록
-    const extApplyProposals = async (list) => {
+    const extApplyProposals = async (list, opts = {}) => {   // opts.auto = 메인 PC 무인 반영 (2026-07-27)
         if (!list || !list.length) return;
         setExtBusy(true);
         try {
@@ -1272,8 +1300,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             });
             const _shown = _lines.slice(0, 8).join('\n');
             const _more = _lines.length > 8 ? `\n· … 외 ${_lines.length - 8}건 (전체 내역은 백로그에서 확인)` : '';
-            setAlertMsg(`NAS 진척자료 반영 완료! (총 ${list.length}건)\n\n${_shown}${_more}\n\n주간 진행실적 장부에도 함께 기록되었습니다.`);
-        } catch (e) { setAlertMsg('NAS 반영 오류: ' + e.message); }
+            // 자동(메인 PC)일 땐 모달 대신 구석 토스트 — 무인 PC에 확인창이 쌓이면 다음 검사가 막힌다 (2026-07-27)
+            if (opts.auto) {
+                const _t = _lines.slice(0, 3).join('\n') + (_lines.length > 3 ? `\n· … 외 ${_lines.length - 3}건` : '');
+                showExtToast(`자동 반영 ${list.length}건 · ${extHHMM(new Date())}\n${_t}`);
+            } else setAlertMsg(`NAS 진척자료 반영 완료! (총 ${list.length}건)\n\n${_shown}${_more}\n\n주간 진행실적 장부에도 함께 기록되었습니다.`);
+        } catch (e) { if (opts.auto) showExtToast('NAS 반영 오류: ' + e.message, true); else setAlertMsg('NAS 반영 오류: ' + e.message); }
         finally { setExtBusy(false); setExtProposals(null); }
     };
 
@@ -1294,6 +1326,45 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         extCheckAll({ silent: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dataSource, currentTeam, fbRows]);
+
+    // ── 메인 PC 주기 자동 반영 (2026-07-27, 30분) ─────────────────────────────
+    //   값 갱신(%·포인트·누적·하위 값 갱신)은 확인 없이 자동 저장.
+    //   하위 행 '신규 생성'만 확인창을 남긴다 — 데이터가 늘어나는 일은 사람 눈으로 한 번 본다(팀장님 확정).
+    const extAutoRun = async () => {
+        if (!extMainPc || extBusy || dataSource !== 'firebase') return;
+        if (extProposals && extProposals.length) return;                 // 확인창이 떠 있으면 다음 차례로 미룸
+        const targets = fbRows.filter(r => extRulesOf(r).length);
+        if (!targets.length) return;
+        const all = [];
+        setExtBusy(true);
+        try {
+            for (const r of targets) { const ps = await extCheckRow(r, { silent: true }); all.push(...ps); }
+        } finally { setExtBusy(false); setExtLastAuto(extHHMM(new Date())); }
+        // 폴더 허가증 만료·오류는 조용히 넘기지 않는다 — 공용 PC는 아무도 안 보고 있을 수 있음
+        const bad = targets.filter(r => ['perm', 'nofolder', 'error'].includes((extStatusRef.current[r._id] || {}).state));
+        if (bad.length) showExtToast(`NAS 자동 확인 실패 ${bad.length}건 (${extHHMM(new Date())})\n관리 칸의 NAS 버튼 → [지금 확인]으로 폴더 읽기를 다시 허용해주세요.`, true);
+        if (!all.length) return;
+        const autoList = all.filter(p => p.kind !== 'subCreate');
+        const askList  = all.filter(p => p.kind === 'subCreate');
+        if (autoList.length) await extApplyProposals(autoList, { auto: true });
+        if (askList.length) setExtProposals(askList);                    // 하위 신규 생성 → 확인창 유지
+    };
+    extAutoFnRef.current = extAutoRun;   // 매 렌더마다 최신 함수로 교체 (타이머는 아래에서 딱 1번만 건다)
+
+    //   1분 심장박동 + 벽시계 비교 방식: 크롬이 백그라운드 탭 타이머를 늦추거나
+    //   PC가 잠깐 절전에 들어가도, 깨어나는 즉시 밀린 검사를 따라잡는다.
+    useEffect(() => {
+        if (!extMainPc) return;
+        if (!extLastRunRef.current) extLastRunRef.current = Date.now();   // 화면 진입 1회 검사 직후이므로 30분 뒤부터
+        const tick = () => {
+            const now = Date.now();
+            if (now - (extLastRunRef.current || 0) < EXT_AUTO_MS) return;
+            extLastRunRef.current = now;
+            try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {}
+        };
+        const t = setInterval(tick, EXT_TICK_MS);
+        return () => clearInterval(t);
+    }, [extMainPc]);
 
     // ── 일회성: 메인표 공정률(%) → 진행실적 주간 장부 '심기' (2026-07-21) ────────────
     //   엑셀 업로드는 표 칸만 채우고 주간 장부(progressRecords)는 안 채워, 진행실적 팝업·그래프가 비어 보인다.
@@ -2367,6 +2438,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-sm">
                     <div className="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_rgba(16,185,129,0.4)]"/>
                     <p className="text-lg font-bold text-white">처리 중...</p>
+                </div>
+            )}
+
+            {/* NAS 자동 반영 토스트 (2026-07-27) — 화면을 막지 않는 구석 알림. 무인 공용 PC 운전용 */}
+            {extToast && (
+                <div className="fixed z-[9700]" style={{ right: 16, bottom: 16, maxWidth: 380 }}>
+                    <div className="shadow-2xl" style={{ background: '#fff', border: `1.5px solid ${extToastWarn ? '#f2b8b8' : '#a9e2cd'}`, borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ background: extToastWarn ? '#dc2626' : '#059669', padding: '7px 12px', color: '#fff', fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <HardDrive size={13}/> {extToastWarn ? 'NAS 자동 확인 경고' : 'NAS 자동 반영'}
+                            <button onClick={() => setExtToast('')} style={{ marginLeft: 'auto', color: '#fff', fontWeight: 800, cursor: 'pointer', lineHeight: 1, fontSize: 12 }}>✕</button>
+                        </div>
+                        <div style={{ padding: '10px 13px', fontSize: 12, color: '#1e293b', whiteSpace: 'pre-line', lineHeight: 1.6 }}>{extToast}</div>
+                    </div>
                 </div>
             )}
 
@@ -3457,6 +3541,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
                                     </button>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    {/* 메인 PC 자동 반영 (2026-07-27) — ★관리자 전용 메뉴.
+                                        공용 PC에서 관리자가 한 번 켜두면 설정은 이 PC(localStorage)에 남는다.
+                                        → 이후 일반 계정으로 바꿔 로그인해도 자동 반영은 계속 돈다(실행에는 isAdmin 가드 없음). */}
+                                    <button onClick={() => {
+                                            const nv = !extMainPc; setExtMainPc(nv); saveMainPc(nv); setSettingsOpen(false);
+                                            extLastRunRef.current = Date.now();
+                                            if (nv) { showExtToast('이 PC가 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.\n(List 화면을 켜둔 상태여야 합니다)'); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
+                                            else showExtToast('메인 PC 지정을 해제했습니다. 자동 반영이 멈춥니다.');
+                                        }}
+                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${extMainPc ? 'text-emerald-700' : 'text-[#333]'}`}>
+                                        <HardDrive size={14} className={extMainPc ? 'text-emerald-600' : 'text-[#999]'}/>
+                                        이 PC를 메인 PC로 지정
+                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{extMainPc ? `켜짐 · 30분마다${extLastAuto ? ` · ${extLastAuto} 확인` : ''}` : '꺼짐'}</span>
+                                    </button>
                                     </>)}
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
@@ -3914,6 +4013,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''} ·
                             주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
+                            {/* 메인 PC 표시 (2026-07-27) — 관리자 메뉴가 안 보이는 일반 계정도 이 PC의 자동 반영 여부를 알 수 있게 */}
+                            {extMainPc && (
+                                <span className="ml-3 font-bold" style={{ color: '#059669' }}
+                                    title={`이 PC가 메인 PC입니다. 30분마다 NAS 진척자료를 확인해 자동 반영합니다.${extLastAuto ? `\n마지막 확인 ${extLastAuto}` : ''}\n(끄기: 관리자 계정 → 설정 메뉴)`}>
+                                    · ● 메인 PC 자동 반영 중{extLastAuto ? ` (${extLastAuto} 확인)` : ''}
+                                </span>
+                            )}
                         </span>
                         {dataSource !== 'firebase' && (
                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${srcBadge.bg} ${srcBadge.text}`}>

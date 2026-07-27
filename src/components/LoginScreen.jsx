@@ -4,6 +4,11 @@ import { LayoutGrid, Mail, LogIn, AlertCircle, CheckCircle, Users, Lock, Chevron
 const LS_LAST_EMAIL = 'pms_last_email';
 const LS_STAY_LOGGED_IN = 'pms_stay_logged_in';   // 지난번 '로그인 유지' 선택 기억 (2026-07-14)
 
+// (2026-07-27 팀장님) 구글 로그인 버튼 표시 여부.
+//   직원은 전원 회사 메일 링크로 로그인 → 선택지가 늘면 혼동만 된다. 지금은 숨김.
+//   되살리려면 이 값만 true 로 바꾸면 됨(코드는 그대로 살아 있음. 로그인 방식 자체는 Firebase 콘솔 설정이라 별개).
+const SHOW_GOOGLE_LOGIN = false;
+
 const GoogleIcon = () => (
     <svg width="18" height="18" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -128,6 +133,8 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
                                 {loading ? '처리 중...' : '로그인 링크 받기'}
                             </button>
 
+                            {/* ── 구글 로그인 (2026-07-27 숨김) — SHOW_GOOGLE_LOGIN 만 true 로 되돌리면 원래대로 ── */}
+                            {SHOW_GOOGLE_LOGIN && (<>
                             {/* ── 또는 ── */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <div style={{ flex: 1, height: '1px', backgroundColor: border }} />
@@ -141,6 +148,7 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
                                 onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#fff'; }}>
                                 <GoogleIcon /> Google 계정으로 로그인
                             </button>
+                            </>)}
 
                             {/* ── 또는 ── */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -214,7 +222,7 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
 
                 {/* 푸터 */}
                 <div style={{ padding: '11px 24px', backgroundColor: '#f7f9fb', borderTop: `1px solid ${border}`, textAlign: 'center', fontSize: '11px', color: '#aaa' }}>
-                    비밀번호 없이 이메일 링크 또는 Google 계정으로 로그인합니다.
+                    {SHOW_GOOGLE_LOGIN ? '비밀번호 없이 이메일 링크 또는 Google 계정으로 로그인합니다.' : '비밀번호 없이 회사 메일로 받은 로그인 링크로 접속합니다.'}
                 </div>
             </div>
         </div>
