@@ -14,7 +14,7 @@ import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf } from './projectListData';
 
 const VERSION = 'v6.8.7';
@@ -994,7 +994,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const pidStr = String(row._id).replace(/_sub\d+$/, '');
             const par = pidStr !== String(row._id) ? fbRows.find(r => r._id === pidStr) : null;
             const st2 = par ? extRulesOf(par).find(r => r.type === 'subTable') : null;
-            return st2 ? [...own, ...Object.keys(st2.subCols || {}), '포인트', '누적'] : own;
+            const baseSub = [...own, 'PLC', 'ETOS', 'HMI'];   // 하위(공종) 행은 프로젝트 지표 키인 금지 — NAS 잠금과 동일 처리 (2026-07-28 팀장님)
+            return st2 ? [...baseSub, ...Object.keys(st2.subCols || {}), '포인트', '누적'] : baseSub;
         }
         const st2 = extRulesOf(row).find(r => r.type === 'subTable');
         return st2 ? [...own, ...Object.keys(st2.parentCols || {}), '누적', '통합시운전'] : own;
@@ -2019,6 +2020,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     }, [monthFilteredRows, statusFilterCol]);
 
+    // '이름, 이름' 다중 담당자 지원 (2026-07-28 팀장님) — 쉼표 형식 + 옛 형식 모두 사람별로 나눠 취급
+    const splitAssignees = (v) => splitAssigneeCell(v);
+    const assigneeKeys = (v) => {   // 같은 사람 중복 표기('김종석 책임'+'김종석C')는 1명으로
+        const seen = new Set(); const out = [];
+        splitAssignees(v).forEach(p => { const k = extractName(normalizeAssignee(p)); if (k && !seen.has(k)) { seen.add(k); out.push(k); } });
+        return out;
+    };
+
     const assigneeFilterCol = useMemo(() =>
         activeHeaders.find(h => h.includes('담당자') && !h.includes('업체')),
     [activeHeaders]);
@@ -2028,8 +2037,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const map = {};
         monthFilteredRows.forEach(r => {
             if (isSubListRow(r)) return;   // 하위 제외 — 부모와 담당자 같아 이중 계산 방지 (2026-07-16)
-            const name = extractName(normalizeAssignee(r[assigneeFilterCol] || ''));
-            if (name) map[name] = (map[name] || 0) + 1;
+            assigneeKeys(r[assigneeFilterCol] || '').forEach(name => { map[name] = (map[name] || 0) + 1; });   // 다중 각각 카운트 (2026-07-28)
         });
         return map;
     }, [monthFilteredRows, assigneeFilterCol]);
@@ -2042,13 +2050,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const agg = {};
         monthFilteredRows.forEach(r => {
             if (isSubListRow(r)) return;   // 하위 제외 — 부모 상속이라 이중 계산 방지
-            const raw = String(r[managerFilterCol] || '').trim();
-            if (!raw) return;
-            const key = extractName(normalizeAssignee(raw));
-            if (!key) return;
-            if (!agg[key]) agg[key] = { key, count: 0, labelCnt: {} };
-            agg[key].count += 1;
-            agg[key].labelCnt[raw] = (agg[key].labelCnt[raw] || 0) + 1;
+            splitAssignees(r[managerFilterCol] || '').forEach(raw => {   // 다중 관리자 각각 (2026-07-28)
+                const key = extractName(normalizeAssignee(raw));
+                if (!key) return;
+                if (!agg[key]) agg[key] = { key, count: 0, labelCnt: {} };
+                agg[key].count += 1;
+                agg[key].labelCnt[raw] = (agg[key].labelCnt[raw] || 0) + 1;
+            });
         });
         return Object.values(agg)
             .map(a => ({ key: a.key, count: a.count, label: Object.entries(a.labelCnt).sort((x, y) => y[1] - x[1])[0][0] }))
@@ -2096,11 +2104,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         if (activeAssignees.size > 0 && assigneeFilterCol) {
             const selectedNames = new Set([...activeAssignees].map(extractName));
-            out = out.filter(r => selectedNames.has(extractName(normalizeAssignee(r[assigneeFilterCol]))));
+            out = out.filter(r => assigneeKeys(r[assigneeFilterCol]).some(k => selectedNames.has(k)));
         }
         if (activeManagers.size > 0 && managerFilterCol) {
             const selM = new Set([...activeManagers].map(extractName));
-            out = out.filter(r => selM.has(extractName(normalizeAssignee(r[managerFilterCol]))));
+            out = out.filter(r => assigneeKeys(r[managerFilterCol]).some(k => selM.has(k)));
         }
         if (searchTerm) {
             const t = searchTerm.toLowerCase();
@@ -2111,7 +2119,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (!(vals instanceof Set) || vals.size === 0) return;
             if (isAssigneeCol(col)) {
                 const names = new Set([...vals].map(v => extractName(normalizeAssignee(v))));
-                out = out.filter(r => names.has(extractName(normalizeAssignee(r[col]||''))));
+                out = out.filter(r => assigneeKeys(r[col]||'').some(k => names.has(k)));
             } else {
                 out = out.filter(r => {
                     let v = String(r[col]||'').trim();
@@ -2573,24 +2581,29 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </>
             )}
 
-            {/* 담당자 인라인 드롭다운 */}
+            {/* 담당자 인라인 드롭다운 — '이름, 이름' 다중 선택 토글 (2026-07-28 팀장님) */}
             {assigneeDropdown && (
                 <>
                     <div className="fixed inset-0 z-[350]" onClick={() => setAssigneeDropdown(null)}/>
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
-                        style={{ ...(assigneeDropdown.up ? { bottom: assigneeDropdown.upBottom + 2 } : { top: assigneeDropdown.top + 2 }), left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 160),
-                                 backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
+                        style={{ ...(assigneeDropdown.up ? { bottom: assigneeDropdown.upBottom + 2 } : { top: assigneeDropdown.top + 2 }), left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 180),
+                                 backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'300px', overflowY:'auto' }}>
+                        <div style={{ padding:'5px 12px', fontSize:'10.5px', fontWeight:700, color:'#94a3b8', borderBottom:'1px solid #eef2f7', backgroundColor:'#f8fafc' }}>클릭 = 추가/해제 (여러 명 가능) · 바깥 클릭 = 완료</div>
                         {ASSIGNEES.map(name => {
                             const curRaw = activeRows.find(r=>r._id===assigneeDropdown.rowId)?.[assigneeDropdown.col]||'';
-                            const isCur = extractName(normalizeAssignee(curRaw)) === extractName(name);
+                            const parts = splitAssigneeCell(curRaw);
+                            const isCur = parts.some(p => extractName(normalizeAssignee(p)) === extractName(name));
                             return (
                                 <button key={name}
-                                    onClick={() => { commitCellWith(assigneeDropdown.rowId, assigneeDropdown.col, name); setAssigneeDropdown(null); }}
+                                    onClick={() => {
+                                        const next = isCur ? parts.filter(p => extractName(normalizeAssignee(p)) !== extractName(name)) : [...parts, toExcelAssignee(name)];
+                                        commitCellWith(assigneeDropdown.rowId, assigneeDropdown.col, next.join(' '));   // 기존 엑셀 표기: 쉼표 없이 띄어쓰기 (2026-07-28 팀장님)
+                                    }}
                                     style={{ display:'flex', alignItems:'center', gap:'8px', width:'100%', padding:'6px 12px',
                                              backgroundColor: isCur ? '#374151' : 'transparent', border:'none', cursor:'pointer' }}
                                     onMouseEnter={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='rgba(107,114,128,0.1)'; }}
                                     onMouseLeave={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='transparent'; }}>
-                                    <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{name}</span>
+                                    <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{toExcelAssignee(name)}</span>
                                     {isCur && <Check size={11} style={{ marginLeft:'auto', color:'#fff' }}/>}
                                 </button>
                             );
@@ -4004,13 +4017,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 <Link size={13}/>
                                                             </button>
                                                         )}
-                                                        {(extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (
+                                                        {(extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
+                                                            const st = extStatus[row._id];
+                                                            const fill = !extRulesOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
+                                                            return (
                                                             <button onClick={e => { e.stopPropagation(); setExtModalRowId(row._id); }}
                                                                 className="p-1.5 hover:bg-sky-500/20 rounded transition-colors"
-                                                                title={(() => { const st = extStatus[row._id]; if (!extRulesOf(row).length) return 'NAS 진척자료 자동 연결 (규칙 등록)'; return 'NAS 자동: ' + (st ? (st.msg || st.state) : '연결됨 — 클릭하여 상태 확인'); })()}>
-                                                                <HardDrive size={13} color={(() => { const st = extStatus[row._id]; if (!extRulesOf(row).length) return '#94a3b8'; if (!st) return '#64748b'; return st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#64748b'; })()}/>
+                                                                style={fill ? { background: fill } : undefined}
+                                                                title={!fill ? 'NAS 진척자료 자동 연결 (규칙 등록)' : 'NAS 자동: ' + (!st || st.state === 'nofolder' ? '파일 연계 등록됨 — 클릭하여 열기·상태 확인' : (st.msg || st.state))}>
+                                                                <HardDrive size={13} color={fill ? '#fff' : '#94a3b8'}/>
                                                             </button>
-                                                        )}
+                                                            );
+                                                        })()}
                                                         <button onClick={e => { e.stopPropagation(); confirmSaveRow(row); }}
                                                             className="p-1.5 hover:bg-emerald-500/20 rounded text-slate-500 hover:text-emerald-400 transition-colors"
                                                             title="저장">

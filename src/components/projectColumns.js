@@ -84,6 +84,32 @@ export const normalizeAssignee = v => ASSIGNEE_NORMALIZE[String(v||'').trim()] |
 //   목록 '김준혁TL'과 데이터 '김준혁 팀장'을 같은 '김준혁'으로 맞춰 필터·카운트·잠금이 동작하게 함.
 export const extractName = v => String(v||'').replace(/[A-Za-z0-9]+$/, '').trim().split(/\s+/)[0] || '';
 
+// 담당자 저장 표기 통일 (2026-07-28 팀장님) — 목록 코드(C·TL·DD)를 엑셀 원본 직책 표기로.
+//   '김윤재C'→'김윤재 책임', '김준혁TL'→'김준혁 팀장', '최영환DD'→'최영환 담당'. 코드 없으면 그대로.
+export const ASSIGNEE_TITLE_MAP = { C: '책임', TL: '팀장', DD: '담당' };
+export const toExcelAssignee = (v) => {
+    const s = String(v || '').trim();
+    const m = s.match(/^(.+?)([A-Za-z]+)$/);
+    if (!m) return s;
+    const t = ASSIGNEE_TITLE_MAP[m[2].toUpperCase()];
+    return t ? (m[1].trim() + ' ' + t) : s;
+};
+// 담당자 칸 사람별 분리 (2026-07-28) — 쉼표 형식 + 옛 형식('김윤재 책임 김종석 책임') 모두 지원.
+//   직책 단어는 앞 이름에 붙이고, 새 이름이 나오면 새 사람으로 나눈다. (단독 테스트 10/10 통과)
+export const ASSIGNEE_TITLES = ['책임', '팀장', '담당', '사원', '대리', '과장', '차장', '부장', '이사', '수석', '선임', '프로'];
+export const splitAssigneeCell = (v) => {
+    const people = [];
+    String(v || '').split(',').forEach(part => {
+        const local = [];
+        part.trim().split(/\s+/).filter(Boolean).forEach(t => {
+            if (local.length && ASSIGNEE_TITLES.includes(t)) local[local.length - 1] += ' ' + t;
+            else local.push(t);
+        });
+        people.push(...local);
+    });
+    return people;
+};
+
 // 진행현황 표기 통일 (HOLD → Hold). 표시·필터에서 대소문자 통일용 (데이터는 안 바꿈)
 export const normalizeStatus = v => String(v ?? '').toUpperCase() === 'HOLD' ? 'Hold' : String(v ?? '');
 

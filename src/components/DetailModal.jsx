@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutList, Plus, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath, extractName, normalizeAssignee, toExcelAssignee, splitAssigneeCell } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업  +  프로젝트 추가 팝업 (2026-07-13 통합)
@@ -26,6 +26,7 @@ export default function DetailModal({
     extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
+    const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
     if (!detailRow) return null;
     const isAdd = mode === 'add';
     const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
@@ -126,12 +127,30 @@ export default function DetailModal({
                             {withCurrent(STATUS_OPTS, normalizeStatus(val)).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     ) : isAssignee ? (
-                        <select value={val}
-                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
-                            <option value="">—</option>
-                            {withCurrent(ASSIGNEE_OPTS, val).map(a => <option key={a} value={a}>{a}</option>)}
-                        </select>
+                        <div style={{ width:'100%' }}>
+                            <button type="button" onClick={() => setAsgOpen(asgOpen === h ? null : h)}
+                                title="클릭하여 담당자 선택 — 여러 명 가능"
+                                style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color: String(val).trim() ? '#222' : '#aaa', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer', textAlign:'left' }}>
+                                {String(val).trim() || '— 클릭하여 선택'}
+                            </button>
+                            {asgOpen === h && (
+                                <div style={{ display:'flex', flexWrap:'wrap', gap:4, padding:'6px 8px 8px', borderTop:'1px dashed #dbe3ee' }}>
+                                    {ASSIGNEE_OPTS.map(a => {
+                                        const parts = splitAssigneeCell(val);
+                                        const on = parts.some(p => extractName(normalizeAssignee(p)) === extractName(normalizeAssignee(a)));
+                                        return (
+                                            <button key={a} type="button"
+                                                onClick={() => { const next = on ? parts.filter(p => extractName(normalizeAssignee(p)) !== extractName(normalizeAssignee(a))) : [...parts, toExcelAssignee(a)]; setDetailRow(pr => ({ ...pr, [h]: next.join(' ') })); }}
+                                                style={{ padding:'3px 9px', borderRadius:12, fontSize:'11px', fontWeight:700, cursor:'pointer', border:'1px solid ' + (on ? '#059669' : '#cbd5e1'), backgroundColor: on ? '#059669' : '#fff', color: on ? '#fff' : '#475569' }}>
+                                                {on ? '✓ ' : ''}{toExcelAssignee(a)}
+                                            </button>
+                                        );
+                                    })}
+                                    <button type="button" onClick={() => setAsgOpen(null)}
+                                        style={{ padding:'3px 9px', borderRadius:12, fontSize:'11px', fontWeight:700, cursor:'pointer', border:'1px solid #94a3b8', backgroundColor:'#f1f5f9', color:'#475569' }}>접기 ▲</button>
+                                </div>
+                            )}
+                        </div>
                     ) : isDateCol(h) ? (
                         <input type="date" value={toDateInputVal(val)}
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
