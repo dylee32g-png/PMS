@@ -3008,6 +3008,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 const extLocalKey = 'pms_ext_localbase_' + currentTeam + '_' + exRow._id;
                 const extLocalBase = () => { try { return (localStorage.getItem(extLocalKey) || '').trim(); } catch (er) { return ''; } };
                 const extBase = () => extLocalBase() || ex.uncPath || '';   // 열기·복사는 이 PC용 주소 우선 (이름찾기 실패 대비)
+                // [엑셀로 열기]용 웹주소 만들기 (2026-07-28 길A) — UNC(또는 Z:)주소 → https://…:5006/NECONSYS_PJ/…
+                const DAV_HOST = 'https://necon-pj.synology.me:5006';   // NAS WebDAV(HTTPS)
+                const DAV_SHARE = 'NECONSYS_PJ';                        // 최상위 공유 폴더(영문) — 웹주소는 반드시 여기부터 시작
+                const davUrlFor = (rel) => {
+                    const base = String(ex.uncPath || extLocalBase() || '').trim();
+                    if (!base) return '';
+                    let parts = base.replace(/^[\\/]+/, '').replace(/[\\/]+$/, '').split(/[\\/]+/).filter(Boolean);
+                    if (parts.length && /^[A-Za-z]:$/.test(parts[0])) parts.shift();                                                  // Z: 드라이브 글자 제거
+                    if (parts.length && /^(neconsys_pj|necon-pj\.synology\.me|192\.168\.\d+\.\d+)$/i.test(parts[0])) parts.shift();   // 서버 이름 제거
+                    if (parts.length && parts[0].toUpperCase() === DAV_SHARE) parts.shift();                                          // 공유 이름 중복 방지
+                    const relParts = String(rel || '').split(/[\\/]+/).filter(Boolean);
+                    return DAV_HOST + '/' + [DAV_SHARE, ...parts, ...relParts].map(encodeURIComponent).join('/');
+                };
                 return (
                     <div className="fixed inset-0 z-[9700] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} onMouseDown={e => { if (e.target === e.currentTarget) closeAllExt(); }}>
                         <div style={{ background: '#fff', border: '1px solid #c8d4e0', borderRadius: 10, width: 580, maxWidth: '94vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
@@ -3149,11 +3162,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         if (!files.length) return null;
                                         return (
                                             <div style={{ marginTop: 9 }}>
-                                                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>찾은 원본 파일 — [경로 복사] → Win+R(또는 탐색기 주소창) 붙여넣고 엔터</div>
+                                                <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>찾은 원본 파일 — [엑셀로 열기]=바로 편집·저장(NAS 원본) · [경로 복사]=Win+R/탐색기용</div>
                                                 {files.map((f, i) => (
                                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 9px', marginBottom: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
                                                         <FileSpreadsheet size={13} style={{ color: '#1e7ac8', flexShrink: 0 }}/>
                                                         <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel}>{f.name}</span>
+                                                        <button style={bSt('#059669', '#059669', '#fff')} title="진짜 엑셀 프로그램으로 NAS 원본을 바로 열기 — 수정 후 Ctrl+S 하면 원본에 저장됩니다" onClick={() => {
+                                                            const u = davUrlFor(f.rel);
+                                                            if (!u) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
+                                                            try { window.location.href = 'ms-excel:ofe|u|' + u; } catch (er) {}
+                                                            setAlertMsg(`'${f.name}'\n진짜 엑셀로 여는 중... (안 열리면 이 PC 1회 준비 필요)\n처음이면 로그인 창에 NAS 계정을 입력하세요.`);
+                                                            setTimeout(() => setAlertMsg(''), 3500);
+                                                        }}>엑셀로 열기</button>
                                                         <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} onClick={() => {
                                                             if (!extBase()) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
                                                             navigator.clipboard?.writeText('"' + extJoin(extBase(), f.rel) + '"');
@@ -3168,7 +3188,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 7, lineHeight: 1.5 }}>
                                         담당 PC 한 대만 지정해도 그 PC에서 List를 열 때마다 팀 전체 값이 최신으로 유지됩니다.<br/>
                                         지정한 폴더의 <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) — 프로젝트 진척자료 폴더 하나만 지정하면 됩니다.<br/>
-                                        브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.
+                                        브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.<br/>
+                                        [엑셀로 열기]는 PC마다 1회 준비(NAS 주소·Office 예외 등록)가 필요합니다 — 준비 전 PC는 [경로 복사]를 쓰세요.
                                     </div>
                                 </div>
 
