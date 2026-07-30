@@ -290,7 +290,28 @@ export function parseExcelHeaders(raw, addLog) {
 //   · decimals    : 반올림 소수 자리 (기본 1)
 //   폴더 핸들(파일 접근 허가증)은 PC별 IndexedDB에만 저장 — 규칙·경로(_extSync)만 클라우드 공유.
 const extNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
-export const extRulesOf = (row) => (row && row._extSync && Array.isArray(row._extSync.rules)) ? row._extSync.rules : [];
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ★ NAS 진척자료 동기화 — 전면 비활성화 (2026-07-30 팀장님 지시)
+// ══════════════════════════════════════════════════════════════════════════════
+//  왜 끄는가:
+//    오피스365 클라우드 방식(Graph API 직접 읽기)과 비교 평가하려면, NAS 경유
+//    자동 반영이 살아 있으면 안 된다. 둘이 같은 칸(PLC·ETOS·하위 공종표)에 값을
+//    쓰기 때문에, 화면에 보이는 숫자가 어느 쪽에서 왔는지 구분할 수 없다.
+//    (2026-07-30 실측: NAS 30분 자동 반영과 OneDrive 동기화 지연이 겹쳐 이틀간 원인 규명 불가)
+//
+//  이 스위치 하나로 꺼지는 것:
+//    · 자동 반영 규칙 전체 (extRulesOf가 빈 배열을 반환 → 아래 함수 전부 무력화)
+//    · 잠금 열 / 진행실적 팝업·모바일 항목 잠금 (규칙이 없으니 잠글 대상도 없음)
+//    · 메인 PC 30분 주기 자동 반영, 화면 진입 1회 자동 확인
+//    · NAS 칩 버튼 · NAS 연결 모달 · 메인 PC 메뉴 · 메인 PC 배지 (ProjectListScreen에서 별도 가드)
+//
+//  ★ 되살리는 방법: 아래 값을 true 로만 바꾸면 원래 기능이 그대로 복구된다.
+//    규칙·경로 데이터(행의 _extSync)는 지우지 않고 클라우드에 그대로 보존해 두었다.
+//    폴더 허가증(PC별 IndexedDB)만 PC에서 다시 지정하면 된다.
+export const NAS_SYNC_ENABLED = false;
+
+export const extRulesOf = (row) => (NAS_SYNC_ENABLED && row && row._extSync && Array.isArray(row._extSync.rules)) ? row._extSync.rules : [];
 export const extLockedColsOf = (row) => extRulesOf(row).map(r => r.target);
 export const isExtLockedCol = (row, header) => extLockedColsOf(row).some(t => extNorm(t) === extNorm(header));
 // 대상 헤더명 → 진행실적 팝업 항목 키 (팝업·모바일 키인 잠금 전달용)

@@ -1,0 +1,21 @@
+{
+  "_설명": "실제 사용 파일은 config.json 입니다. 이 파일을 복사해서 이름을 바꾸고 빈칸을 채우세요.",
+  "_주의": "config.json 과 firebase-key.json 은 .gitignore 에 있습니다. 저장소에 올리지 마세요.",
+
+  "tenant":        "neconsyspms.onmicrosoft.com",
+  "client_id":     "583ff4a8-dc8e-4114-9a05-9d57b5d2098f",
+  "client_secret": "여기에_Entra_클라이언트_비밀키_값을_붙여넣으세요",
+
+  "_드라이브설명": "진척자료 엑셀이 들어있는 OneDrive 주인 계정과 폴더",
+  "drive_user":    "jeep@neconsyspms.onmicrosoft.com",
+  "folder":        "PMS진척자료",
+
+  "_파이어베이스설명": "같은 폴더에 둔 서비스 계정 키 파일 이름",
+  "firebase_key":  "firebase-key.json",
+  "app_id":        "tech-team-pms-app",
+  "team":          "기술2팀",
+
+  "_동작설명": "interval_min = 몇 분마다 확인할지.  dry_run = true 면 읽기만 하고 Firestore에 안 씀",
+  "interval_min":  15,
+  "dry_run":       true
+}

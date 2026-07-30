@@ -8,14 +8,14 @@ import {
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
     PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash
 } from 'lucide-react';
-import { collection, doc, setDoc, deleteDoc, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED } from './projectListData';
 
 const VERSION = 'v6.8.7';
 
@@ -1004,6 +1004,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // 한 행 검사 — 핸들 → 최신 파일 → 규칙 계산 → 현재값과 비교. silent=true면 허용창을 안 띄움(이미 허용된 폴더만).
     const extCheckRow = async (row, { silent = true } = {}) => {
+        if (!NAS_SYNC_ENABLED) return [];                    // NAS 동기화 전면 비활성화 (2026-07-30) — 파일 읽기 자체를 막는다
         const rules = extRulesOf(row);
         if (!rules.length) return [];
         if (!extSupported) { extSetStatus(row._id, { state: 'error', msg: '이 브라우저 미지원 — 크롬·엣지(PC)에서 하세요' }); return []; }
@@ -1320,6 +1321,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // 화면 진입 후 1회 자동 확인 — 이미 허용된 폴더만 조용히 검사(팀별 1번), 변경 있으면 반영 확인창
     useEffect(() => {
+        if (!NAS_SYNC_ENABLED) return;                       // NAS 동기화 전면 비활성화 (2026-07-30)
         if (dataSource !== 'firebase' || !fbRows.length) return;
         if (extAutoRef.current[currentTeam]) return;
         if (!fbRows.some(r => extRulesOf(r).length)) return;
@@ -1332,6 +1334,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   값 갱신(%·포인트·누적·하위 값 갱신)은 확인 없이 자동 저장.
     //   하위 행 '신규 생성'만 확인창을 남긴다 — 데이터가 늘어나는 일은 사람 눈으로 한 번 본다(팀장님 확정).
     const extAutoRun = async () => {
+        if (!NAS_SYNC_ENABLED) return;                       // NAS 동기화 전면 비활성화 (2026-07-30) — 30분 주기 무인 반영 정지
         if (!extMainPc || extBusy || dataSource !== 'firebase') return;
         if (extProposals && extProposals.length) return;                 // 확인창이 떠 있으면 다음 차례로 미룸
         const targets = fbRows.filter(r => extRulesOf(r).length);
@@ -1355,6 +1358,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   1분 심장박동 + 벽시계 비교 방식: 크롬이 백그라운드 탭 타이머를 늦추거나
     //   PC가 잠깐 절전에 들어가도, 깨어나는 즉시 밀린 검사를 따라잡는다.
     useEffect(() => {
+        if (!NAS_SYNC_ENABLED) return;                       // NAS 동기화 전면 비활성화 (2026-07-30) — 타이머를 아예 걸지 않는다
         if (!extMainPc) return;
         if (!extLastRunRef.current) extLastRunRef.current = Date.now();   // 화면 진입 1회 검사 직후이므로 30분 뒤부터
         const tick = () => {
@@ -3006,7 +3010,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             )}
 
             {/* NAS 진척자료 연결 모달 (2026-07-22) — 경로(공유)·규칙(관리자)·이 PC 폴더 지정/확인 */}
-            {extModalRowId && (() => {
+            {/* NAS_SYNC_ENABLED=false 이면 모달 자체를 렌더하지 않는다 (2026-07-30) */}
+            {NAS_SYNC_ENABLED && extModalRowId && (() => {
                 const exRow = activeRows.find(r => r._id === extModalRowId) || fbRows.find(r => r._id === extModalRowId);
                 if (!exRow) return null;
                 const ex = exRow._extSync || {};
@@ -3166,6 +3171,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             else { const s2 = extStatus[exRow._id]; if (!s2 || s2.state === 'ok') { setAlertMsg('확인 완료 — 변경 없음 (메인표가 최신)'); setTimeout(() => setAlertMsg(''), 2500); } }
                                         }}>{extBusy ? '확인 중...' : '지금 확인'}</button>
                                         <button style={bSt('#fff', '#e2c4c4', '#b91c1c')} disabled={extBusy} onClick={async () => { await extIdbDel(extHandleKey(exRow._id)); extSetStatus(exRow._id, { state: 'nofolder', msg: '이 PC 지정 해제됨' }); }}>이 PC 지정 해제</button>
+                                        {/* NAS 잔재 정리 (2026-07-30) — 표시용 주소·과거 반영기록(lastApplied)·이 PC 폴더 핸들만 지움. 규칙은 파일명·시트·셀 기준이라 유지 */}
+                                        {isAdmin && (
+                                        <button style={bSt('#fffbeb', '#f0c98c', '#92400e')} disabled={extBusy} title="표시용 NAS 주소 + 과거 반영기록 + 이 PC 폴더 지정을 지웁니다. 자동 반영 규칙은 그대로 유지됩니다." onClick={async () => {
+                                            try {
+                                                const nGhost = Object.keys((exRow._extSync || {}).lastApplied || {}).length;
+                                                const nRules = extRulesOf(exRow).length;
+                                                await setDoc(rowDocRef(currentTeam, exRow._id), stampSave({ _extSync: { ...(exRow._extSync || {}), uncPath: deleteField(), lastApplied: deleteField() } }), { merge: true });
+                                                await extIdbDel(extHandleKey(exRow._id));
+                                                setExtPathDraft(null);
+                                                extSetStatus(exRow._id, { state: 'nofolder', msg: 'NAS 잔재 정리됨 — [폴더 지정/변경]으로 새 폴더를 지정하세요' });
+                                                recordAudit(AUDIT_ACTIONS.EDIT, exRow, [{ field: 'NAS 잔재 정리', from: `주소·반영기록 ${nGhost}건`, to: '삭제' }]);
+                                                setAlertMsg(`NAS 잔재를 정리했습니다.\n\n· 표시용 NAS 주소 삭제\n· 과거 반영기록 ${nGhost}건 삭제 (찾은 파일 중복 표시 해소)\n· 이 PC 폴더 지정 해제\n\n자동 반영 규칙 ${nRules}개는 유지했습니다.\n(규칙은 파일명·시트·셀 기준이라 NAS/OneDrive 어느 쪽에서도 그대로 동작합니다)\n\n이제 [폴더 지정/변경]으로 OneDrive 폴더를 지정하세요.`);
+                                            } catch (e) { setAlertMsg('NAS 잔재 정리 오류: ' + e.message); }
+                                        }}>NAS 잔재 정리</button>
+                                        )}
                                     </div>
                                     {(() => {
                                         const seen = {};
@@ -3575,10 +3595,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
                                     </button>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 메인 PC 자동 반영 (2026-07-27) — ★관리자 전용 메뉴.
                                         공용 PC에서 관리자가 한 번 켜두면 설정은 이 PC(localStorage)에 남는다.
-                                        → 이후 일반 계정으로 바꿔 로그인해도 자동 반영은 계속 돈다(실행에는 isAdmin 가드 없음). */}
+                                        → 이후 일반 계정으로 바꿔 로그인해도 자동 반영은 계속 돈다(실행에는 isAdmin 가드 없음).
+                                        2026-07-30: NAS_SYNC_ENABLED=false 이면 메뉴를 숨긴다 (구분선까지 함께) */}
+                                    {NAS_SYNC_ENABLED && (<>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
                                     <button onClick={() => {
                                             const nv = !extMainPc; setExtMainPc(nv); saveMainPc(nv); setSettingsOpen(false);
                                             extLastRunRef.current = Date.now();
@@ -3590,6 +3612,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         이 PC를 메인 PC로 지정
                                         <span className="ml-auto text-[10px] font-normal text-[#999]">{extMainPc ? `켜짐 · 30분마다${extLastAuto ? ` · ${extLastAuto} 확인` : ''}` : '꺼짐'}</span>
                                     </button>
+                                    </>)}
                                     </>)}
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
@@ -4017,7 +4040,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 <Link size={13}/>
                                                             </button>
                                                         )}
-                                                        {(extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
+                                                        {/* NAS 칩 버튼 — NAS_SYNC_ENABLED=false 이면 숨김 (2026-07-30) */}
+                                                        {NAS_SYNC_ENABLED && (extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
                                                             const st = extStatus[row._id];
                                                             const fill = !extRulesOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
                                                             return (
@@ -4053,7 +4077,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                             {/* 메인 PC 표시 (2026-07-27) — 관리자 메뉴가 안 보이는 일반 계정도 이 PC의 자동 반영 여부를 알 수 있게 */}
-                            {extMainPc && (
+                            {/* NAS_SYNC_ENABLED=false 이면 배지도 숨김 (2026-07-30) */}
+                            {NAS_SYNC_ENABLED && extMainPc && (
                                 <span className="ml-3 font-bold" style={{ color: '#059669' }}
                                     title={`이 PC가 메인 PC입니다. 30분마다 NAS 진척자료를 확인해 자동 반영합니다.${extLastAuto ? `\n마지막 확인 ${extLastAuto}` : ''}\n(끄기: 관리자 계정 → 설정 메뉴)`}>
                                     · ● 메인 PC 자동 반영 중{extLastAuto ? ` (${extLastAuto} 확인)` : ''}

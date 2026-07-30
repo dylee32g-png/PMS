@@ -1,0 +1,30 @@
+# PMS 진척자료 클라우드 자동 반영기 (2026-07-30)
+# 시놀로지 Docker(Container Manager)에서 실행합니다.
+#
+# 준비:  /volume1/docker/pms-reader/  안에 아래 4개가 있어야 합니다
+#          main.py  ·  requirements.txt  ·  config.json  ·  firebase-key.json
+#
+# 실행:  DSM Docker → 프로젝트 → 생성 → 이 파일 선택
+#        (또는 SSH 에서  docker-compose up -d )
+
+services:
+  pms-reader:
+    image: python:3.12-slim
+    container_name: pms-reader
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - /volume1/docker/pms-reader:/app
+    environment:
+      - TZ=Asia/Seoul
+      - PYTHONUNBUFFERED=1
+    # 컨테이너가 시작될 때 필요한 라이브러리를 설치하고 프로그램을 실행합니다.
+    # (설치본은 /app/.pip 에 남아 다음 실행부터는 빨라집니다)
+    command: >
+      sh -c "pip install --no-cache-dir --target=/app/.pip -q -r requirements.txt &&
+             PYTHONPATH=/app/.pip python main.py"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

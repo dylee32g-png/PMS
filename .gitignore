@@ -37,3 +37,10 @@ PMS백업_*.json
 
 # 작업용 임시 폴더 (Claude 패치 스크립트 등 — 삭제해도 무방, 2026-07-27)
 _to_delete/
+
+# NAS 클라우드 자동반영기 비밀값 (2026-07-30) — 절대 커밋 금지
+# config.json 에는 Entra 클라이언트 비밀키, firebase-key.json 은 Firestore 마스터 키가 들어있음
+# 형식은 nas-reader/config.example.json 참고
+nas-reader/config.json
+nas-reader/firebase-key.json
+nas-reader/.pip/

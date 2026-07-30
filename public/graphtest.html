@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>오피스365 Graph API 읽기 테스트 — PMS</title>
+<style>
+  body { font-family: 'Malgun Gothic','맑은 고딕',sans-serif; background:#f6f8fb; color:#1a2434; margin:0; padding:28px; }
+  .wrap { max-width:900px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#64748b; font-size:13px; margin-bottom:20px; }
+  .card { background:#fff; border:1px solid #dde4ee; border-radius:10px; padding:18px 20px; margin-bottom:14px; }
+  .card h2 { font-size:14px; margin:0 0 10px; color:#1358a0; }
+  button { background:#1e7ac8; color:#fff; border:0; border-radius:7px; padding:10px 18px; font-size:14px; font-weight:700; cursor:pointer; }
+  button:disabled { background:#9db4cc; cursor:default; }
+  button.sec { background:#eaf2fb; color:#1358a0; border:1px solid #bcd6f0; }
+  pre { background:#0f172a; color:#d7e3f4; padding:12px 14px; border-radius:8px; font-size:12px; line-height:1.6; overflow:auto; max-height:340px; white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { border:1px solid #e2e8f0; padding:7px 10px; text-align:left; }
+  th { background:#f1f5fb; font-weight:700; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .ok { color:#059669; font-weight:800; }
+  .bad { color:#dc2626; font-weight:800; }
+  .big { font-size:26px; font-weight:800; }
+  .kv { font-size:12px; color:#64748b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>오피스365 Graph API 읽기 테스트</h1>
+  <div class="sub">PMS가 <b>로컬 동기화 폴더를 거치지 않고</b> 클라우드 엑셀을 직접 읽을 수 있는지 확인합니다. (2026-07-30)</div>
+
+  <div class="card">
+    <h2>① 로그인</h2>
+    <div class="kv" style="margin-bottom:10px">
+      클라이언트 ID <code id="cid"></code><br>
+      테넌트 <code>neconsyspms.onmicrosoft.com</code> · 리디렉션 <code id="ruri"></code>
+    </div>
+    <button id="btnLogin">Microsoft 계정으로 로그인</button>
+    <button id="btnOut" class="sec" style="display:none">로그아웃(토큰 지우기)</button>
+    <div id="who" style="margin-top:10px;font-size:13px"></div>
+  </div>
+
+  <div class="card">
+    <h2>② 클라우드에서 직접 읽기</h2>
+    <button id="btnRun" disabled>PMS진척자료 폴더 읽어오기</button>
+    <div id="result" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card">
+    <h2>③ 진행 기록</h2>
+    <pre id="log">대기 중...</pre>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  오피스365 Graph API 읽기 테스트 (2026-07-30)
+//  · 라이브러리 없음 — OAuth2 인증코드 + PKCE 를 직접 구현 (SPA 등록이므로 비밀키 불필요)
+//  · PMS 코드와 완전히 분리된 테스트 페이지. 실패해도 PMS에 영향 없음.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLIENT_ID   = '583ff4a8-dc8e-4114-9a05-9d57b5d2098f';
+const TENANT      = 'neconsyspms.onmicrosoft.com';
+const REDIRECT    = window.location.origin + window.location.pathname;   // http://localhost:3000/graphtest.html
+const SCOPE       = 'https://graph.microsoft.com/Files.Read.All openid profile offline_access';
+const AUTHZ       = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/authorize`;
+const TOKEN       = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
+const GRAPH       = 'https://graph.microsoft.com/v1.0';
+
+const FOLDER      = 'PMS진척자료';
+const FILE_HINT   = '01 진행현황';
+const SHEET       = '#1 L1 진행현황';
+
+document.getElementById('cid').textContent  = CLIENT_ID;
+document.getElementById('ruri').textContent = REDIRECT;
+
+const $ = id => document.getElementById(id);
+const logs = [];
+function log(m, obj) {
+  const t = new Date().toLocaleTimeString('ko-KR');
+  logs.push(`[${t}] ${m}` + (obj !== undefined ? '\n' + JSON.stringify(obj, null, 1) : ''));
+  $('log').textContent = logs.join('\n');
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+// ── PKCE 도구 ───────────────────────────────────────────────────────────────
+function randStr(n) {
+  const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return Array.from(a, b => ('0' + b.toString(16)).slice(-2)).join('');
+}
+async function sha256b64url(s) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  let str = ''; new Uint8Array(buf).forEach(b => str += String.fromCharCode(b));
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// ── 로그인 ──────────────────────────────────────────────────────────────────
+async function login() {
+  const verifier = randStr(48);
+  const state    = randStr(8);
+  sessionStorage.setItem('pkce_v', verifier);
+  sessionStorage.setItem('pkce_s', state);
+  const challenge = await sha256b64url(verifier);
+  const u = new URL(AUTHZ);
+  u.searchParams.set('client_id', CLIENT_ID);
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('redirect_uri', REDIRECT);
+  u.searchParams.set('scope', SCOPE);
+  u.searchParams.set('code_challenge', challenge);
+  u.searchParams.set('code_challenge_method', 'S256');
+  u.searchParams.set('state', state);
+  log('로그인 페이지로 이동합니다...');
+  window.location.href = u.toString();
+}
+
+async function exchangeCode(code) {
+  const verifier = sessionStorage.getItem('pkce_v') || '';
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID, grant_type: 'authorization_code', code,
+    redirect_uri: REDIRECT, code_verifier: verifier, scope: SCOPE
+  });
+  log('토큰 교환 요청 중... (POST /oauth2/v2.0/token)');
+  const r = await fetch(TOKEN, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+  const j = await r.json();
+  if (!r.ok) { log('★ 토큰 교환 실패 — ' + r.status, j); throw new Error(j.error_description || j.error || r.status); }
+  sessionStorage.setItem('at', j.access_token);
+  log('토큰 발급 성공 (유효 ' + j.expires_in + '초)');
+  return j.access_token;
+}
+
+function token() { return sessionStorage.getItem('at') || ''; }
+
+async function gGet(path) {
+  const r = await fetch(GRAPH + path, { headers: { Authorization: 'Bearer ' + token() } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { log(`★ Graph 오류 ${r.status} — ${path}`, j); throw new Error((j.error && j.error.message) || r.status); }
+  return j;
+}
+
+// ── PMS와 동일한 규칙으로 계산 ───────────────────────────────────────────────
+//   셀값 0~1.5 = 비율로 보고 ×100, 그보다 크면 이미 % 숫자 (projectListData.js 와 같은 규칙)
+const pct = v => (v >= 0 && v <= 1.5) ? v * 100 : v;
+const r1  = v => Math.round(v * 10) / 10;
+
+async function run() {
+  $('btnRun').disabled = true;
+  $('result').innerHTML = '<span class="kv">읽는 중...</span>';
+  try {
+    // 1) 폴더 안 파일 목록
+    const encFolder = FOLDER.split('/').map(encodeURIComponent).join('/');
+    log(`폴더 목록 요청: /me/drive/root:/${FOLDER}:/children`);
+    const kids = await gGet(`/me/drive/root:/${encFolder}:/children`);
+    const files = (kids.value || []).map(f => ({ name: f.name, id: f.id, size: f.size, mod: f.lastModifiedDateTime }));
+    log(`파일 ${files.length}개 발견`, files.map(f => f.name + ' · ' + f.mod));
+
+    const target = files.find(f => f.name.includes(FILE_HINT) && /\.xlsx$/i.test(f.name));
+    if (!target) throw new Error(`'${FILE_HINT}' 파일을 못 찾음`);
+    log(`대상 파일: ${target.name}  (클라우드 수정시각 ${target.mod})`);
+
+    // 2) 시트 목록 → 이름으로 찾기 (# 같은 특수문자 문제 회피)
+    const ws = await gGet(`/me/drive/items/${target.id}/workbook/worksheets`);
+    log('시트 ' + (ws.value || []).length + '개', (ws.value || []).map(s => s.name));
+    const sheet = (ws.value || []).find(s => s.name.replace(/\s/g,'') === SHEET.replace(/\s/g,''));
+    if (!sheet) throw new Error(`시트 '${SHEET}' 없음`);
+
+    // 3) 범위 두 번 읽기 — PLC용(L5:M14) / ETOS용(L24:M25)
+    const base = `/me/drive/items/${target.id}/workbook/worksheets/${encodeURIComponent(sheet.id)}`;
+    const rgPLC  = await gGet(`${base}/range(address='L5:M14')`);
+    const rgETOS = await gGet(`${base}/range(address='L24:M25')`);
+
+    const vP = rgPLC.values, vE = rgETOS.values;
+    const L5 = vP[0][0], M5 = vP[0][1], L14 = vP[9][0], M14 = vP[9][1];
+    const L24 = vE[0][0], M24 = vE[0][1], L25 = vE[1][0], M25 = vE[1][1];
+    log('읽은 원시값', { L5, M5, L14, M14, L24, L25, M24, M25 });
+
+    const plc  = r1((pct(L5) + pct(M5) + pct(L14) + pct(M14)) / 4);
+    const etos = r1((pct(L24) + pct(L25) + pct(M24) + pct(M25)) / 4);
+
+    const cell = (n, v) => `<tr><td>${n}</td><td class="num">${v}</td><td class="num">${r1(pct(v))}%</td></tr>`;
+    $('result').innerHTML = `
+      <div style="margin-bottom:12px">
+        <div class="kv">대상 파일</div>
+        <b>${target.name}</b>
+        <div class="kv">클라우드 수정시각 ${new Date(target.mod).toLocaleString('ko-KR')} · ${(target.size/1024).toFixed(0)}KB</div>
+      </div>
+      <div style="display:flex;gap:24px;margin:16px 0 18px">
+        <div><div class="kv">PLC</div><div class="big ok">${plc}</div></div>
+        <div><div class="kv">ETOS</div><div class="big ok">${etos}</div></div>
+      </div>
+      <table>
+        <tr><th>셀</th><th class="num">원시값</th><th class="num">환산</th></tr>
+        ${cell('L5', L5)}${cell('M5', M5)}${cell('L14', L14)}${cell('M14', M14)}
+        ${cell('L24', L24)}${cell('L25', L25)}${cell('M24', M24)}${cell('M25', M25)}
+      </table>
+      <div class="kv" style="margin-top:12px">
+        시트 <b>${sheet.name}</b> · 계산식은 PMS와 동일 (0~1.5는 비율로 보고 ×100, 4칸 평균, 소수 1자리)
+      </div>`;
+    log(`계산 완료 — PLC ${plc} · ETOS ${etos}`);
+  } catch (e) {
+    $('result').innerHTML = `<div class="bad">실패: ${e.message}</div><div class="kv" style="margin-top:6px">아래 진행 기록을 캡처해서 알려주세요.</div>`;
+    log('★ 실패: ' + e.message);
+  } finally {
+    $('btnRun').disabled = false;
+  }
+}
+
+// ── 시작 ────────────────────────────────────────────────────────────────────
+(async function init() {
+  $('btnLogin').onclick = login;
+  $('btnRun').onclick   = run;
+  $('btnOut').onclick   = () => { sessionStorage.clear(); location.href = REDIRECT; };
+
+  const q = new URLSearchParams(location.search);
+  if (q.get('error')) {
+    log('★ 인증 거부 — ' + q.get('error'), { description: q.get('error_description') });
+    $('who').innerHTML = `<span class="bad">인증 실패: ${q.get('error')}</span>`;
+    history.replaceState({}, '', REDIRECT);
+    return;
+  }
+  const code = q.get('code');
+  if (code) {
+    history.replaceState({}, '', REDIRECT);
+    try { await exchangeCode(code); } catch (e) { $('who').innerHTML = `<span class="bad">토큰 실패: ${e.message}</span>`; return; }
+  }
+  if (token()) {
+    $('btnLogin').style.display = 'none';
+    $('btnOut').style.display   = 'inline-block';
+    $('btnRun').disabled        = false;
+    try {
+      const me = await gGet('/me');
+      $('who').innerHTML = `<span class="ok">로그인됨</span> — ${me.displayName || ''} &lt;${me.userPrincipalName || ''}&gt;`;
+      log('로그인 확인: ' + (me.userPrincipalName || ''));
+    } catch (e) {
+      $('who').innerHTML = `<span class="bad">토큰이 만료되었을 수 있습니다 — 다시 로그인해주세요</span>`;
+    }
+  } else {
+    log('아직 로그인하지 않았습니다. ① 로그인 버튼을 눌러주세요.');
+  }
+})();
+</script>
+</body>
+</html>
