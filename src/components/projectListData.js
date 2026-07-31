@@ -16,6 +16,12 @@ export function extractYear(sheetName) {
 export const metaDocRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'projectListMeta', t);
 export const rowsColRef = (t) => collection(db, 'artifacts', appId, 'public', 'data', 'projectListRows_' + t);
 export const rowDocRef  = (t, id) => doc(db, 'artifacts', appId, 'public', 'data', 'projectListRows_' + t, id);
+// 자동 반영기(NAS Docker 프로그램 pms-reader) 상태 문서 (2026-07-31)
+//   프로그램이 매 회차 끝에 한 건 써 넣는다 → 화면은 '마지막 확인 시각'만 읽어 보여준다. 웹에서 쓰지 않음(읽기 전용).
+export const readerStatusRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'pmsReaderStatus', t);
+// [지금 확인] 요청 문서 (2026-07-31) — PMS가 쓰고 자동 반영기가 20초마다 읽는다.
+//   여기에 { at, by } 한 줄만 쓰면 리더가 15분을 기다리지 않고 즉시 한 바퀴 돈다.
+export const readerRequestRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'pmsReaderRequest', t);
 
 // ─── IndexedDB (로컬 임시 저장소) ───────────────────────────────────────────
 const IDB_NAME    = 'ProjectListLocalDB';
@@ -310,6 +316,28 @@ const extNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
 //    규칙·경로 데이터(행의 _extSync)는 지우지 않고 클라우드에 그대로 보존해 두었다.
 //    폴더 허가증(PC별 IndexedDB)만 PC에서 다시 지정하면 된다.
 export const NAS_SYNC_ENABLED = false;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  ★ 규칙 등록 화면 스위치 (2026-07-31) — 오피스365 방식용
+// ═══════════════════════════════════════════════════════════════════════════
+//  왜 스위치를 따로 두는가:
+//    NAS_SYNC_ENABLED 는 '브라우저가 파일을 직접 읽어 자동 반영하는 기능'의 스위치다.
+//    오피스365 방식에서는 그 읽기를 NAS Docker 프로그램(pms-reader)이 대신 하므로
+//    브라우저 읽기는 계속 꺼두어야 한다. 그런데 '규칙(_extSync.rules)'은
+//    두 방식이 똑같은 것을 쓰기 때문에, 규칙을 등록·수정하는 화면만 따로 켜야 한다.
+//
+//  이 스위치가 켜는 것 (화면만):
+//    · 행의 규칙 칩 버튼 · 규칙 등록 모달 (규칙 추가/삭제/저장 · 하위 공종표 프리셋)
+//  이 스위치가 켜지 '않는' 것:
+//    · 브라우저의 파일 읽기·자동 반영·칸 잠금 (그건 NAS_SYNC_ENABLED 담당 — 계속 false)
+export const RULE_UI_ENABLED = true;
+
+// 규칙 '원본' 읽기 — NAS_SYNC_ENABLED 와 무관하게 행에 저장된 규칙을 그대로 돌려준다.
+//   ★ 규칙 등록 화면은 반드시 이 함수를 써야 한다.
+//     extRulesOf 는 NAS_SYNC_ENABLED=false 일 때 빈 배열을 주므로, 그걸로 목록을 그리면
+//     기존 규칙이 있어도 '등록된 규칙 없음'으로 보이고,
+//     거기에 규칙을 하나 추가·저장하면 기존 규칙이 통째로 지워진다. (2026-07-31)
+export const extRulesRawOf = (row) => (row && row._extSync && Array.isArray(row._extSync.rules)) ? row._extSync.rules : [];
 
 export const extRulesOf = (row) => (NAS_SYNC_ENABLED && row && row._extSync && Array.isArray(row._extSync.rules)) ? row._extSync.rules : [];
 export const extLockedColsOf = (row) => extRulesOf(row).map(r => r.target);

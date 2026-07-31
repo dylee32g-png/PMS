@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef } from './projectListData';
 
 const VERSION = 'v6.8.7';
 
@@ -46,6 +46,19 @@ const EXT_TICK_MS = 60 * 1000;                            // 1분 심장박동 �
 const loadMainPc = () => { try { return localStorage.getItem(EXT_MAINPC_KEY) === '1'; } catch (e) { return false; } };
 const saveMainPc = (v) => { try { if (v) localStorage.setItem(EXT_MAINPC_KEY, '1'); else localStorage.removeItem(EXT_MAINPC_KEY); } catch (e) {} };
 const extHHMM = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+// ── 자동 반영기(NAS Docker 프로그램 pms-reader) 상태 표시 도우미 (2026-07-31) ──
+//   프로그램이 Firestore에 남긴 기록을 '언제·정상인지'로 바꿔 보여주기만 한다. 판단 기준 하나뿐:
+//   마지막 확인이 주기의 2.5배보다 오래됐으면 = 멈춘 것으로 본다 (15분 주기면 38분).
+const rdTimeText = (iso) => { try { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${extHHMM(d)}`; } catch (e) { return ''; } };
+const rdMinsAgo  = (iso) => { try { const t = new Date(iso).getTime(); return Number.isFinite(t) ? Math.max(0, Math.round((Date.now() - t) / 60000)) : null; } catch (e) { return null; } };
+const rdState = (s) => {
+    if (!s || !s.at) return { color: '#94a3b8', mins: null, stale: false };
+    const mins = rdMinsAgo(s.at);
+    const stale = mins != null && mins > (Number(s.intervalMin) || 15) * 2.5;
+    if (s.ok === false) return { color: '#dc2626', mins, stale };
+    return { color: stale ? '#d97706' : '#059669', mins, stale };
+};
 
 // (2026-07-22) NAS 폴더 핸들(읽기 허가증) IndexedDB — 이 PC 브라우저 한정.
 //   규칙·경로는 클라우드(행 _extSync)로 공유하고, 실제 파일 접근 허가증(핸들)만 PC별로 보관한다.
@@ -92,6 +105,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (extToastTimerRef.current) clearTimeout(extToastTimerRef.current);
         extToastTimerRef.current = setTimeout(() => setExtToast(''), warn ? 30000 : 12000);
     };
+    const [readerStatus, setReaderStatus] = useState(null);     // 자동 반영기 상태 문서 (2026-07-31, 읽기 전용)
+    const [readerReqBusy, setReaderReqBusy] = useState(false);  // [지금 확인] 요청 보내는 중
+    const [myReaderReqAt, setMyReaderReqAt] = useState(null);   // 내가 보낸 요청 시각 — 처리됐는지 대조용
+    const [showAllFiles, setShowAllFiles] = useState(false);    // 파일 목록: 이 프로젝트 것만 / 폴더 전체
+    const [extFolderDraft, setExtFolderDraft] = useState(null);  // '이 프로젝트 폴더' 고르는 중 (null=표시 모드)
     const [extRuleDraft, setExtRuleDraft] = useState(null);     // 규칙 추가 폼(관리자)
     const [extPathDraft, setExtPathDraft] = useState(null);     // 경로 입력 중 값(관리자, null=표시 모드)
     const [extLocalDraft, setExtLocalDraft] = useState(null);   // 이 PC용 주소(드라이브 별명) 입력 중 값 — localStorage 저장 (2026-07-22)
@@ -1315,9 +1333,35 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const extSaveSync = async (row, next) => {
         try {
             await setDoc(rowDocRef(currentTeam, row._id), stampSave({ _extSync: { ...(row._extSync || {}), ...next } }), { merge: true });
-            recordAudit(AUDIT_ACTIONS.EDIT, row, [{ field: 'NAS 자동 규칙', from: '', to: (next.rules ? next.rules.map(r => r.target).join(',') : '경로 변경') }]);
+            recordAudit(AUDIT_ACTIONS.EDIT, row, [{ field: '진척자료 자동 규칙', from: '',
+                to: next.rules ? next.rules.map(r => r.target).join(',')
+                  : (next.folder !== undefined ? `폴더 '${next.folder || '(지정 안 함)'}'` : '경로 변경') }]);
         } catch (e) { setAlertMsg('규칙 저장 오류: ' + e.message); }
     };
+
+    // [지금 확인] (2026-07-31) — 자동 반영기에게 '지금 한 바퀴 돌아달라'고 요청한다.
+    //   요청 문서 한 줄만 쓴다. 리더가 20초마다 그 문서를 확인해 즉시 실행하고,
+    //   처리하면 상태 문서에 lastRequestAt 을 남긴다 → 아래 화면이 '처리 완료'로 바뀐다.
+    const sendReaderRequest = async () => {
+        if (readerReqBusy) return;
+        setReaderReqBusy(true);
+        try {
+            const at = new Date().toISOString();
+            await setDoc(readerRequestRef(currentTeam), { at, by: user?.email || '', team: currentTeam });
+            setMyReaderReqAt(at);
+        } catch (e) {
+            setAlertMsg('지금 확인 요청 실패: ' + e.message + '\n\n15분 주기 자동 반영은 그대로 동작합니다.');
+        } finally { setReaderReqBusy(false); }
+    };
+
+    // 자동 반영기 상태 구독 (2026-07-31) — NAS 프로그램이 매 회차 남기는 문서 1개. 실시간이라 새로고침 불필요.
+    useEffect(() => {
+        if (!RULE_UI_ENABLED || !currentTeam) { setReaderStatus(null); return; }
+        const unsub = onSnapshot(readerStatusRef(currentTeam),
+            snap => setReaderStatus(snap.exists() ? snap.data() : null),
+            ()   => setReaderStatus(null));
+        return () => unsub();
+    }, [currentTeam]);
 
     // 화면 진입 후 1회 자동 확인 — 이미 허용된 폴더만 조용히 검사(팀별 1번), 변경 있으면 반영 확인창
     useEffect(() => {
@@ -3010,18 +3054,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             )}
 
             {/* NAS 진척자료 연결 모달 (2026-07-22) — 경로(공유)·규칙(관리자)·이 PC 폴더 지정/확인 */}
-            {/* NAS_SYNC_ENABLED=false 이면 모달 자체를 렌더하지 않는다 (2026-07-30) */}
-            {NAS_SYNC_ENABLED && extModalRowId && (() => {
+            {/* 2026-07-31: 화면 스위치를 RULE_UI_ENABLED 로 분리.
+                오피스365 방식에서도 '규칙 등록'은 사람이 해줘야 하므로 이 모달은 켠다.
+                브라우저가 파일을 직접 읽어 반영하는 동작만 계속 끈 상태(NAS_SYNC_ENABLED=false)로 둔다. */}
+            {RULE_UI_ENABLED && extModalRowId && (() => {
                 const exRow = activeRows.find(r => r._id === extModalRowId) || fbRows.find(r => r._id === extModalRowId);
                 if (!exRow) return null;
                 const ex = exRow._extSync || {};
                 const st = extStatus[extModalRowId];
-                const exRules = extRulesOf(exRow);
+                const exRules = extRulesRawOf(exRow);   // ★ 원본 읽기 필수 (2026-07-31) — extRulesOf는 NAS_SYNC_ENABLED=false면 빈 배열이라, 그걸 기준으로 저장하면 기존 규칙이 통째로 지워진다
                 const inSt = { width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 9px', fontSize: 12, color: '#1e293b', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', background: '#fff' };
                 const bSt = (bg, bd, fg) => ({ padding: '7px 12px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid ' + bd, background: bg, color: fg, cursor: 'pointer', whiteSpace: 'nowrap' });
                 const secT = { fontSize: 11.5, fontWeight: 800, color: '#475569', margin: '0 0 6px' };
+                // 섹션 번호 자동 매기기 (2026-07-31) — NAS 전용 섹션이 숨겨져도 ①②③ 이 끊기지 않게
+                const SEC_NUMS = ['①', '②', '③', '④', '⑤'];
+                let _secI = 0;
+                const secNo = () => SEC_NUMS[_secI++] || '·';
                 const dotColor = st ? (st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#94a3b8') : '#94a3b8';
-                const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); };
+                const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); setMyReaderReqAt(null); setShowAllFiles(false); setExtFolderDraft(null); };
                 const extJoin = (base, rel) => { const b = String(base || '').replace(/[\\/]+$/, ''); return (b && rel) ? (b + '\\' + rel) : ''; };
                 const extLocalKey = 'pms_ext_localbase_' + currentTeam + '_' + exRow._id;
                 const extLocalBase = () => { try { return (localStorage.getItem(extLocalKey) || '').trim(); } catch (er) { return ''; } };
@@ -3046,7 +3096,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                     <HardDrive size={16} color="#1e7ac8"/>
                                     <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontWeight: 800, fontSize: 14, color: '#1a1a1a' }}>NAS 진척자료 자동 연결</div>
+                                        <div style={{ fontWeight: 800, fontSize: 14, color: '#1a1a1a' }}>{NAS_SYNC_ENABLED ? 'NAS 진척자료 자동 연결' : '진척자료 자동 반영 규칙'}</div>
                                         <div style={{ fontSize: 11.5, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>{pickProjectName(exRow)}</div>
                                     </div>
                                 </div>
@@ -3054,12 +3104,161 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </div>
                             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px' }}>
                                 <div style={{ fontSize: 11.5, color: '#475569', background: '#f0f7ff', border: '1px solid #cfe3f7', borderRadius: 7, padding: '8px 11px', marginBottom: 12, lineHeight: 1.55 }}>
+                                    {NAS_SYNC_ENABLED ? (<>
                                     원본은 NAS 폴더의 최신 엑셀 하나입니다. 직원들은 평소처럼 열어 <b>수정·저장만</b> 하면 되고,
                                     이 화면을 여는 PC가 최신 파일을 읽어 <b>바뀐 값만 확인 후 자동 반영</b>합니다. (파일 복사본은 올리지 않음 · 읽기 전용)
+                                    </>) : (<>
+                                    원본은 <b>오피스365 클라우드</b>의 진척자료 엑셀입니다. 직원들은 평소처럼 열어 <b>수정·저장만</b> 하면 되고,
+                                    NAS에서 도는 자동 프로그램이 <b>15분마다</b> 클라우드를 직접 읽어 이 표에 반영합니다.<br/>
+                                    여기서는 <b>어느 파일·시트·셀을 읽을지(규칙)만</b> 등록하면 됩니다 — PC 지정·폴더 허가증은 이제 필요 없습니다.
+                                    </>)}
                                 </div>
 
+                                {/* 자동 반영기 상태 (2026-07-31) — NAS Docker 프로그램(pms-reader)이 매 회차 남기는 기록을 그대로 보여준다 */}
+                                {!NAS_SYNC_ENABLED && (() => {
+                                    const rs = rdState(readerStatus);
+                                    const rsd = readerStatus;
+                                    return (
+                                        <div style={{ border: '1px solid #e2e8f0', background: '#fbfdff', borderRadius: 7, padding: '9px 11px', marginBottom: 13, fontSize: 11.5, color: '#475569', lineHeight: 1.6 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                                                <span style={{ width: 9, height: 9, borderRadius: '50%', background: rs.color, flexShrink: 0 }}/>
+                                                <b style={{ color: '#334155' }}>자동 반영기</b>
+                                                {rsd && rsd.at
+                                                    ? <span>{rdTimeText(rsd.at)} 확인{rs.mins != null ? ` (${rs.mins}분 전)` : ''} · {rsd.intervalMin || 15}분 주기</span>
+                                                    : <span style={{ color: '#94a3b8' }}>아직 기록 없음 — NAS 프로그램이 한 바퀴 돌면 여기에 표시됩니다</span>}
+                                                {rsd && rsd.dryRun ? <span style={{ color: '#d97706', fontWeight: 700 }}>· 시험 모드(쓰기 안 함)</span> : null}
+                                                <span style={{ flex: 1 }}/>
+                                                {/* [지금 확인] (2026-07-31) — 15분을 기다리지 않고 즉시 한 바퀴 돌게 한다 */}
+                                                <button style={{ ...bSt('#eaf2fb', '#bcd6f0', '#1358a0'), padding: '5px 10px' }} disabled={readerReqBusy}
+                                                    title="자동 반영기에게 '지금 한 번 확인해달라'고 요청합니다. 최대 20초 안에 처리됩니다."
+                                                    onClick={sendReaderRequest}>{readerReqBusy ? '요청 중...' : '지금 확인'}</button>
+                                            </div>
+                                            {myReaderReqAt && (
+                                                (rsd && rsd.lastRequestAt === myReaderReqAt)
+                                                    ? <div style={{ paddingLeft: 16, color: '#059669', fontWeight: 700 }}>요청 처리 완료 — 위 시각 기준으로 최신입니다.</div>
+                                                    : <div style={{ paddingLeft: 16, color: '#2563eb', fontWeight: 700 }}>요청을 보냈습니다 — 최대 20초 안에 반영됩니다. 이 창을 열어두시면 저절로 바뀝니다.</div>
+                                            )}
+                                            {rsd && rsd.at && (
+                                                <div style={{ paddingLeft: 16, color: '#64748b' }}>
+                                                    규칙 걸린 프로젝트 {rsd.targets || 0}건 · 규칙 {rsd.rules || 0}개 · 지난 회차 메인표 {rsd.wrote || 0}칸 · 주간장부 {rsd.ledger || 0}건
+                                                </div>
+                                            )}
+                                            {rs.stale && (
+                                                <div style={{ paddingLeft: 16, color: '#b45309', fontWeight: 700 }}>※ 주기보다 오래 소식이 없습니다 — NAS의 pms-reader 컨테이너가 멈췄는지 확인해 주세요.</div>
+                                            )}
+                                            {rsd && Array.isArray(rsd.errors) && rsd.errors.length > 0 && (
+                                                <div style={{ paddingLeft: 16, color: '#dc2626' }} title={rsd.errors.join('\n')}>오류 {rsd.errors.length}건 — {rsd.errors[0]}</div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* 이 프로젝트의 폴더 (2026-07-31 팀장님 결정) — 프로젝트마다 클라우드 폴더를 따로 둔다.
+                                    규칙(파일 이름 조각)은 이 폴더 안에서만 파일을 찾으므로, 프로젝트가 늘어도 남의 파일이 안 걸린다. */}
+                                {!NAS_SYNC_ENABLED && (() => {
+                                    const dirs = (readerStatus && Array.isArray(readerStatus.dirs)) ? readerStatus.dirs : [];
+                                    const curDir = extFolderDraft !== null ? extFolderDraft : (ex.folder || '');
+                                    const dirty = extFolderDraft !== null && extFolderDraft !== (ex.folder || '');
+                                    return (
+                                    <div style={{ marginBottom: 13 }}>
+                                        <div style={secT}>{secNo()} 이 프로젝트의 폴더 (클라우드)</div>
+                                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                            <select style={{ ...inSt, background: isAdmin ? '#fff' : '#f8fafc' }} disabled={!isAdmin}
+                                                value={curDir} onChange={e => setExtFolderDraft(e.target.value)}>
+                                                <option value="">(지정 안 함 — 폴더 전체에서 찾음)</option>
+                                                {dirs.map(d => <option key={d} value={d}>{d}</option>)}
+                                                {ex.folder && !dirs.includes(ex.folder) && <option value={ex.folder}>{ex.folder}  ← 클라우드에 없는 폴더!</option>}
+                                            </select>
+                                            {dirty && isAdmin && (
+                                                <button style={bSt('#059669', '#059669', '#fff')}
+                                                    onClick={async () => { await extSaveSync(exRow, { folder: extFolderDraft }); setExtFolderDraft(null); }}>저장</button>
+                                            )}
+                                            {dirty && <button style={bSt('#fff', '#cbd5e1', '#475569')} onClick={() => setExtFolderDraft(null)}>취소</button>}
+                                        </div>
+                                        <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4, lineHeight: 1.5 }}>
+                                            이 프로젝트 자료가 들어 있는 클라우드 폴더입니다. 규칙은 <b>이 폴더(와 하위) + 맨 위(공통 자리)</b> 에서만 파일을 찾습니다.<br/>
+                                            <b>파일 두는 자리</b> — 이 프로젝트 전용 파일은 <b>프로젝트 폴더</b>에, 여러 프로젝트가 같이 쓰는 파일(예: 01 진행현황_P9_10…)은 <b>맨 위</b>에 두세요.<br/>
+                                            {dirs.length === 0
+                                                ? <>클라우드에 하위 폴더가 아직 없습니다 — OneDrive의 '{readerStatus?.folder || 'PMS진척자료'}' 안에 프로젝트 폴더를 만들고 파일을 옮기면 여기 목록에 나타납니다.</>
+                                                : <>지정하지 않으면 폴더 전체에서 찾습니다 — 프로젝트가 여럿이면 <b>다른 프로젝트 파일이 잡힐 수 있으니</b> 지정하는 편이 안전합니다.</>}
+                                        </div>
+                                    </div>
+                                    );
+                                })()}
+
+                                {/* 클라우드 원본 파일 — 오피스365가 파일마다 주는 웹주소(webUrl)로 바로 연다 (2026-07-31).
+                                    NAS 방식의 [엑셀로 열기]는 WebDAV 주소가 필요했지만, 오피스365는 웹주소가 이미 있어 그대로 쓴다. */}
+                                {!NAS_SYNC_ENABLED && readerStatus && Array.isArray(readerStatus.files) && readerStatus.files.length > 0 && (() => {
+                                    // 파일 목록은 '폴더 전체'라 프로젝트가 늘면 남의 파일까지 다 보인다 (2026-07-31 팀장님 지적).
+                                    //   → 기본은 이 프로젝트의 규칙이 실제로 읽는 파일만. 규칙이 없으면(새 프로젝트) 전체를 보여준다
+                                    //     — 규칙을 만들려면 폴더에 어떤 파일이 있는지 봐야 하므로.
+                                    const nrmF = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+                                    const usedOf = (f) => exRules.filter(r => r.filePattern && nrmF(f.name).includes(nrmF(r.filePattern))).map(r => r.target);
+                                    const allF = readerStatus.files;
+                                    // 이 프로젝트 폴더로 먼저 좁힌다 (리더의 in_dir 과 같은 규칙: 그 폴더 또는 그 하위)
+                                    const rowDir = String(ex.folder || '').replace(/^\/+|\/+$/g, '');
+                                    // 리더의 in_dir 과 같은 규칙: 이 프로젝트 폴더(와 하위) + 맨 위(공통 자리)
+                                    const inDir = (f) => !rowDir || !String(f.dir || '') || String(f.dir || '') === rowDir || String(f.dir || '').startsWith(rowDir + '/');
+                                    const scopedF = allF.filter(inDir);
+                                    const mineF = scopedF.filter(f => usedOf(f).length > 0);
+                                    // 폴더를 지정했으면 그 폴더 파일 전부, 아니면 규칙이 읽는 파일만 (없으면 전체)
+                                    const baseF = rowDir ? scopedF : mineF;
+                                    const showAll = showAllFiles || baseF.length === 0;
+                                    const listF = showAll ? allF : baseF;
+                                    return (
+                                    <div style={{ marginBottom: 13 }}>
+                                        <div style={secT}>{secNo()} {showAll
+                                            ? `클라우드 폴더 파일 전체 (${allF.length}개 · '${readerStatus.folder}')`
+                                            : (rowDir ? `이 프로젝트 폴더의 파일 (${baseF.length}개 · '${rowDir}')` : `이 프로젝트가 읽는 파일 (${baseF.length}개)`)}</div>
+                                        {showAll && (
+                                            <div style={{ fontSize: 10.5, color: '#94a3b8', margin: '-2px 0 6px' }}>
+                                                {baseF.length === 0
+                                                    ? <>※ 이 프로젝트 폴더·규칙에 걸리는 파일이 아직 없어 <b>폴더에 있는 파일 전부</b>를 보여줍니다. 위에서 <b>폴더</b>를 고르거나, 아래 규칙의 <b>'파일 이름 조각'</b>을 여기서 정하세요.</>
+                                                    : <>※ <b>다른 프로젝트 파일까지 포함한 폴더 전체</b>입니다.</>}
+                                            </div>
+                                        )}
+                                        {listF.map((f, i) => {
+                                            const usedBy = usedOf(f);
+                                            return (
+                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 9px', marginBottom: 4, background: usedBy.length ? '#f0f7ff' : '#f8fafc', border: '1px solid ' + (usedBy.length ? '#bcd6f0' : '#e2e8f0'), borderRadius: 6 }}>
+                                                <FileSpreadsheet size={13} style={{ color: usedBy.length ? '#1e7ac8' : '#94a3b8', flexShrink: 0 }}/>
+                                                <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel || f.name}>
+                                                    {showAll && f.dir ? <span style={{ color: '#94a3b8' }}>{f.dir}/</span> : null}{f.name}
+                                                </span>
+                                                {rowDir && !f.dir && (
+                                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}
+                                                        title="맨 위(공통 자리)에 있는 파일입니다 — 여러 프로젝트가 같이 씁니다">공통</span>
+                                                )}
+                                                {usedBy.length > 0 && (
+                                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#0369a1', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}
+                                                        title={`이 프로젝트의 규칙이 이 파일을 읽습니다: ${usedBy.join(', ')}`}>이 프로젝트가 읽음 · {usedBy.join(', ')}</span>
+                                                )}
+                                                <span style={{ fontSize: 10.5, color: '#94a3b8', whiteSpace: 'nowrap' }}>{String(f.modified || '').replace('T', ' ')}</span>
+                                                {f.webUrl
+                                                    ? <button style={bSt('#059669', '#059669', '#fff')} title="오피스365 웹 엑셀로 이 파일을 엽니다 (새 탭)" onClick={() => window.open(f.webUrl, '_blank', 'noopener,noreferrer')}>엑셀 열기</button>
+                                                    : <span style={{ fontSize: 10.5, color: '#cbd5e1', whiteSpace: 'nowrap' }}>주소 없음</span>}
+                                            </div>
+                                            );
+                                        })}
+                                        {baseF.length > 0 && allF.length > baseF.length && (
+                                            <button style={{ background: 'none', border: 'none', color: '#1358a0', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '2px 0' }}
+                                                onClick={() => setShowAllFiles(v => !v)}>
+                                                {showAll ? `↑ 이 프로젝트 것만 보기 (${baseF.length}개)` : `↓ 폴더 전체 보기 (${allF.length}개)`}
+                                            </button>
+                                        )}
+                                        <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 5, lineHeight: 1.5 }}>
+                                            웹 엑셀(브라우저)로 열립니다 — <b>오피스365 라이선스 계정으로 로그인</b>되어 있어야 합니다.<br/>
+                                            웹 엑셀 화면 오른쪽 위 [편집] → [데스크톱 앱에서 열기]를 누르면 설치된 진짜 엑셀로도 열 수 있습니다.
+                                        </div>
+                                    </div>
+                                    );
+                                })()}
+
+                                {/* NAS 폴더 주소 — NAS 방식 전용 (2026-07-31).
+                                    오피스365 방식에서는 NAS 프로그램이 클라우드를 직접 읽으므로 이 PC가 알 주소가 없다. */}
+                                {NAS_SYNC_ENABLED && (
                                 <div style={{ marginBottom: 13 }}>
-                                    <div style={secT}>① NAS 폴더 주소 (전 직원 공통 · 표시용)</div>
+                                    <div style={secT}>{secNo()} NAS 폴더 주소 (전 직원 공통 · 표시용)</div>
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <input style={{ ...inSt, background: isAdmin ? '#fff' : '#f8fafc' }} readOnly={!isAdmin} title={extPathDraft !== null ? extPathDraft : (ex.uncPath || '')}
                                             placeholder="\\neconsys_pj\001 Project\..."
@@ -3082,9 +3281,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     </div>
                                     <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>회사 주소(\\neconsys_pj)가 이 PC에서 안 열리면, 아래 칸에 내 드라이브 별명 주소(Z:\...)를 넣어두세요 — [원본 파일 열기]·[파일 경로 복사]가 이 주소를 우선 사용합니다.</div>
                                 </div>
+                                )}
 
                                 <div style={{ marginBottom: 13 }}>
-                                    <div style={secT}>② 자동 반영 규칙 (클라우드 공유 — 모든 PC 동일)</div>
+                                    <div style={secT}>{secNo()} 자동 반영 규칙 (클라우드 공유 — 모든 PC 동일)</div>
                                     {exRules.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 2px' }}>등록된 규칙 없음{isAdmin ? ' — 아래 [규칙 추가]로 등록하세요' : ''}</div>}
                                     {exRules.map((r, i) => (
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', marginBottom: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7 }}>
@@ -3108,7 +3308,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     title="파일2(진척자료_YYMMDD) 진척률요약(Main) — 공종 8개 하위 행 자동 생성/갱신 + 부모 총계 반영"
                                                     onClick={async () => {
                                                         await extSaveSync(exRow, { rules: [...exRules, EXT_SUBTABLE_PRESET] });
-                                                        setAlertMsg('하위 공종표 규칙 등록 완료!\n\n[지금 확인]을 누르면 공종 하위 행 생성/갱신과\n부모 총계 반영 미리보기가 뜹니다.');
+                                                        setAlertMsg('하위 공종표 규칙 등록 완료!\n\n' + (NAS_SYNC_ENABLED
+                                                            ? '[지금 확인]을 누르면 공종 하위 행 생성/갱신과\n부모 총계 반영 미리보기가 뜹니다.'
+                                                            : 'NAS 자동 프로그램이 15분 안에 부모 총계를 반영합니다.\n(하위 8행 각각의 값 갱신은 2순위 작업 — 아직 미구현)'));
                                                     }}>+ 하위 공종표 규칙 (파일2)</button>
                                             )}
                                         </div>
@@ -3145,15 +3347,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     if (exRules.some(r => String(r.target) === String(extRuleDraft.target))) { setAlertMsg(`'${extRuleDraft.target}' 규칙이 이미 있습니다. 기존 규칙을 삭제 후 추가하세요.`); return; }
                                                     await extSaveSync(exRow, { rules: [...exRules, { target: extRuleDraft.target, filePattern: String(extRuleDraft.filePattern || '').trim(), sheet: String(extRuleDraft.sheet).trim(), cells: cs, op: extRuleDraft.op, decimals: extRuleDraft.decimals }] });
                                                     setExtRuleDraft(null);
-                                                    setAlertMsg(`규칙 저장 완료!\n${extRuleDraft.target} ← 시트 '${extRuleDraft.sheet}' ${cs.join(',')} ${extRuleDraft.op === 'sum' ? '합계' : '평균'}\n\n이제 아래 ③에서 [폴더 지정]을 해주세요.`);
+                                                    setAlertMsg(`규칙 저장 완료!\n${extRuleDraft.target} ← 시트 '${extRuleDraft.sheet}' ${cs.join(',')} ${extRuleDraft.op === 'sum' ? '합계' : '평균'}\n\n` + (NAS_SYNC_ENABLED ? '이제 아래에서 [폴더 지정]을 해주세요.' : 'NAS 자동 프로그램이 15분 안에 클라우드 원본을 읽어 반영합니다.'));
                                                 }}>규칙 저장</button>
                                             </div>
                                         </div>
                                     )}
                                 </div>
 
+                                {/* 오피스365 방식에서 이 섹션에 남는 건 [NAS 잔재 정리](관리자 전용)뿐 → 일반 직원에겐 통째로 숨김 (2026-07-31) */}
+                                {(NAS_SYNC_ENABLED || isAdmin) && (
                                 <div style={{ marginBottom: 13 }}>
-                                    <div style={secT}>③ 이 PC 연결 (폴더 읽기 허가증 — PC마다 1회)</div>
+                                    <div style={secT}>{secNo()} {NAS_SYNC_ENABLED ? '이 PC 연결 (폴더 읽기 허가증 — PC마다 1회)' : '관리 (관리자)'}</div>
+                                    {/* 상태 점 — 이 PC가 파일을 읽었을 때만 의미가 있다. 오피스365 방식은 NAS가 읽으므로 숨김 (2026-07-31) */}
+                                    {NAS_SYNC_ENABLED && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, fontSize: 12, color: '#334155' }}>
                                         <span style={{ width: 9, height: 9, borderRadius: '50%', background: dotColor, flexShrink: 0 }}/>
                                         <span style={{ flex: 1, minWidth: 0 }}>
@@ -3162,21 +3368,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             {st?.checkedAt ? <span style={{ color: '#b6c2d0' }}> · {new Date(st.checkedAt).toLocaleTimeString()}</span> : null}
                                         </span>
                                     </div>
+                                    )}
                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        {/* 폴더 지정 · 지금 확인 · 이 PC 지정 해제 = 브라우저가 직접 파일을 읽는 NAS 방식 전용 (2026-07-31) */}
+                                        {NAS_SYNC_ENABLED && (<>
                                         <button style={bSt('#1e7ac8', '#1e7ac8', '#fff')} disabled={extBusy} onClick={() => extPickFolder(exRow)}>폴더 지정/변경</button>
                                         <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} disabled={extBusy} onClick={async () => {
-                                            if (!extRulesOf(exRow).length) { setAlertMsg('아직 자동 반영 규칙이 없습니다.\n\n위 ② [+ 규칙 추가] → [규칙 저장]을 먼저 해주세요.\n(폼에 파일1 규칙이 미리 채워져 있습니다)'); return; }
+                                            if (!extRulesRawOf(exRow).length) { setAlertMsg('아직 자동 반영 규칙이 없습니다.\n\n위 ② [+ 규칙 추가] → [규칙 저장]을 먼저 해주세요.\n(폼에 파일1 규칙이 미리 채워져 있습니다)'); return; }
                                             const ps = await extCheckRow(exRow, { silent: false });
                                             if (ps.length) setExtProposals(ps);
                                             else { const s2 = extStatus[exRow._id]; if (!s2 || s2.state === 'ok') { setAlertMsg('확인 완료 — 변경 없음 (메인표가 최신)'); setTimeout(() => setAlertMsg(''), 2500); } }
                                         }}>{extBusy ? '확인 중...' : '지금 확인'}</button>
                                         <button style={bSt('#fff', '#e2c4c4', '#b91c1c')} disabled={extBusy} onClick={async () => { await extIdbDel(extHandleKey(exRow._id)); extSetStatus(exRow._id, { state: 'nofolder', msg: '이 PC 지정 해제됨' }); }}>이 PC 지정 해제</button>
+                                        </>)}
                                         {/* NAS 잔재 정리 (2026-07-30) — 표시용 주소·과거 반영기록(lastApplied)·이 PC 폴더 핸들만 지움. 규칙은 파일명·시트·셀 기준이라 유지 */}
                                         {isAdmin && (
                                         <button style={bSt('#fffbeb', '#f0c98c', '#92400e')} disabled={extBusy} title="표시용 NAS 주소 + 과거 반영기록 + 이 PC 폴더 지정을 지웁니다. 자동 반영 규칙은 그대로 유지됩니다." onClick={async () => {
                                             try {
                                                 const nGhost = Object.keys((exRow._extSync || {}).lastApplied || {}).length;
-                                                const nRules = extRulesOf(exRow).length;
+                                                const nRules = extRulesRawOf(exRow).length;
                                                 await setDoc(rowDocRef(currentTeam, exRow._id), stampSave({ _extSync: { ...(exRow._extSync || {}), uncPath: deleteField(), lastApplied: deleteField() } }), { merge: true });
                                                 await extIdbDel(extHandleKey(exRow._id));
                                                 setExtPathDraft(null);
@@ -3187,7 +3397,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         }}>NAS 잔재 정리</button>
                                         )}
                                     </div>
-                                    {(() => {
+                                    {/* 찾은 원본 파일 목록 — [엑셀로 열기]가 NAS WebDAV 주소 전용이라 NAS 방식에서만 표시 (2026-07-31) */}
+                                    {NAS_SYNC_ENABLED && (() => {
                                         const seen = {};
                                         const files = [];
                                         (st && st.files ? st.files : []).forEach(f => { if (f && f.rel && !seen[f.rel]) { seen[f.rel] = 1; files.push(f); } });
@@ -3219,16 +3430,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         );
                                     })()}
                                     <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 7, lineHeight: 1.5 }}>
+                                        {NAS_SYNC_ENABLED ? (<>
                                         담당 PC 한 대만 지정해도 그 PC에서 List를 열 때마다 팀 전체 값이 최신으로 유지됩니다.<br/>
                                         지정한 폴더의 <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) — 프로젝트 진척자료 폴더 하나만 지정하면 됩니다.<br/>
                                         브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.<br/>
                                         [엑셀로 열기]는 PC마다 1회 준비(NAS 주소·Office 예외 등록)가 필요합니다 — 준비 전 PC는 [경로 복사]를 쓰세요.
+                                        </>) : (<>
+                                        [NAS 잔재 정리] = 옛 NAS 방식이 남긴 <b>표시용 주소 · 과거 반영기록 · 이 PC 폴더 지정</b>만 지웁니다. <b>자동 반영 규칙은 그대로 유지</b>됩니다.<br/>
+                                        규칙은 파일 이름 조각 · 시트 · 셀 기준이라, 원본이 NAS에 있든 오피스365 클라우드에 있든 똑같이 동작합니다.
+                                        </>)}
                                     </div>
                                 </div>
+                                )}
 
                                 {ex.lastApplied && Object.keys(ex.lastApplied).length > 0 && (
                                     <div>
-                                        <div style={secT}>④ 마지막 자동 반영</div>
+                                        <div style={secT}>{secNo()} 마지막 자동 반영{NAS_SYNC_ENABLED ? '' : ' (칸별 · 값이 바뀐 시각)'}</div>
                                         {Object.entries(ex.lastApplied).map(([k, v]) => (
                                             <div key={k} style={{ fontSize: 11.5, color: '#475569', padding: '3px 2px' }}>
                                                 <b style={{ color: '#0369a1' }}>{k}</b> = {String(v.value)} · <span style={{ color: '#94a3b8' }}>{v.fileName}</span> · {v.at ? new Date(v.at).toLocaleString() : ''}
@@ -4040,15 +4257,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 <Link size={13}/>
                                                             </button>
                                                         )}
-                                                        {/* NAS 칩 버튼 — NAS_SYNC_ENABLED=false 이면 숨김 (2026-07-30) */}
-                                                        {NAS_SYNC_ENABLED && (extRulesOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
+                                                        {/* 규칙 칩 버튼 — RULE_UI_ENABLED 로 켠다 (2026-07-31). 규칙이 있으면 파란 칩, 관리자는 규칙이 없어도 회색 아이콘으로 보임 */}
+                                                        {RULE_UI_ENABLED && (extRulesRawOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
                                                             const st = extStatus[row._id];
-                                                            const fill = !extRulesOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
+                                                            const fill = !extRulesRawOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
                                                             return (
                                                             <button onClick={e => { e.stopPropagation(); setExtModalRowId(row._id); }}
                                                                 className="p-1.5 hover:bg-sky-500/20 rounded transition-colors"
                                                                 style={fill ? { background: fill } : undefined}
-                                                                title={!fill ? 'NAS 진척자료 자동 연결 (규칙 등록)' : 'NAS 자동: ' + (!st || st.state === 'nofolder' ? '파일 연계 등록됨 — 클릭하여 열기·상태 확인' : (st.msg || st.state))}>
+                                                                title={!fill ? '진척자료 자동 반영 규칙 등록' : (NAS_SYNC_ENABLED
+                                                                    ? 'NAS 자동: ' + (!st || st.state === 'nofolder' ? '파일 연계 등록됨 — 클릭하여 열기·상태 확인' : (st.msg || st.state))
+                                                                    : '자동 반영 규칙 등록됨 — 클릭하여 확인·수정')}>
                                                                 <HardDrive size={13} color={fill ? '#fff' : '#94a3b8'}/>
                                                             </button>
                                                             );
@@ -4084,6 +4303,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     · ● 메인 PC 자동 반영 중{extLastAuto ? ` (${extLastAuto} 확인)` : ''}
                                 </span>
                             )}
+                            {/* 자동 반영기 배지 (2026-07-31) — 규칙 화면을 안 열어도 프로그램이 살아있는지 보이게 */}
+                            {RULE_UI_ENABLED && !NAS_SYNC_ENABLED && readerStatus && readerStatus.at && (() => {
+                                const rs = rdState(readerStatus);
+                                return (
+                                    <span className="ml-3 font-bold" style={{ color: rs.color }}
+                                        title={`진척자료 자동 반영기 (NAS 프로그램)\n마지막 확인 ${rdTimeText(readerStatus.at)}\n주기 ${readerStatus.intervalMin || 15}분 · 규칙 ${readerStatus.rules || 0}개\n지난 회차 메인표 ${readerStatus.wrote || 0}칸 갱신`}>
+                                        · ● 자동 반영기 {rdTimeText(readerStatus.at)} 확인{rs.stale ? ' — 멈춘 듯' : ''}
+                                    </span>
+                                );
+                            })()}
                         </span>
                         {dataSource !== 'firebase' && (
                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${srcBadge.bg} ${srcBadge.text}`}>
