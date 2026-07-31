@@ -229,6 +229,19 @@ const fmtYmd = (v) => {
 // 수주가가 외화(CNY·VND·USD 등)면 견적가(이미 원화 환산액)로 대치해 합산·표시
 const isForeignValue = (v) => /cny|vnd|usd|jpy|eur|위안|元|₫|¥|€|\$/i.test(String(v || ''));
 const effectiveOrderPrice = (r) => (isForeignValue(r && r['수주가']) ? (r['견적가'] || '') : (r ? r['수주가'] : ''));
+// 일부 행은 화폐단위(CNY/VND 등)가 '견적가'에 잘못 붙어있음(예: 견적가 "39,773,319 CNY", 수주가 "203,120.63").
+// → 단위를 수주가 앞으로 옮기고 견적가는 순수 원화로 교정 → 다른 행과 같은 형식이 되어 계산이 자동으로 맞음
+const CURRENCY_UNIT_RE = /(cny|vnd|usd|jpy|eur|위안|元|₫|¥|€|\$)/i;
+const fixRow = (r) => {
+    const est = String(r?.['견적가'] ?? '');
+    const m = est.match(CURRENCY_UNIT_RE);
+    if (!m) return r; // 견적가에 화폐단위 없으면 그대로
+    const unit = m[1].toUpperCase();
+    const estNum = est.replace(/[^0-9.-]/g, '');        // 견적가 = 순수 숫자(원화)
+    const ord = String(r['수주가'] ?? '').trim();
+    const newOrd = CURRENCY_UNIT_RE.test(ord) ? ord : (ord ? `${unit} ${ord}` : ord); // 수주가 앞에 단위
+    return { ...r, '견적가': estNum, '수주가': newOrd };
+};
 
 // 특기사항 상태 메뉴 순서 (뒤에 붙은 금액 등은 무시하고 '종류'만 봄)
 const SPEC_STATUS_ORDER = ['진행중', '집행', '완료', 'invoice', '검토중'];
@@ -748,7 +761,7 @@ const EstimateScreen = ({ onBack }) => {
 
     const listEditable = !isReport; // 견적 목록은 항상 편집 가능 (통합 결과를 저장해 사용)
     const activeHeaders = isReport ? (reports[reportMonth]?.headers || []) : headers;
-    const activeRows    = isReport ? (reports[reportMonth]?.rows || [])    : rows;
+    const activeRows    = useMemo(() => (isReport ? (reports[reportMonth]?.rows || []) : rows).map(fixRow), [isReport, reports, reportMonth, rows]); // 화폐단위 교정 적용
     const specCol = useMemo(() => specColOf(activeHeaders), [activeHeaders]); // 상태(특이사항) 열 자동 인식
     const contentCol = useMemo(() => activeHeaders.find(h => String(h || '').replace(/\s+/g, '').includes('내용')) || '', [activeHeaders]); // 내용 열 (현장 분류용)
     const dateSortCol = useMemo(() => activeHeaders.find(h => String(h || '').replace(/\s+/g, '').includes('발행일')) || activeHeaders.find(isYearDateCol) || '', [activeHeaders]); // 날짜순 정렬 대상 열
