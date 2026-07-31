@@ -393,6 +393,12 @@ const EstimateScreen = ({ onBack }) => {
         setDoc(estReportsDoc(), { json: JSON.stringify(obj), savedAt: Date.now() })
             .catch(e => setAlertMsg('클라우드 저장 실패(보고서): ' + (e?.message || e) + '\n(이 브라우저엔 저장됨)'));
     };
+    // 견적목록을 이 브라우저 + 공유 클라우드에 바로 저장 (업로드 즉시 저장용)
+    const persistList = (hdrs, rws) => {
+        try { localStorage.setItem(EST_STORE_KEY, JSON.stringify({ headers: hdrs, rows: rws.map(({ _ocr, ...r }) => r), savedAt: Date.now() })); } catch (_) { /* 무시 */ }
+        fireSaveList(hdrs, rws);
+        setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1800);
+    };
 
     // 저장 (이 브라우저 + 공유 클라우드)
     const handleSave = () => {
@@ -493,8 +499,11 @@ const EstimateScreen = ({ onBack }) => {
             }
 
             // 기존 데이터에 이어붙여 월이 쌓이도록 (여러 달 파일을 나눠 올릴 수 있음)
-            setHeaders(prev => { const m = [...prev]; allHeaders.forEach(h => { if (!m.includes(h)) m.push(h); }); return m; });
-            setRows(prev => [...prev, ...allRows]);
+            const newHeaders = [...headers]; allHeaders.forEach(h => { if (!newHeaders.includes(h)) newHeaders.push(h); });
+            const newRows = [...rows, ...allRows];
+            setHeaders(newHeaders);
+            setRows(newRows);
+            persistList(newHeaders, newRows); // 올리자마자 바로 저장(클라우드 포함)
         } catch (err) {
             setAlertMsg(`파싱 오류: ${err.message}`);
         } finally {
@@ -592,12 +601,12 @@ const EstimateScreen = ({ onBack }) => {
                 newRows.push(row);
             }
             // 고정 컬럼을 헤더에 병합(기존 컬럼 유지)
-            setHeaders(prev => {
-                const merged = [...prev];
-                EST_COLUMNS.forEach(c => { if (!merged.includes(c)) merged.push(c); });
-                return merged;
-            });
-            setRows(prev => [...prev, ...newRows]);
+            const mergedHeaders = [...headers];
+            EST_COLUMNS.forEach(c => { if (!mergedHeaders.includes(c)) mergedHeaders.push(c); });
+            const mergedRows = [...rows, ...newRows];
+            setHeaders(mergedHeaders);
+            setRows(mergedRows);
+            persistList(mergedHeaders, mergedRows); // 읽자마자 바로 저장(클라우드 포함)
         } catch (err) {
             setAlertMsg(`사진 읽기 오류: ${err.message}`);
         } finally {

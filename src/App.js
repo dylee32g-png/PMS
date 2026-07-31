@@ -5717,7 +5717,7 @@ const TechTeamPMS = () => {
                                   작업 백로그
                               </button>
                               <button
-                                  onClick={() => { setEstimatePwInput(''); setEstimatePwError(false); setShowEstimateModal(true); }}
+                                  onClick={() => setCurrentMode('estimate')}
                                   className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적
