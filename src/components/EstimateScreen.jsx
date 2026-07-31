@@ -5,9 +5,14 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Plus, Target, Camera, ArrowDownAZ, Settings
 } from 'lucide-react';
 import { loadXLSX, loadExcelJS, loadFileSaver, loadTesseract } from '../utils';
+import { db, appId } from '../firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const EST_STORE_KEY = 'pms_estimate_data_v1';
 const REPORT_STORE_KEY = 'pms_estimate_reports_v1'; // 월별 보고서 저장 { 'YYYY-MM': {headers, rows} }
+// ── 공유(Firebase) 저장 경로 — 기존 프로젝트 데이터와 같은 위치라 인증·보안규칙 동일 적용 ──
+const estListDoc    = () => doc(db, 'artifacts', appId, 'public', 'data', 'estimate', 'list');    // 통합 견적목록
+const estReportsDoc = () => doc(db, 'artifacts', appId, 'public', 'data', 'estimate', 'reports');  // 월별 보고서 전체
 const UP_YEARS = ['2025', '2026', '2027'];
 const UP_MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 
@@ -338,11 +343,63 @@ const EstimateScreen = ({ onBack }) => {
         } catch (_) { /* 무시 */ }
     }, []);
 
-    // 저장 (이 브라우저에 보관)
+    // ── 공유(Firebase) 실시간 구독 + 최초 마이그레이션 ──
+    // Firebase에 데이터가 있으면 그걸로 표시(팀 공유). 비어있고 이 브라우저(localStorage)에만 있으면 최초 1회 올림.
+    useEffect(() => {
+        if (!db) return;
+        const unsubList = onSnapshot(estListDoc(), (snap) => {
+            if (snap.exists() && snap.data()?.json) {
+                try { const o = JSON.parse(snap.data().json); setHeaders(o.headers || []); setRows(o.rows || []); } catch (_) { /* 무시 */ }
+            }
+        }, () => { /* 권한/네트워크 오류는 무시 (localStorage로 동작) */ });
+        const unsubReports = onSnapshot(estReportsDoc(), (snap) => {
+            if (snap.exists() && snap.data()?.json) {
+                try {
+                    const d = JSON.parse(snap.data().json);
+                    setReports(d);
+                    const months = Object.keys(d).sort();
+                    if (months.length) setReportMonth(prev => prev || months[months.length - 1]);
+                } catch (_) { /* 무시 */ }
+            }
+        }, () => {});
+        // 최초 마이그레이션: Firebase 비었고 localStorage에 있으면 올림
+        (async () => {
+            try {
+                const [ls, rs] = await Promise.all([getDoc(estListDoc()), getDoc(estReportsDoc())]);
+                const lsList = localStorage.getItem(EST_STORE_KEY);
+                const lsRep = localStorage.getItem(REPORT_STORE_KEY);
+                if (!ls.exists() && lsList) {
+                    const o = JSON.parse(lsList);
+                    await setDoc(estListDoc(), { json: JSON.stringify({ headers: o.headers || [], rows: o.rows || [] }), savedAt: Date.now(), by: 'migrate' });
+                }
+                if (!rs.exists() && lsRep) {
+                    await setDoc(estReportsDoc(), { json: lsRep, savedAt: Date.now(), by: 'migrate' });
+                }
+            } catch (_) { /* 무시 */ }
+        })();
+        return () => { unsubList(); unsubReports(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // 공유(Firebase) 저장 — 실패해도 localStorage엔 저장되므로 안내만
+    const fireSaveList = (hdrs, rws) => {
+        if (!db) return;
+        const payload = JSON.stringify({ headers: hdrs, rows: rws.map(({ _ocr, ...r }) => r) });
+        setDoc(estListDoc(), { json: payload, savedAt: Date.now() })
+            .catch(e => setAlertMsg('클라우드 저장 실패(견적목록): ' + (e?.message || e) + '\n(이 브라우저엔 저장됨)'));
+    };
+    const fireSaveReports = (obj) => {
+        if (!db) return;
+        setDoc(estReportsDoc(), { json: JSON.stringify(obj), savedAt: Date.now() })
+            .catch(e => setAlertMsg('클라우드 저장 실패(보고서): ' + (e?.message || e) + '\n(이 브라우저엔 저장됨)'));
+    };
+
+    // 저장 (이 브라우저 + 공유 클라우드)
     const handleSave = () => {
         try {
             const rowsToSave = rows.map(({ _ocr, ...r }) => r); // OCR 원문은 제외해 용량 절약
             localStorage.setItem(EST_STORE_KEY, JSON.stringify({ headers, rows: rowsToSave, savedAt: Date.now() }));
+            fireSaveList(headers, rows); // 공유 클라우드에도 저장
             setSavedFlash(true);
             setTimeout(() => setSavedFlash(false), 1800);
         } catch (e) { setAlertMsg('저장 실패: ' + e.message); }
@@ -356,6 +413,7 @@ const EstimateScreen = ({ onBack }) => {
         setHeaders(c.headers);
         setRows(c.rows);
         try { localStorage.setItem(EST_STORE_KEY, JSON.stringify({ headers: c.headers, rows: c.rows.map(({ _ocr, ...r }) => r), savedAt: Date.now() })); } catch (_) { /* 무시 */ }
+        fireSaveList(c.headers, c.rows); // 공유 클라우드에도 저장
         setSelRows(new Set()); setSpecFilter(new Set()); setSiteFilter(new Set()); setViewMonth(''); setDateFrom(''); setSearchTerm('');
         setTab('list'); // 견적 목록에서 결과 보기
         setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1800);
@@ -386,6 +444,7 @@ const EstimateScreen = ({ onBack }) => {
         if ((rows.length || headers.length) && !window.confirm('견적 목록 전체를 지울까요?\n(월별 보고서는 그대로 남아요)')) return;
         setRows([]); setHeaders([]);
         try { localStorage.removeItem(EST_STORE_KEY); } catch (_) { /* 무시 */ }
+        if (db) setDoc(estListDoc(), { json: JSON.stringify({ headers: [], rows: [] }), savedAt: Date.now() }).catch(() => {}); // 공유도 비움
         setSelRows(new Set()); setSpecFilter(new Set()); setSiteFilter(new Set()); setViewMonth(''); setDateFrom(''); setSearchTerm('');
         setTab('list');
     };
@@ -448,6 +507,7 @@ const EstimateScreen = ({ onBack }) => {
     const persistReports = (obj) => {
         try {
             localStorage.setItem(REPORT_STORE_KEY, JSON.stringify(obj));
+            fireSaveReports(obj); // 공유 클라우드에도 저장
             return true;
         } catch (e) {
             setAlertMsg('저장 공간이 부족해 보고서를 저장하지 못했습니다.\n오래된 월을 삭제하거나, 공용(클라우드) 저장이 필요하면 말씀해 주세요.\n(' + (e?.message || e) + ')');
