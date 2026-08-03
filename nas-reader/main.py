@@ -7,6 +7,7 @@ PMS 진척자료 클라우드 자동 반영기  (2026-07-30)
     ② Graph API로 오피스365 클라우드의 엑셀 셀을 직접 읽음
     ③ PMS와 똑같은 규칙으로 계산 (PLC · ETOS · 하위 공종표)
     ④ 값이 달라졌으면 Firestore에 기록 → 직원 PMS 화면에 즉시 반영
+    ⑤ 엑셀 공종표에 있는데 PMS에 없는 하위 행은 새로 만든다 (2026-08-03 · subCreate)
 
 왜 이렇게 만드나
     기존 방식은 공용 PC 브라우저가 NAS(또는 OneDrive 동기화) 폴더의 '파일'을 읽었다.
@@ -17,7 +18,7 @@ PMS 진척자료 클라우드 자동 반영기  (2026-07-30)
 설정은 config.json 에서 읽는다. 비밀키는 이 파일에 들어있지 않다.
 """
 
-import json, time, sys, os, re, math, datetime
+import json, time, sys, os, re, math, datetime, uuid
 import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -48,6 +49,7 @@ def load_config():
         sys.exit(1)
     c.setdefault('interval_min', 15)
     c.setdefault('dry_run', False)
+    c.setdefault('sub_create', True)   # 하위 행 자동 생성 (2026-08-03 · 3순위) — false 로 끌 수 있음
     return c
 
 
@@ -638,7 +640,7 @@ def log_sub_plan(name, plan, led):
     log(f"    · 하위 행 짝 {matched}/{len(plan)} · 갱신 대상 {tochange}건")
     for p in plan:
         if not p['sub_id']:
-            log(f"        └ {p['name']}  ← 짝 없음 (PMS에 하위 행이 없음 · 생성은 아직 미구현)")
+            log(f"        └ {p['name']}  ← 짝 없음 (PMS에 하위 행이 없음 → 자동 생성 대상)")
         elif not p['changes']:
             log(f"        └ {p['name']}  [{p['sub_id'].split('_')[-1]}]  변경 없음")
         else:
@@ -648,6 +650,105 @@ def log_sub_plan(name, plan, led):
     if led:
         log(f"    · 부모 팝업 하위별 통합(sub_i) — {led['ndiff']}/{len(led['ints'])}건 다름 "
             f"(주차 {led['weekKey']} · 장부 {led['docKey']})")
+
+
+# ── ⑤-1 하위 행 신규 생성 (2026-08-03 · 인수인계 문서 3순위 subCreate) ────────
+#   PMS ProjectListScreen.jsx extApplyProposals 의 kind === 'subCreate' 를 그대로 옮긴 것.
+#   엑셀 공종표에 있는데 PMS에 하위 행이 없으면(짝 없음) 행을 새로 만든다.
+#   PMS 쪽 생성 규칙과 동일:
+#     · _id  = "{부모_id}_sub{2자리 번호}" — 기존 최대 번호+1, 한 회차 여러 개도 안 겹침
+#     · _pid = 'P-' + 32자리 16진수 (PMS generatePid 와 같은 형식)
+#     · 실행번호 's' · 진행현황 'sub' · Project 이름열 '- 공종명'
+#     · 부모에서 복사: 공장* · 발주처 · 담당자(업체/발주처 담당자 제외) · 관리자
+#     · 값 8칸은 문자열로 저장 · _naOn 5항목 켬 (안 켜면 값이 있어도 화면에서 가려짐)
+#     · 자기 주간 장부 심기: 공정률 4개 + 누적 (포인트·자체/통합시운전%는 장부 항목 아님)
+#   PMS에서는 이 생성이 [확인] 팝업(사람 승인)을 거치지만 리더에는 물을 사람이 없다.
+#   → config.json 에 "sub_create": false 를 넣으면 끌 수 있다 (기본 켬).
+
+def gen_pid():
+    """PMS generatePid 와 동일 형식: 'P-' + 32자리 16진수"""
+    return 'P-' + uuid.uuid4().hex
+
+
+def status_col_of(row):
+    """진행현황 열 이름 찾기 — PMS isStatusCol 과 동일 판정
+       ('진행현황'·'현황'·'진행'이 든 열, 날짜 열은 제외)"""
+    keys = [k for k in row.keys() if not str(k).startswith('_')]
+    for k in keys:                                    # 정확히 '진행현황'이 우선
+        if norm_key(k) == '진행현황':
+            return k
+    for k in keys:
+        nk = str(k)
+        if any(w in nk for w in ('진행현황', '현황', '진행')) \
+           and not any(d in nk for d in ('일', '날짜', 'DATE', 'date')):
+            return k
+    return None
+
+
+def copy_col(h):
+    """부모에서 복사할 열인가 — PMS subCreate 와 동일 판정:
+       '공장' 포함 · 정확히 '발주처' · 담당자(업체/발주처 담당자 제외) · 정확히 '관리자'"""
+    hn = re.sub(r'\s+', '', str(h if h is not None else ''))
+    return ('공장' in hn or hn == '발주처' or hn == '관리자'
+            or ('담당자' in hn and '업체' not in hn and '발주처' not in hn))
+
+
+def create_sub_rows(db, cfg, parent_id, parent_row, plan, all_rows):
+    """짝 없는(sub_id 없는) 엑셀 공종의 하위 행을 만든다. 반환: 만든 행 설명 목록.
+       새 행은 여기서 값·장부까지 다 넣으므로 plan 은 건드리지 않는다
+       (apply_sub_rows 는 sub_id 없는 항목을 그대로 건너뜀 → 이중 반영 없음)."""
+    missing = [p for p in plan if not p['sub_id']]
+    if not missing:
+        return []
+    if not cfg.get('sub_create', True):
+        log(f"    · 짝 없음 {len(missing)}건 — sub_create=false 라 생성 안 함")
+        return []
+    prefix = str(parent_id) + '_sub'
+    max_seq = 0                                        # 기존 최대 번호 (빈 번호는 건너뜀 — PMS와 동일)
+    for rid in all_rows.keys():
+        if str(rid).startswith(prefix):
+            m = re.search(r'_sub(\d+)$', str(rid))
+            if m:
+                max_seq = max(max_seq, int(m.group(1)))
+    name_col = project_name_col(parent_row)
+    st_col   = status_col_of(parent_row)
+    headers  = [k for k in parent_row.keys() if not str(k).startswith('_')]
+    created  = []
+    for p in missing:
+        max_seq += 1
+        new_id = f"{parent_id}_sub{str(max_seq).zfill(2)}"
+        now = datetime.datetime.now()
+        row = {h: '' for h in headers}                 # 모든 열 = 빈칸에서 시작 (PMS와 동일)
+        for h in headers:                              # 부모에서 복사할 칸
+            if copy_col(h):
+                row[h] = parent_row.get(h) or ''
+        row['_pid']       = gen_pid()
+        row['_year']      = parent_row.get('_year') if parent_row.get('_year') not in (None, '') else str(now.year)
+        row['_regDate']   = now.strftime('%Y-%m-%d')
+        row['_subParent'] = parent_row.get('_pid') or ''
+        row[hdr_of(parent_row, '실행번호')] = 's'
+        if st_col:
+            row[st_col] = 'sub'
+        if name_col:
+            row[name_col] = f"- {p['name']}"
+        for col, v in p['want'].items():               # 값 8칸 — PMS와 동일하게 문자열
+            row[hdr_of(parent_row, col)] = js_num_str(v)
+        row['_naOn']      = list(SUB_NA_ON)
+        row['_updatedAt'] = now.isoformat(timespec='seconds')
+        row['_updatedBy'] = 'NAS-Graph-Reader'
+        rows_collection(db, cfg).document(new_id).set(row)
+        all_rows[new_id] = row                         # 같은 회차의 다음 단계(번호 계산 등)에서도 보이게
+        # 자기 주간 장부 — 공정률 4개 + 누적 (PMS extSeedIntLedger/syncProgressCellToLedger 와 동일)
+        items = {}
+        for col, v in p['want'].items():
+            k = prog_item_key(col)
+            if k:
+                items[k] = v
+            elif norm_key(col) == '누적':
+                items['intCommissioning'] = v
+        write_week_multi(db, cfg, new_id, row, items)
+        created.append(f"{p['name']} [{new_id.split('_sub')[-1]}]")
+    return created
 
 
 def write_week_multi(db, cfg, row_id, row, items):
@@ -792,13 +893,14 @@ def run_once(cfg, db):
             targets.append((d.id, data, rules))
     if not targets:
         log('자동 반영 규칙이 있는 행이 없습니다 — 할 일 없음')
-        write_status(db, cfg, ok=True, targets=0, rules=0, wrote=0, ledger=0,
+        write_status(db, cfg, ok=True, targets=0, rules=0, wrote=0, ledger=0, created=0,
                      errors=[], files=file_info, dirs=dir_info)
         return
     log(f'규칙이 있는 프로젝트 {len(targets)}건')
 
     wrote = 0
     led_total = 0
+    created_total = 0        # 새로 만든 하위 행 수 (2026-08-03)
     errors = []
     rule_count = sum(len(r) for _, _, r in targets)
     for row_id, row, rules in targets:
@@ -826,7 +928,15 @@ def run_once(cfg, db):
                         sub_plan = plan_subtable_rows(row_id, row, sub_rows, all_rows)
                         sub_led  = plan_sub_ledger(db, cfg, row_id, row, sub_rows)
                         log_sub_plan(name, sub_plan, sub_led)
+                        if cfg['dry_run']:
+                            miss_n = sum(1 for p2 in sub_plan if not p2['sub_id'])
+                            if miss_n:
+                                log(f"    · (dry_run) 하위 행 {miss_n}건 생성 예정 — 실제로는 안 만듦")
                         if not cfg['dry_run']:
+                            made = create_sub_rows(db, cfg, row_id, row, sub_plan, all_rows)   # ★3순위 (2026-08-03)
+                            if made:
+                                log(f"    · 하위 행 신규 생성 {len(made)}건 — {' · '.join(made)}")
+                                created_total += len(made)
                             sw, sl = apply_sub_rows(db, cfg, sub_plan)
                             pl = write_sub_ledger(db, cfg, row_id, row, sub_rows)
                             if sw or sl or pl:
@@ -837,7 +947,7 @@ def run_once(cfg, db):
                         log(f"    · 하위 행 처리 오류: {ep}")
                         errors.append(f"{name} · 하위 행: {ep}"[:200])
 
-                    # 부모 총계 반영 (하위 행 생성/갱신은 아직 계획만)
+                    # 부모 총계 반영
                     # ★ 열 이름은 hdr_of 로 찾는다 (2026-07-31) — 규칙에 '통합시운전'이라 적어도
                     #   실제 열이 '통합 시운전'(공백 있음)이면 그 열에 써야 한다.
                     #   안 그러면 없는 열이 새로 하나 생기고, 현재값을 못 읽어 매 회차 계속 쓴다.
@@ -922,7 +1032,8 @@ def run_once(cfg, db):
                 errors.append(f"{name} · {rule.get('target', rule.get('type'))}: {e}"[:200])
 
     write_status(db, cfg, ok=(len(errors) == 0), targets=len(targets), rules=rule_count,
-                 wrote=wrote, ledger=led_total, errors=errors[:5], files=file_info, dirs=dir_info)
+                 wrote=wrote, ledger=led_total, created=created_total,
+                 errors=errors[:5], files=file_info, dirs=dir_info)
 
     if cfg['dry_run']:
         log(f'※ 시험 모드(dry_run) — Firestore에 아무것도 쓰지 않았습니다')
