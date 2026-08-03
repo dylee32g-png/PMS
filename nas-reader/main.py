@@ -962,6 +962,16 @@ def run_once(cfg, db):
                         c = cur_num(row, h)
                         if c is None or abs(c - total['acc']) >= 0.05:
                             changed[h] = total['acc']
+                    # 부모 '통합 시운전' % = 누적 ÷ Σ포인트 (2026-08-03 팀장님 결정)
+                    #   PMS extCheckRow 와 동일식: Math.round(acc/Σpt*1000)/10 (소수 1자리, 반올림은 반올림-업)
+                    #   전에는 [진행실적 심기]를 눌러야만 채워졌다 → 이제 매 회차 자동
+                    pt_sum = sum(float(x.get('pt') or 0) for x in sub_rows)
+                    if total['acc'] is not None and pt_sum > 0:
+                        v_int = math.floor(float(total['acc']) / pt_sum * 1000 + 0.5) / 10   # JS Math.round 와 동일(반올림-업)
+                        h = hdr_of(row, '통합시운전')
+                        c = cur_num(row, h)
+                        if c is None or abs(c - v_int) >= 0.05:
+                            changed[h] = v_int
                     if cfg['dry_run']:
                         if changed:
                             log(f"    → 변경 {changed}")
