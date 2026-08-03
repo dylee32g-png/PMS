@@ -1295,16 +1295,21 @@ const TechTeamPMS = () => {
   };
 
   // ★ 진행실적(progressRecords) 전체 로드 — pms(월간보고)·projectList(List) 모드 진입 시 (2026-07-06: List 그래프에서도 시운전 데이터 필요)
+  //   2026-08-03: 한 번 읽기(getDocs) → 실시간 구독(onSnapshot)으로 교체 (팀장님 지시)
+  //   NAS 자동 반영기가 주간 장부를 밖에서 써도 새로고침·[진행실적 심기] 없이
+  //   실적 그래프·진행실적 팝업이 바로 따라오게 한다. 표(List)가 행을 구독하는 것과 같은 방식.
   useEffect(() => {
       if ((currentMode !== 'pms' && currentMode !== 'projectList') || !currentTeam || !db) return;
-      (async () => {
-          try {
-              const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`));
+      const unsub = onSnapshot(
+          collection(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`),
+          (snap) => {
               const map = {};
               snap.docs.forEach(d => { map[d.id] = d.data(); });
               setProgressRecordsMap(map);
-          } catch (e) { console.error('[progressRecords 로드 오류]', e); }
-      })();
+          },
+          (e) => { console.error('[progressRecords 구독 오류]', e); }
+      );
+      return () => unsub();
   }, [currentMode, currentTeam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ★ PMS 월간보고 — 팀 선택 시 IndexedDB 로컬 데이터 자동 로드
