@@ -3310,7 +3310,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         await extSaveSync(exRow, { rules: [...exRules, EXT_SUBTABLE_PRESET] });
                                                         setAlertMsg('하위 공종표 규칙 등록 완료!\n\n' + (NAS_SYNC_ENABLED
                                                             ? '[지금 확인]을 누르면 공종 하위 행 생성/갱신과\n부모 총계 반영 미리보기가 뜹니다.'
-                                                            : 'NAS 자동 프로그램이 15분 안에 부모 총계를 반영합니다.\n(하위 8행 각각의 값 갱신은 2순위 작업 — 아직 미구현)'));
+                                                            : '[지금 확인]을 누르면 20초 안에, 그냥 두면 15분 주기로\n부모 총계와 하위 8행 값이 자동 반영됩니다.\n(하위 행 자동 생성은 아직 미구현 — 하위 행이 있어야 갱신됩니다)'));
                                                     }}>+ 하위 공종표 규칙 (파일2)</button>
                                             )}
                                         </div>
@@ -3347,7 +3347,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     if (exRules.some(r => String(r.target) === String(extRuleDraft.target))) { setAlertMsg(`'${extRuleDraft.target}' 규칙이 이미 있습니다. 기존 규칙을 삭제 후 추가하세요.`); return; }
                                                     await extSaveSync(exRow, { rules: [...exRules, { target: extRuleDraft.target, filePattern: String(extRuleDraft.filePattern || '').trim(), sheet: String(extRuleDraft.sheet).trim(), cells: cs, op: extRuleDraft.op, decimals: extRuleDraft.decimals }] });
                                                     setExtRuleDraft(null);
-                                                    setAlertMsg(`규칙 저장 완료!\n${extRuleDraft.target} ← 시트 '${extRuleDraft.sheet}' ${cs.join(',')} ${extRuleDraft.op === 'sum' ? '합계' : '평균'}\n\n` + (NAS_SYNC_ENABLED ? '이제 아래에서 [폴더 지정]을 해주세요.' : 'NAS 자동 프로그램이 15분 안에 클라우드 원본을 읽어 반영합니다.'));
+                                                    setAlertMsg(`규칙 저장 완료!\n${extRuleDraft.target} ← 시트 '${extRuleDraft.sheet}' ${cs.join(',')} ${extRuleDraft.op === 'sum' ? '합계' : '평균'}\n\n` + (NAS_SYNC_ENABLED ? '이제 아래에서 [폴더 지정]을 해주세요.' : '[지금 확인]을 누르면 20초 안에, 그냥 두면 15분 주기로\n자동 반영기가 클라우드 원본을 읽어 반영합니다.'));
                                                 }}>규칙 저장</button>
                                             </div>
                                         </div>
