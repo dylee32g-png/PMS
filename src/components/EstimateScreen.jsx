@@ -277,6 +277,12 @@ const parseExecAmount = (text) => {
     });
     return sum;
 };
+// 집행월 정렬 기준: 이번 달보다 뒤 달(예 10·11·12월)은 지난해로 보고 앞으로 (10·11·12 → 1월 앞)
+const execMonthOrder = (m) => {
+    if (m == null) return 99;                    // 월 없음 → 맨 뒤
+    const cur = new Date().getMonth() + 1;       // 이번 달
+    return m > cur ? m - 12 : m;                 // 이번 달보다 크면 지난해 취급(음수)
+};
 
 // 주요열 (표시=주요 모드일 때 보이는 열)
 const EST_MAIN_COLS = ['발행일', '견적번호', '고객명', '견적가', '수주가', '특이사항', '특기사항', '진행'];
@@ -808,10 +814,10 @@ const EstimateScreen = ({ onBack }) => {
                 content: contC ? String(r[contC] || '') : '',
                 raw: String(r[specC] || ''),
             }));
-        out.sort((a, b) => (a.month || 99) - (b.month || 99) || b.amount - a.amount); // 집행월 순
+        out.sort((a, b) => execMonthOrder(a.month) - execMonthOrder(b.month) || b.amount - a.amount); // 집행월 순(지난해 달 먼저)
         return out;
     }, [rows, headers]);
-    const execMonthsList = useMemo(() => [...new Set(execRows.map(r => r.month).filter(Boolean))].sort((a, b) => a - b), [execRows]); // 집행이 있는 월들
+    const execMonthsList = useMemo(() => [...new Set(execRows.map(r => r.month).filter(Boolean))].sort((a, b) => execMonthOrder(a) - execMonthOrder(b)), [execRows]); // 집행이 있는 월들(지난해 달 먼저)
     const execShown = useMemo(() => (execMonth == null ? execRows : execRows.filter(r => r.month === execMonth)), [execRows, execMonth]); // 월 필터 적용
     const execTotal = useMemo(() => execShown.reduce((s, r) => s + r.amount, 0), [execShown]);
 
