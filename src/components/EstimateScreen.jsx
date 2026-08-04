@@ -857,10 +857,18 @@ const EstimateScreen = ({ onBack }) => {
         if (!execHistProject) return null;
         const p = statusHistory.rows.find(r => r.estNo === execHistProject);
         if (!p) return { estNo: execHistProject, cust: '', name: '', points: [] };
-        const points = statusHistory.months.map(mk => {
-            const raw = p.byMonth[mk] || '';
-            const st = extractSpecStatus(raw);
-            return { month: mk, raw, status: st, amount: st === '집행' ? parseExecAmount(raw) : null };
+        const raw = statusHistory.months.map(mk => {
+            const rv = p.byMonth[mk] || '';
+            const st = extractSpecStatus(rv);
+            return { month: mk, raw: rv, status: st, amount: st === '집행' ? parseExecAmount(rv) : null };
+        });
+        // 연속으로 같은 내용(집행이면 금액, 아니면 상태)이 이어지면 제일 앞선 달 하나만 남김
+        const points = [];
+        let lastSig = null;
+        raw.forEach(pt => {
+            const sig = pt.amount != null ? `a:${pt.amount}` : `s:${pt.status || ''}`;
+            if (sig !== lastSig) points.push(pt);
+            lastSig = sig;
         });
         return { estNo: p.estNo, cust: p.cust, name: p.name, points };
     }, [execHistProject, statusHistory]);
