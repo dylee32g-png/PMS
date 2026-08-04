@@ -337,6 +337,7 @@ const EstimateScreen = ({ onBack }) => {
     const [historyChangedOnly, setHistoryChangedOnly] = useState(false);      // 변화 현황: 변화 있는 것만
     const [historyProject, setHistoryProject] = useState(null);              // 단일 프로젝트 변화 현황 팝업 (견적번호)
     const [execMonthSel, setExecMonthSel] = useState(new Set());             // 집행: 월별 필터 (다중 선택, 비어있으면 전체)
+    const [execExcludeJan, setExecExcludeJan] = useState(false);             // 집행: 집행월이 1월인 것 제외
     const toggleExecMonth = (m) => setExecMonthSel(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
     const [execHistProject, setExecHistProject] = useState(null);            // 집행금액 변화 팝업 (견적번호)
     const [activeStatus, setActiveStatus]     = useState(new Set()); // 진행 상태 칩 필터
@@ -819,7 +820,11 @@ const EstimateScreen = ({ onBack }) => {
         return out;
     }, [rows, headers]);
     const execMonthsList = useMemo(() => [...new Set(execRows.map(r => r.month).filter(Boolean))].sort((a, b) => execMonthOrder(a) - execMonthOrder(b)), [execRows]); // 집행이 있는 월들(지난해 달 먼저)
-    const execShown = useMemo(() => (execMonthSel.size === 0 ? execRows : execRows.filter(r => execMonthSel.has(r.month))), [execRows, execMonthSel]); // 선택한 달들만(전체=비어있음)
+    const execShown = useMemo(() => {
+        let out = execMonthSel.size === 0 ? execRows : execRows.filter(r => execMonthSel.has(r.month)); // 선택한 달들만(전체=비어있음)
+        if (execExcludeJan) out = out.filter(r => r.month !== 1); // 집행월이 1월인 것 제외
+        return out;
+    }, [execRows, execMonthSel, execExcludeJan]);
     const execTotal = useMemo(() => execShown.reduce((s, r) => s + r.amount, 0), [execShown]);
 
     // 변화 현황: 프로젝트(견적번호)별 · 월별 특이사항 상태
@@ -1359,6 +1364,13 @@ const EstimateScreen = ({ onBack }) => {
                         title="집행 항목만 모아 보기 (집행월·금액)">
                         💰 집행
                     </button>
+                )}
+                {rows.length > 0 && isExec && (
+                    <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border border-slate-700 bg-slate-900 text-slate-300 cursor-pointer select-none hover:bg-slate-800"
+                        title="집행월이 1월인 집행을 합계에서 제외">
+                        <input type="checkbox" checked={execExcludeJan} onChange={e => setExecExcludeJan(e.target.checked)} className="accent-amber-500 cursor-pointer"/>
+                        25년1월 제외
+                    </label>
                 )}
             </div>
 
