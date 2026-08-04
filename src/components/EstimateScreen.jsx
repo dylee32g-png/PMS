@@ -815,19 +815,6 @@ const EstimateScreen = ({ onBack }) => {
     const execShown = useMemo(() => (execMonth == null ? execRows : execRows.filter(r => r.month === execMonth)), [execRows, execMonth]); // 월 필터 적용
     const execTotal = useMemo(() => execShown.reduce((s, r) => s + r.amount, 0), [execShown]);
 
-    // 집행금액 변화: 선택한 프로젝트(견적번호)의 월별 집행금액 (월별 보고서 기준)
-    const execHistory = useMemo(() => {
-        if (!execHistProject) return null;
-        const p = statusHistory.rows.find(r => r.estNo === execHistProject);
-        if (!p) return { estNo: execHistProject, cust: '', name: '', points: [] };
-        const points = statusHistory.months.map(mk => {
-            const raw = p.byMonth[mk] || '';
-            const st = extractSpecStatus(raw);
-            return { month: mk, raw, status: st, amount: st === '집행' ? parseExecAmount(raw) : null };
-        });
-        return { estNo: p.estNo, cust: p.cust, name: p.name, points };
-    }, [execHistProject, statusHistory]);
-
     // 변화 현황: 프로젝트(견적번호)별 · 월별 특이사항 상태
     const statusHistory = useMemo(() => {
         const months = reportMonths;
@@ -857,6 +844,19 @@ const EstimateScreen = ({ onBack }) => {
         });
         return { months, rows };
     }, [reports, reportMonths]);
+
+    // 집행금액 변화: 선택한 프로젝트(견적번호)의 월별 집행금액 (월별 보고서 기준)
+    const execHistory = useMemo(() => {
+        if (!execHistProject) return null;
+        const p = statusHistory.rows.find(r => r.estNo === execHistProject);
+        if (!p) return { estNo: execHistProject, cust: '', name: '', points: [] };
+        const points = statusHistory.months.map(mk => {
+            const raw = p.byMonth[mk] || '';
+            const st = extractSpecStatus(raw);
+            return { month: mk, raw, status: st, amount: st === '집행' ? parseExecAmount(raw) : null };
+        });
+        return { estNo: p.estNo, cust: p.cust, name: p.name, points };
+    }, [execHistProject, statusHistory]);
 
     // 보고서 셀 인라인 수정 (발주일·특이사항). save=true면 즉시 저장
     const updateReportCell = (rowId, col, value, save) => {
