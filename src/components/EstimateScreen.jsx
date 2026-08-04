@@ -336,7 +336,8 @@ const EstimateScreen = ({ onBack }) => {
     const [viewMonth, setViewMonth]           = useState('');                 // 보고서 월 필터 (YYYY-MM, 그 달 보고서에 있던 프로젝트)
     const [historyChangedOnly, setHistoryChangedOnly] = useState(false);      // 변화 현황: 변화 있는 것만
     const [historyProject, setHistoryProject] = useState(null);              // 단일 프로젝트 변화 현황 팝업 (견적번호)
-    const [execMonth, setExecMonth] = useState(null);                        // 집행: 월별 필터 (null=전체)
+    const [execMonthSel, setExecMonthSel] = useState(new Set());             // 집행: 월별 필터 (다중 선택, 비어있으면 전체)
+    const toggleExecMonth = (m) => setExecMonthSel(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
     const [execHistProject, setExecHistProject] = useState(null);            // 집행금액 변화 팝업 (견적번호)
     const [activeStatus, setActiveStatus]     = useState(new Set()); // 진행 상태 칩 필터
     const [colMode, setColMode]               = useState('all');     // 'all' | 'main' (전체 열 / 주요열)
@@ -818,7 +819,7 @@ const EstimateScreen = ({ onBack }) => {
         return out;
     }, [rows, headers]);
     const execMonthsList = useMemo(() => [...new Set(execRows.map(r => r.month).filter(Boolean))].sort((a, b) => execMonthOrder(a) - execMonthOrder(b)), [execRows]); // 집행이 있는 월들(지난해 달 먼저)
-    const execShown = useMemo(() => (execMonth == null ? execRows : execRows.filter(r => r.month === execMonth)), [execRows, execMonth]); // 월 필터 적용
+    const execShown = useMemo(() => (execMonthSel.size === 0 ? execRows : execRows.filter(r => execMonthSel.has(r.month))), [execRows, execMonthSel]); // 선택한 달들만(전체=비어있음)
     const execTotal = useMemo(() => execShown.reduce((s, r) => s + r.amount, 0), [execShown]);
 
     // 변화 현황: 프로젝트(견적번호)별 · 월별 특이사항 상태
@@ -1485,16 +1486,25 @@ const EstimateScreen = ({ onBack }) => {
               <>
                 <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 bg-slate-900/60 border border-slate-800 rounded-xl shrink-0 text-xs text-slate-400">
                   <span className="font-bold text-amber-400">💰 집행 목록</span>
-                  <span>· {execShown.length}건 · 합계 <b className="text-amber-300">{execTotal.toLocaleString()}</b>원</span>
+                  <span>· {execShown.length}건 · {execMonthSel.size > 0 ? <span className="text-cyan-300">{execMonthSel.size}개 월</span> : '전체'} 합계 <b className="text-amber-300">{execTotal.toLocaleString()}</b>원</span>
                   {execMonthsList.length > 0 && <span className="w-px h-4 bg-slate-700 mx-1"/>}
-                  {execMonthsList.length > 0 && <span className="font-bold text-cyan-400">월</span>}
-                  {execMonthsList.length > 0 && [null, ...execMonthsList].map(m => (
-                    <button key={m == null ? 'all' : m} onClick={() => setExecMonth(m)}
+                  {execMonthsList.length > 0 && <span className="font-bold text-cyan-400">월(여러 개 선택 가능)</span>}
+                  {execMonthsList.length > 0 && (
+                    <button onClick={() => setExecMonthSel(new Set())}
                       className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
-                      style={execMonth === m
+                      style={execMonthSel.size === 0
                         ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
                         : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
-                      {m == null ? '전체' : `${m}월`}
+                      전체
+                    </button>
+                  )}
+                  {execMonthsList.map(m => (
+                    <button key={m} onClick={() => toggleExecMonth(m)}
+                      className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
+                      style={execMonthSel.has(m)
+                        ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
+                        : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                      {m}월
                     </button>
                   ))}
                 </div>
