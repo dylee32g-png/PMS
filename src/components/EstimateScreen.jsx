@@ -918,8 +918,10 @@ const EstimateScreen = ({ onBack }) => {
                 return true;
             });
         }
+        // 25년1월 제외: 집행월이 1월인 집행 행을 견적목록에서 빼기 (합계·개수에 반영)
+        if (execExcludeJan && specCol) out = out.filter(r => !(extractSpecStatus(r[specCol]) === '집행' && parseExecMonth(r[specCol]) === 1));
         return out;
-    }, [searchedRows, activeStatus, isReport, viewMonth, dateSortCol, dateFrom, dateTo]);
+    }, [searchedRows, activeStatus, isReport, viewMonth, dateSortCol, dateFrom, dateTo, execExcludeJan, specCol]);
 
     // 특이사항 상태별 개수 — 현재 범위(기간·월) 안에서 셈
     const specCounts = useMemo(() => {
@@ -1365,9 +1367,9 @@ const EstimateScreen = ({ onBack }) => {
                         💰 집행
                     </button>
                 )}
-                {rows.length > 0 && isExec && (
-                    <label className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border border-slate-700 bg-slate-900 text-slate-300 cursor-pointer select-none hover:bg-slate-800"
-                        title="집행월이 1월인 집행을 합계에서 제외">
+                {rows.length > 0 && !isReport && !isHistory && (
+                    <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer select-none transition-all ${execExcludeJan ? 'border-amber-400 bg-amber-600/20 text-amber-300' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'}`}
+                        title="집행월이 1월인 집행을 견적목록 합계·집행에서 제외">
                         <input type="checkbox" checked={execExcludeJan} onChange={e => setExecExcludeJan(e.target.checked)} className="accent-amber-500 cursor-pointer"/>
                         25년1월 제외
                     </label>
