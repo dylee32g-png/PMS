@@ -330,6 +330,8 @@ const EstimateScreen = ({ onBack }) => {
     const [viewMonth, setViewMonth]           = useState('');                 // 보고서 월 필터 (YYYY-MM, 그 달 보고서에 있던 프로젝트)
     const [historyChangedOnly, setHistoryChangedOnly] = useState(false);      // 변화 현황: 변화 있는 것만
     const [historyProject, setHistoryProject] = useState(null);              // 단일 프로젝트 변화 현황 팝업 (견적번호)
+    const [execMonth, setExecMonth] = useState(null);                        // 집행: 월별 필터 (null=전체)
+    const [execHistProject, setExecHistProject] = useState(null);            // 집행금액 변화 팝업 (견적번호)
     const [activeStatus, setActiveStatus]     = useState(new Set()); // 진행 상태 칩 필터
     const [colMode, setColMode]               = useState('all');     // 'all' | 'main' (전체 열 / 주요열)
     const [specFilter, setSpecFilter]         = useState(new Set()); // 특기사항 상태 메뉴 (다중 선택, 비어있으면 전체)
@@ -809,7 +811,22 @@ const EstimateScreen = ({ onBack }) => {
         out.sort((a, b) => (a.month || 99) - (b.month || 99) || b.amount - a.amount); // 집행월 순
         return out;
     }, [rows, headers]);
-    const execTotal = useMemo(() => execRows.reduce((s, r) => s + r.amount, 0), [execRows]);
+    const execMonthsList = useMemo(() => [...new Set(execRows.map(r => r.month).filter(Boolean))].sort((a, b) => a - b), [execRows]); // 집행이 있는 월들
+    const execShown = useMemo(() => (execMonth == null ? execRows : execRows.filter(r => r.month === execMonth)), [execRows, execMonth]); // 월 필터 적용
+    const execTotal = useMemo(() => execShown.reduce((s, r) => s + r.amount, 0), [execShown]);
+
+    // 집행금액 변화: 선택한 프로젝트(견적번호)의 월별 집행금액 (월별 보고서 기준)
+    const execHistory = useMemo(() => {
+        if (!execHistProject) return null;
+        const p = statusHistory.rows.find(r => r.estNo === execHistProject);
+        if (!p) return { estNo: execHistProject, cust: '', name: '', points: [] };
+        const points = statusHistory.months.map(mk => {
+            const raw = p.byMonth[mk] || '';
+            const st = extractSpecStatus(raw);
+            return { month: mk, raw, status: st, amount: st === '집행' ? parseExecAmount(raw) : null };
+        });
+        return { estNo: p.estNo, cust: p.cust, name: p.name, points };
+    }, [execHistProject, statusHistory]);
 
     // 변화 현황: 프로젝트(견적번호)별 · 월별 특이사항 상태
     const statusHistory = useMemo(() => {
@@ -1152,6 +1169,51 @@ const EstimateScreen = ({ onBack }) => {
                 );
             })()}
 
+            {/* 집행금액 변화 팝업 */}
+            {execHistProject && execHistory && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4" onClick={() => setExecHistProject(null)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">💰 집행금액 변화</h2>
+                            <button onClick={() => setExecHistProject(null)} className="text-slate-500 hover:text-white bg-slate-800 p-1.5 rounded-xl"><X size={18}/></button>
+                        </div>
+                        <div className="px-6 py-3 border-b border-slate-800 shrink-0">
+                            <div className="text-sm font-bold text-amber-400">{execHistory.estNo}</div>
+                            {execHistory.cust && <div className="text-xs text-slate-400 mt-0.5">{execHistory.cust}{execHistory.name ? ` · ${execHistory.name}` : ''}</div>}
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-5 custom-scrollbar">
+                            {(!execHistory.points || execHistory.points.length === 0) ? (
+                                <div className="text-center text-slate-500 py-8">월별 보고서가 있어야 변화를 볼 수 있습니다.</div>
+                            ) : (
+                                <div className="flex flex-col gap-0">
+                                    {(() => { let prev = null; return execHistory.points.map(pt => {
+                                        const [y, mm] = pt.month.split('-');
+                                        const has = pt.amount != null;
+                                        const changed = has && prev != null && pt.amount !== prev;
+                                        const up = changed && pt.amount > prev;
+                                        if (has) prev = pt.amount;
+                                        return (
+                                            <div key={pt.month} className="flex items-center gap-3 py-2.5 border-b border-slate-800/50">
+                                                <span className="text-sm font-bold text-slate-300 w-16 shrink-0">{y.slice(2)}.{mm}</span>
+                                                {has ? (
+                                                    <span className="text-sm font-bold text-amber-300" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                                        {pt.amount.toLocaleString()}원
+                                                        {changed && <span className={`ml-2 text-xs ${up ? 'text-rose-400' : 'text-emerald-400'}`}>{up ? '▲' : '▼'} 변경</span>}
+                                                    </span>
+                                                ) : pt.status ? (
+                                                    <span className="text-xs text-slate-500">{pt.status === 'invoice' ? 'Invoice' : pt.status}</span>
+                                                ) : <span className="text-slate-600 text-sm">—</span>}
+                                            </div>
+                                        );
+                                    }); })()}
+                                </div>
+                            )}
+                            <div className="mt-3 text-[11px] text-slate-500">집행인 달만 금액 표시 · <span className="text-rose-400">▲</span>증가 <span className="text-emerald-400">▼</span>감소</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} accept="image/*" multiple className="hidden"/>
             <input type="file" ref={reportInputRef} onChange={handleReportUpload} accept=".xlsx,.xls" multiple className="hidden"/>
@@ -1417,7 +1479,18 @@ const EstimateScreen = ({ onBack }) => {
               <>
                 <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 bg-slate-900/60 border border-slate-800 rounded-xl shrink-0 text-xs text-slate-400">
                   <span className="font-bold text-amber-400">💰 집행 목록</span>
-                  <span>· {execRows.length}건 · 합계 <b className="text-amber-300">{execTotal.toLocaleString()}</b>원</span>
+                  <span>· {execShown.length}건 · 합계 <b className="text-amber-300">{execTotal.toLocaleString()}</b>원</span>
+                  {execMonthsList.length > 0 && <span className="w-px h-4 bg-slate-700 mx-1"/>}
+                  {execMonthsList.length > 0 && <span className="font-bold text-cyan-400">월</span>}
+                  {execMonthsList.length > 0 && [null, ...execMonthsList].map(m => (
+                    <button key={m == null ? 'all' : m} onClick={() => setExecMonth(m)}
+                      className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
+                      style={execMonth === m
+                        ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
+                        : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                      {m == null ? '전체' : `${m}월`}
+                    </button>
+                  ))}
                 </div>
                 <div className="flex-1 overflow-auto custom-scrollbar rounded-2xl border border-slate-800 shadow-xl">
                   <table className="w-full text-sm border-collapse min-w-max">
@@ -1431,13 +1504,15 @@ const EstimateScreen = ({ onBack }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {execRows.length === 0 ? (
+                      {execShown.length === 0 ? (
                         <tr><td colSpan={5} className="py-16 text-center text-slate-600 font-bold">집행 항목이 없습니다.</td></tr>
-                      ) : execRows.map((r, idx) => (
-                        <tr key={r.id} className={`border-b border-slate-800/60 hover:bg-slate-800/40 ${idx % 2 !== 0 ? 'bg-slate-900/20' : ''}`}>
+                      ) : execShown.map((r, idx) => (
+                        <tr key={r.id} onClick={() => r.estNo && setExecHistProject(r.estNo)}
+                          className={`border-b border-slate-800/60 hover:bg-amber-500/10 ${r.estNo ? 'cursor-pointer' : ''} ${idx % 2 !== 0 ? 'bg-slate-900/20' : ''}`}
+                          title={r.estNo ? '클릭 → 집행금액 변화 보기' : ''}>
                           <td className="px-3 py-2 text-center text-sm font-bold text-cyan-300 border-r border-slate-800/40 whitespace-nowrap">{r.month ? `${r.month}월` : '-'}</td>
                           <td className="px-3 py-2 text-right text-sm font-bold text-amber-300 border-r border-slate-800/40 whitespace-nowrap" title={r.raw}>{r.amount.toLocaleString()}</td>
-                          <td className="px-3 py-2 text-xs text-slate-300 border-r border-slate-800/40 whitespace-nowrap">{r.estNo || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-slate-300 border-r border-slate-800/40 whitespace-nowrap">{r.estNo ? <span className="underline decoration-dotted decoration-slate-600">{r.estNo}</span> : '-'}</td>
                           <td className="px-3 py-2 text-xs text-slate-300 border-r border-slate-800/40 truncate max-w-[160px]" title={r.cust}>{r.cust || '-'}</td>
                           <td className="px-3 py-2 text-xs text-slate-400 truncate max-w-[280px]" title={r.content}>{r.content || '-'}</td>
                         </tr>
