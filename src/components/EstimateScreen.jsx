@@ -69,6 +69,9 @@ const parseEstimateText = (text) => {
 
 // 진행 상태(칩) 항목 + 색상
 const EST_STATUSES = ['진행중', '집행', '완료', '검토중', 'invoice'];
+// 밝은(월별보고서풍) 칩 스타일 — 흰 바탕·검정 글씨, 선택돼도 검정 글씨
+const LCHIP_ON  = { background: '#dbeafe', color: '#111827', borderColor: '#60a5fa' };
+const LCHIP_OFF = { background: '#ffffff', color: '#374151', borderColor: '#cbd5e1' };
 const STATUS_CHIP_COLOR = {
     '진행중':  { bg: 'rgba(59,130,246,0.18)',  text: '#60a5fa', border: '#3b82f6' },
     '집행':    { bg: 'rgba(168,85,247,0.18)',  text: '#c084fc', border: '#a855f7' },
@@ -1056,7 +1059,7 @@ const EstimateScreen = ({ onBack }) => {
                 <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4">
                     <div className="bg-slate-900 border border-slate-700 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                         <p className="text-white font-bold mb-6 whitespace-pre-line">{alertMsg}</p>
-                        <button onClick={() => setAlertMsg('')} className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold w-full">확인</button>
+                        <button onClick={() => setAlertMsg('')} className="px-6 py-3 bg-gray-300 hover:bg-gray-200 text-gray-900 rounded-xl font-bold w-full">확인</button>
                     </div>
                 </div>
             )}
@@ -1071,7 +1074,7 @@ const EstimateScreen = ({ onBack }) => {
                         <div className="flex gap-3">
                             <button onClick={() => setConfirmClearOpen(false)} className="flex-1 py-3 bg-slate-800 rounded-xl font-bold text-slate-300">취소</button>
                             <button onClick={() => { setRows([]); setHeaders([]); setConfirmClearOpen(false); }}
-                                className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-xl font-bold text-white">삭제</button>
+                                className="flex-1 py-3 bg-gray-300 hover:bg-gray-200 rounded-xl font-bold text-gray-900">삭제</button>
                         </div>
                     </div>
                 </div>
@@ -1103,7 +1106,7 @@ const EstimateScreen = ({ onBack }) => {
                         </div>
                         <div className="flex gap-3 px-6 py-4 border-t border-slate-800 shrink-0">
                             <button onClick={() => setEditingRow(null)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-slate-300">취소</button>
-                            <button onClick={saveEditingRow} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 rounded-xl font-bold text-white flex items-center justify-center gap-2">
+                            <button onClick={saveEditingRow} className="flex-1 py-3 bg-gray-300 hover:bg-gray-200 rounded-xl font-bold text-gray-900 flex items-center justify-center gap-2">
                                 <Save size={16}/> 저장
                             </button>
                         </div>
@@ -1137,7 +1140,7 @@ const EstimateScreen = ({ onBack }) => {
                         </div>
                         <div className="flex gap-3 px-6 py-4 border-t border-slate-800 shrink-0">
                             <button onClick={() => setAddingRow(null)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold text-slate-300">취소</button>
-                            <button onClick={saveAddingRow} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 rounded-xl font-bold text-white flex items-center justify-center gap-2">
+                            <button onClick={saveAddingRow} className="flex-1 py-3 bg-gray-300 hover:bg-gray-200 rounded-xl font-bold text-gray-900 flex items-center justify-center gap-2">
                                 <Save size={16}/> 추가 저장
                             </button>
                         </div>
@@ -1273,7 +1276,7 @@ const EstimateScreen = ({ onBack }) => {
                             const newRow = { _id: `est_manual_${Date.now()}` };
                             headers.forEach(h => { newRow[h] = ''; });
                             setAddingRow(newRow);
-                        }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-500/50 bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white text-sm font-bold transition-all">
+                        }} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-sm font-bold transition-all">
                             <Plus size={15}/> 견적 추가
                         </button>
                     )}
@@ -1285,7 +1288,7 @@ const EstimateScreen = ({ onBack }) => {
                     )}
                     {listEditable && headers.length > 0 && (
                         <button onClick={handleSave}
-                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-bold transition-all ${savedFlash ? 'border-emerald-400 bg-emerald-600 text-white' : 'border-emerald-500/50 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white'}`}>
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-bold transition-all ${savedFlash ? 'border-gray-400 bg-gray-300 text-gray-900' : 'border-gray-300 bg-white hover:bg-gray-100 text-gray-800'}`}>
                             <Save size={15}/> {savedFlash ? '저장됨!' : '저장'}
                         </button>
                     )}
@@ -1299,22 +1302,22 @@ const EstimateScreen = ({ onBack }) => {
                         {settingsOpen && (
                             <>
                                 <div className="fixed inset-0 z-[190]" onClick={() => setSettingsOpen(false)}/>
-                                <div className="absolute right-0 top-full mt-2 z-[200] w-52 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 flex flex-col gap-1">
+                                <div className="absolute right-0 top-full mt-2 z-[200] w-52 bg-white border border-gray-300 rounded-2xl shadow-2xl p-2 flex flex-col gap-1">
                                     <button onClick={() => { setSettingsOpen(false); if (photoInputRef.current) { photoInputRef.current.value = ''; photoInputRef.current.click(); } }}
-                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-violet-600/20 text-violet-300 text-sm font-bold text-left transition-all">
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all">
                                         <Camera size={16}/> 견적서 사진 읽기 (5장)
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
-                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-cyan-600/20 text-cyan-300 text-sm font-bold text-left transition-all">
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all">
                                         <Upload size={16}/> 엑셀 업로드
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!activeHeaders.length}
-                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-emerald-600/20 text-emerald-300 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                         <Download size={16}/> 엑셀 다운로드
                                     </button>
                                     <div className="h-px bg-slate-800 my-1"/>
                                     <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!rows.length}
-                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-rose-600/20 text-rose-400 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                         <Trash2 size={16}/> 전체 삭제
                                     </button>
                                 </div>
@@ -1332,43 +1335,43 @@ const EstimateScreen = ({ onBack }) => {
             {/* ── 상단 탭: 견적 목록 / 월별 보고서 ── */}
             <div className="flex items-center gap-2 mb-3 shrink-0">
                 <button onClick={() => setTab('list')}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${!isReport ? 'bg-amber-600 text-white border-amber-500' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'}`}>
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${!isReport ? 'bg-gray-300 text-gray-900 border-gray-400' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}`}>
                     <FileSpreadsheet size={15}/> 견적 목록
                 </button>
                 {/* 날짜순·보고월순 정렬은 표의 열 제목을 클릭해서 사용 (상단 버튼은 정리) */}
                 <button onClick={() => setTab('report')}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isReport ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'}`}>
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isReport ? 'bg-gray-300 text-gray-900 border-gray-400' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}`}>
                     <Upload size={15}/> 월별 보고서
                 </button>
                 {hasReports && (
                     <button onClick={() => setTab('history')}
-                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isHistory ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'}`}>
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isHistory ? 'bg-gray-300 text-gray-900 border-gray-400' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}`}>
                         📊 변화 현황
                     </button>
                 )}
                 {hasReports && (
                     <button onClick={integrateReports}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border border-violet-500/50 bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white transition-all"
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 transition-all"
                         title="월별 보고서 전체를 견적 목록으로 통합 (견적번호+발행일 기준)">
                         🧩 통합
                     </button>
                 )}
                 {(rows.length > 0 || headers.length > 0) && (
                     <button onClick={clearEstimateList}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border border-rose-500/50 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white transition-all"
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 transition-all"
                         title="견적 목록 전체 삭제 (월별 보고서는 유지)">
                         <Trash2 size={15}/> 목록 지우기
                     </button>
                 )}
                 {rows.length > 0 && (
                     <button onClick={() => setTab(isExec ? 'list' : 'exec')}
-                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isExec ? 'bg-amber-500 text-white border-amber-400' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'}`}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isExec ? 'bg-gray-300 text-gray-900 border-gray-400' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}`}
                         title="집행 항목만 모아 보기 (집행월·금액)">
                         💰 집행
                     </button>
                 )}
                 {rows.length > 0 && !isReport && !isHistory && (
-                    <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer select-none transition-all ${execExcludeJan ? 'border-amber-400 bg-amber-600/20 text-amber-300' : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'}`}
+                    <label className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer select-none transition-all ${execExcludeJan ? 'border-gray-400 bg-gray-300 text-gray-900' : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-100'}`}
                         title="집행월이 1월인 집행을 견적목록 합계·집행에서 제외">
                         <input type="checkbox" checked={execExcludeJan} onChange={e => setExecExcludeJan(e.target.checked)} className="accent-amber-500 cursor-pointer"/>
                         25년1월 제외
@@ -1389,12 +1392,12 @@ const EstimateScreen = ({ onBack }) => {
                         {UP_MONTHS.map(m => <option key={m} value={m}>{Number(m)}월</option>)}
                     </select>
                     <button onClick={() => { if (reportInputRef.current) { reportInputRef.current.value = ''; reportInputRef.current.click(); } }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white text-xs font-bold transition-all">
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold transition-all">
                         <Upload size={14}/> 이 달 보고서 올리기 (여러 장 가능)
                     </button>
                     <button onClick={() => { if (persistReports(reports)) { setReportSavedFlash(true); setTimeout(() => setReportSavedFlash(false), 1800); } }}
                         disabled={!reportMonths.length}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed ${reportSavedFlash ? 'border-emerald-400 bg-emerald-600 text-white' : 'border-emerald-500/50 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white'}`}>
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed ${reportSavedFlash ? 'border-gray-400 bg-gray-300 text-gray-900' : 'border-gray-300 bg-white hover:bg-gray-100 text-gray-800'}`}>
                         <Save size={14}/> {reportSavedFlash ? '저장됨!' : '저장'}
                     </button>
                     {reportMonths.length > 0 && <span className="w-px h-5 bg-slate-700 mx-1"/>}
@@ -1405,8 +1408,8 @@ const EstimateScreen = ({ onBack }) => {
                             <span key={m} onClick={() => setReportMonth(m)} title={`${y}년 ${Number(mm)}월`}
                                 className="cursor-pointer text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all inline-flex items-center gap-1"
                                 style={active
-                                    ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
-                                    : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                    ? LCHIP_ON
+                                    : LCHIP_OFF}>
                                 {y.slice(2)}.{mm} <span className="opacity-70">({reports[m]?.rows?.length || 0})</span>
                                 {active && <X size={11} className="hover:text-rose-400"
                                     onClick={(ev) => { ev.stopPropagation(); if (window.confirm(`${y}년 ${Number(mm)}월 보고서를 삭제할까요?`)) deleteReportMonth(m); }}/>}
@@ -1429,9 +1432,9 @@ const EstimateScreen = ({ onBack }) => {
                                         onClick={() => (s === '' ? setSpecFilter(new Set()) : toggleSpec(s))}
                                         className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                                         style={active
-                                            ? (c ? { background: c.bg, color: c.text, borderColor: c.border }
-                                                 : { background: 'rgba(59,130,246,0.18)', color: '#60a5fa', borderColor: '#3b82f6' })
-                                            : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                            ? (c ? LCHIP_ON
+                                                 : LCHIP_ON)
+                                            : LCHIP_OFF}>
                                         {label} <span className="opacity-60">({count})</span>
                                     </button>
                                 );
@@ -1515,8 +1518,8 @@ const EstimateScreen = ({ onBack }) => {
                     <button onClick={() => setExecMonthSel(new Set())}
                       className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                       style={execMonthSel.size === 0
-                        ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
-                        : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                        ? LCHIP_ON
+                        : LCHIP_OFF}>
                       전체
                     </button>
                   )}
@@ -1524,8 +1527,8 @@ const EstimateScreen = ({ onBack }) => {
                     <button key={m} onClick={() => toggleExecMonth(m)}
                       className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                       style={execMonthSel.has(m)
-                        ? { background: 'rgba(6,182,212,0.18)', color: '#22d3ee', borderColor: '#06b6d4' }
-                        : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                        ? LCHIP_ON
+                        : LCHIP_OFF}>
                       {m}월
                     </button>
                   ))}
@@ -1585,7 +1588,7 @@ const EstimateScreen = ({ onBack }) => {
                         하나로 정리합니다. (같은 번호·같은 연도 = 한 줄 / 연도 다르면 별개)
                     </p>
                     <button onClick={integrateReports}
-                        className="mt-2 flex items-center gap-2 px-6 py-3 rounded-xl border border-violet-500/50 bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold transition-all text-sm">
+                        className="mt-2 flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 font-bold transition-all text-sm">
                         🧩 지금 통합하기
                     </button>
                 </div>
@@ -1599,11 +1602,11 @@ const EstimateScreen = ({ onBack }) => {
                     </div>
                     <div className="flex flex-wrap items-center justify-center gap-3">
                         <button onClick={() => { if (photoInputRef.current) { photoInputRef.current.value = ''; photoInputRef.current.click(); } }}
-                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-violet-500/50 bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white font-bold transition-all text-sm">
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 font-bold transition-all text-sm">
                             <Camera size={18}/> 견적서 사진 읽기
                         </button>
                         <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.value = ''; fileInputRef.current.click(); } }}
-                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-400 hover:text-white font-bold transition-all text-sm">
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 font-bold transition-all text-sm">
                             <Upload size={18}/> 엑셀 파일 업로드
                         </button>
                     </div>
@@ -1620,7 +1623,7 @@ const EstimateScreen = ({ onBack }) => {
                                 {['2023', '2024', '2025', '2026', '2027'].map(y => <option key={y} value={y}>{y}년</option>)}
                             </select>
                             <button onClick={() => applyYearTo(selRows)} disabled={!selRows.size}
-                                className="px-3 py-1.5 rounded-lg border border-amber-500/50 bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                 선택 {selRows.size}개에 적용
                             </button>
                             <button onClick={() => applyYearTo(new Set(sortedRows.map(r => r._id)))}
@@ -1653,9 +1656,9 @@ const EstimateScreen = ({ onBack }) => {
                                         onClick={() => (s === '' ? setSpecFilter(new Set()) : toggleSpec(s))}
                                         className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                                         style={active
-                                            ? (c ? { background: c.bg, color: c.text, borderColor: c.border }
-                                                 : { background: 'rgba(59,130,246,0.18)', color: '#60a5fa', borderColor: '#3b82f6' })
-                                            : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                            ? (c ? LCHIP_ON
+                                                 : LCHIP_ON)
+                                            : LCHIP_OFF}>
                                         {label} <span className="opacity-60">({count})</span>
                                     </button>
                                 );
@@ -1677,7 +1680,7 @@ const EstimateScreen = ({ onBack }) => {
                             <button onClick={() => shiftMonth(1)} title="다음 달"
                                 className="px-2 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold">▶</button>
                             <button onClick={thisMonth}
-                                className="px-2.5 py-1 rounded-lg border border-cyan-500/50 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white text-xs font-bold">이번 달</button>
+                                className="px-2.5 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-xs font-bold">이번 달</button>
                             {viewMonth && (
                                 <button onClick={() => { setViewMonth(''); setPickMonth(''); }}
                                     className="px-2.5 py-1 rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold">전체 월</button>
@@ -1696,9 +1699,9 @@ const EstimateScreen = ({ onBack }) => {
                                                 onClick={() => (s === '' ? setSiteFilter(new Set()) : toggleSite(s))}
                                                 className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                                                 style={active
-                                                    ? (c ? { background: c.bg, color: c.text, borderColor: c.border }
-                                                         : { background: 'rgba(16,185,129,0.18)', color: '#34d399', borderColor: '#10b981' })
-                                                    : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                                    ? (c ? LCHIP_ON
+                                                         : LCHIP_ON)
+                                                    : LCHIP_OFF}>
                                                 {s === '' ? '전체' : s} <span className="opacity-60">({count})</span>
                                             </button>
                                         );
@@ -1715,8 +1718,8 @@ const EstimateScreen = ({ onBack }) => {
                             <button onClick={() => setActiveStatus(new Set())}
                                 className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                                 style={activeStatus.size === 0
-                                    ? { background: 'rgba(59,130,246,0.18)', color: '#60a5fa', borderColor: '#3b82f6' }
-                                    : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                    ? LCHIP_ON
+                                    : LCHIP_OFF}>
                                 전체 <span className="opacity-70">({searchedRows.length})</span>
                             </button>
                             {EST_STATUSES.map(s => {
@@ -1726,8 +1729,8 @@ const EstimateScreen = ({ onBack }) => {
                                     <button key={s} onClick={() => toggleStatus(s)}
                                         className="text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all"
                                         style={active
-                                            ? { background: c.bg, color: c.text, borderColor: c.border }
-                                            : { background: '#0f172a', color: '#94a3b8', borderColor: '#334155' }}>
+                                            ? LCHIP_ON
+                                            : LCHIP_OFF}>
                                         {s} <span className="opacity-70">({statusCounts[s]})</span>
                                     </button>
                                 );
