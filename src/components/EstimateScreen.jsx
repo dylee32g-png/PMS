@@ -258,6 +258,25 @@ const extractSpecStatus = (text) => {
     }
     return '';
 };
+// 집행 특기사항에서 집행월 추출: "(4월)"·"(10월)"·잘린 "(4" → 월 숫자 ("(2동)" 같은 건 제외)
+const parseExecMonth = (text) => {
+    const m = String(text || '').match(/\((\d{1,2})(?:월|\)|$)/);
+    return m ? Number(m[1]) : null;
+};
+// 집행 금액 합산: 괄호(월) 앞 금액들을 +로 나눠 더함. 항목에 K가 있으면 전체를 천단위(×1000)로
+const parseExecAmount = (text) => {
+    let s = String(text || '');
+    const pi = s.indexOf('(');
+    if (pi >= 0) s = s.slice(0, pi);        // 괄호(월) 앞까지
+    s = s.replace(/집행|[:：]/g, '');         // '집행'·콜론 제거
+    const isK = /k/i.test(s);               // K가 하나라도 있으면 이 항목 전체를 천단위로
+    let sum = 0;
+    s.split('+').forEach(p => {
+        const n = Number(p.replace(/[^0-9.]/g, '')) || 0;
+        sum += isK ? n * 1000 : n;
+    });
+    return sum;
+};
 
 // 주요열 (표시=주요 모드일 때 보이는 열)
 const EST_MAIN_COLS = ['발행일', '견적번호', '고객명', '견적가', '수주가', '특이사항', '특기사항', '진행'];
@@ -767,6 +786,30 @@ const EstimateScreen = ({ onBack }) => {
     const dateSortCol = useMemo(() => activeHeaders.find(h => String(h || '').replace(/\s+/g, '').includes('발행일')) || activeHeaders.find(isYearDateCol) || '', [activeHeaders]); // 날짜순 정렬 대상 열
     const estColActive = useMemo(() => estNoOf(activeHeaders), [activeHeaders]); // 현재 표의 견적번호 열
     const isHistory = tab === 'history';
+    const isExec = tab === 'exec';
+
+    // 집행 목록: 견적목록(rows)에서 특기사항 상태가 '집행'인 것만 → 집행월·금액 뽑기
+    const execRows = useMemo(() => {
+        const specC = specColOf(headers);
+        if (!specC) return [];
+        const estC = estNoOf(headers);
+        const custC = headers.find(h => String(h || '').replace(/\s+/g, '').includes('고객'));
+        const contC = headers.find(h => String(h || '').replace(/\s+/g, '').includes('내용'));
+        const out = rows
+            .filter(r => extractSpecStatus(r[specC]) === '집행')
+            .map(r => ({
+                id: r._id,
+                month: parseExecMonth(r[specC]),
+                amount: parseExecAmount(r[specC]),
+                estNo: estC ? String(r[estC] || '') : '',
+                cust: custC ? String(r[custC] || '') : '',
+                content: contC ? String(r[contC] || '') : '',
+                raw: String(r[specC] || ''),
+            }));
+        out.sort((a, b) => (a.month || 99) - (b.month || 99) || b.amount - a.amount); // 집행월 순
+        return out;
+    }, [rows, headers]);
+    const execTotal = useMemo(() => execRows.reduce((s, r) => s + r.amount, 0), [execRows]);
 
     // 변화 현황: 프로젝트(견적번호)별 · 월별 특이사항 상태
     const statusHistory = useMemo(() => {
@@ -1233,6 +1276,13 @@ const EstimateScreen = ({ onBack }) => {
                         <Trash2 size={15}/> 목록 지우기
                     </button>
                 )}
+                {rows.length > 0 && (
+                    <button onClick={() => setTab(isExec ? 'list' : 'exec')}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold border transition-all ${isExec ? 'bg-amber-500 text-white border-amber-400' : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'}`}
+                        title="집행 항목만 모아 보기 (집행월·금액)">
+                        💰 집행
+                    </button>
+                )}
             </div>
 
             {/* ── 보고서 탭: 월 선택 업로드 + 월 메뉴 ── */}
@@ -1362,6 +1412,50 @@ const EstimateScreen = ({ onBack }) => {
                   </>
                 );
               })()
+            ) : isExec ? (
+              /* 집행 목록 (집행월 · 금액) */
+              <>
+                <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 bg-slate-900/60 border border-slate-800 rounded-xl shrink-0 text-xs text-slate-400">
+                  <span className="font-bold text-amber-400">💰 집행 목록</span>
+                  <span>· {execRows.length}건 · 합계 <b className="text-amber-300">{execTotal.toLocaleString()}</b>원</span>
+                </div>
+                <div className="flex-1 overflow-auto custom-scrollbar rounded-2xl border border-slate-800 shadow-xl">
+                  <table className="w-full text-sm border-collapse min-w-max">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-slate-900 border-b border-slate-800">
+                        <th className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-center border-r border-slate-800 w-20">집행월</th>
+                        <th className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-right border-r border-slate-800">금액(원)</th>
+                        <th className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-left border-r border-slate-800">견적번호</th>
+                        <th className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-left border-r border-slate-800">고객명</th>
+                        <th className="px-3 py-2.5 text-[11px] font-bold text-slate-400 text-left">내용</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {execRows.length === 0 ? (
+                        <tr><td colSpan={5} className="py-16 text-center text-slate-600 font-bold">집행 항목이 없습니다.</td></tr>
+                      ) : execRows.map((r, idx) => (
+                        <tr key={r.id} className={`border-b border-slate-800/60 hover:bg-slate-800/40 ${idx % 2 !== 0 ? 'bg-slate-900/20' : ''}`}>
+                          <td className="px-3 py-2 text-center text-sm font-bold text-cyan-300 border-r border-slate-800/40 whitespace-nowrap">{r.month ? `${r.month}월` : '-'}</td>
+                          <td className="px-3 py-2 text-right text-sm font-bold text-amber-300 border-r border-slate-800/40 whitespace-nowrap" title={r.raw}>{r.amount.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-xs text-slate-300 border-r border-slate-800/40 whitespace-nowrap">{r.estNo || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-slate-300 border-r border-slate-800/40 truncate max-w-[160px]" title={r.cust}>{r.cust || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-slate-400 truncate max-w-[280px]" title={r.content}>{r.content || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="sticky bottom-0 z-10">
+                      <tr style={{ fontFamily: "'맑은 고딕','Malgun Gothic',sans-serif" }}>
+                        <td style={{ backgroundColor: '#e0f2fe', color: '#111827', fontWeight: 900, fontSize: '14px', textAlign: 'center', borderTop: '3px solid #38bdf8', padding: '10px' }}>합계</td>
+                        <td style={{ backgroundColor: '#e0f2fe', color: '#111827', fontWeight: 900, fontSize: '17px', textAlign: 'right', borderTop: '3px solid #38bdf8', padding: '10px 12px', whiteSpace: 'nowrap' }}>{execTotal.toLocaleString()}</td>
+                        <td colSpan={3} style={{ backgroundColor: '#e0f2fe', borderTop: '3px solid #38bdf8' }}/>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <div className="px-4 py-2 mt-2 border border-slate-800 bg-slate-900/60 rounded-xl text-[11px] text-slate-500 shrink-0">
+                  집행월 = 특기사항 괄호 안의 월 · 금액 = 집행 금액 합(＋는 더함, K는 천단위) · 금액에 마우스 올리면 원본 표기가 보여요
+                </div>
+              </>
             ) : activeHeaders.length === 0 ? (
               isReport ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-6">
