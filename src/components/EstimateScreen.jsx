@@ -286,6 +286,18 @@ const execMonthOrder = (m) => {
     const cur = new Date().getMonth() + 1;       // 이번 달
     return m > cur ? m - 12 : m;                 // 이번 달보다 크면 지난해 취급(음수)
 };
+// WebDAV 테스트: NAS 경로(UNC·Z:) 또는 웹주소 → WebDAV https 주소로 변환 (ProjectList의 davUrlFor와 동일 규칙)
+const buildDavUrl = (input, host, share) => {
+    const s = String(input || '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) return s;                 // 이미 웹주소면 그대로
+    const sh = String(share || '').trim();
+    let parts = s.replace(/^[\\/]+/, '').replace(/[\\/]+$/, '').split(/[\\/]+/).filter(Boolean);
+    if (parts.length && /^[A-Za-z]:$/.test(parts[0])) parts.shift();                                       // Z: 드라이브 글자
+    if (parts.length && /^(neconsys_pj|necon-pj\.synology\.me|\d{1,3}(\.\d{1,3}){3})$/i.test(parts[0])) parts.shift(); // 서버 이름/IP
+    if (sh && parts.length && parts[0].toUpperCase() === sh.toUpperCase()) parts.shift();                  // 공유 이름 중복 방지
+    return String(host || '').replace(/\/+$/, '') + '/' + [sh, ...parts].filter(Boolean).map(encodeURIComponent).join('/');
+};
 
 // 주요열 (표시=주요 모드일 때 보이는 열)
 const EST_MAIN_COLS = ['발행일', '견적번호', '고객명', '견적가', '수주가', '특이사항', '특기사항', '진행'];
@@ -341,6 +353,12 @@ const EstimateScreen = ({ onBack }) => {
     const [historyProject, setHistoryProject] = useState(null);              // 단일 프로젝트 변화 현황 팝업 (견적번호)
     const [execMonthSel, setExecMonthSel] = useState(new Set());             // 집행: 월별 필터 (다중 선택, 비어있으면 전체)
     const [execExcludeJan, setExecExcludeJan] = useState(false);             // 집행: 집행월이 1월인 것 제외
+    // WebDAV 테스트 도구 (외부에서 NAS 엑셀이 열리는지 팀장 독립 테스트용)
+    const [webdavOpen, setWebdavOpen] = useState(false);
+    const [webdavPath, setWebdavPath] = useState('');
+    const [webdavHost, setWebdavHost] = useState('https://necon-pj.synology.me:5006');
+    const [webdavShare, setWebdavShare] = useState('NECONSYS_PJ');
+    const webdavUrl = buildDavUrl(webdavPath, webdavHost, webdavShare);
     const toggleExecMonth = (m) => setExecMonthSel(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
     const [execHistProject, setExecHistProject] = useState(null);            // 집행금액 변화 팝업 (견적번호)
     const [activeStatus, setActiveStatus]     = useState(new Set()); // 진행 상태 칩 필터
@@ -1239,6 +1257,65 @@ const EstimateScreen = ({ onBack }) => {
                 </div>
             )}
 
+            {/* WebDAV 테스트 도구 — 외부에서 NAS 엑셀이 열리는지 팀장 독립 테스트 */}
+            {webdavOpen && (
+                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4" onClick={() => setWebdavOpen(false)}>
+                    <div className="bg-white border border-gray-300 rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+                            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">🔗 WebDAV 테스트 (외부 접속)</h2>
+                            <button onClick={() => setWebdavOpen(false)} className="text-gray-400 hover:text-gray-700 bg-gray-100 p-1.5 rounded-xl"><X size={18}/></button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-6 flex flex-col gap-3">
+                            <div className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed">
+                                NAS 파일의 <b>경로</b>(예: <code>\\NECONSYS_PJ\...\파일.xlsx</code> 또는 <code>Z:\...\파일.xlsx</code>)나 <b>웹주소</b>를 붙여넣으세요.
+                                아래 버튼으로 <b>외부에서 열리는지</b> 확인합니다.
+                            </div>
+                            <div className="flex gap-2">
+                                <label className="flex-1 text-xs font-bold text-gray-600">
+                                    NAS 주소(호스트)
+                                    <input value={webdavHost} onChange={e => setWebdavHost(e.target.value)}
+                                        className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-gray-900 outline-none focus:border-blue-500"/>
+                                </label>
+                                <label className="w-32 text-xs font-bold text-gray-600">
+                                    공유폴더
+                                    <input value={webdavShare} onChange={e => setWebdavShare(e.target.value)}
+                                        className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-gray-900 outline-none focus:border-blue-500"/>
+                                </label>
+                            </div>
+                            <label className="text-xs font-bold text-gray-600">
+                                파일 경로 또는 웹주소
+                                <textarea value={webdavPath} onChange={e => setWebdavPath(e.target.value)} rows={2}
+                                    placeholder={'\\\\NECONSYS_PJ\\001 Project\\...\\진척자료.xlsx  또는  https://necon-pj.synology.me:5006/...'}
+                                    className="mt-1 w-full bg-white border border-gray-300 rounded-lg px-2 py-2 text-xs text-gray-900 outline-none focus:border-blue-500 resize-none"/>
+                            </label>
+                            <div className="text-xs font-bold text-gray-600">→ 변환된 WebDAV 주소</div>
+                            <div className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-[11px] text-gray-800 break-all min-h-[36px]">
+                                {webdavUrl || <span className="text-gray-400">경로를 입력하면 웹주소가 만들어집니다.</span>}
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mt-1">
+                                <button onClick={() => { if (webdavUrl) window.open(webdavUrl, '_blank'); }} disabled={!webdavUrl}
+                                    className="px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-sm font-bold transition-all disabled:opacity-30">
+                                    🌐 브라우저로 열기
+                                </button>
+                                <button onClick={() => { if (webdavUrl) { try { window.location.href = 'ms-excel:ofe|u|' + webdavUrl; } catch (er) {} } }} disabled={!webdavUrl}
+                                    className="px-3 py-2.5 rounded-xl border border-gray-400 bg-gray-300 hover:bg-gray-200 text-gray-900 text-sm font-bold transition-all disabled:opacity-30">
+                                    📊 엑셀로 열기
+                                </button>
+                                <button onClick={() => { if (webdavUrl) navigator.clipboard?.writeText(webdavUrl); }} disabled={!webdavUrl}
+                                    className="px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 text-sm font-bold transition-all disabled:opacity-30">
+                                    📋 주소 복사
+                                </button>
+                            </div>
+                            <div className="text-[11px] text-gray-500 leading-relaxed mt-1">
+                                <b>🌐 브라우저로 열기</b> = 외부에서 NAS에 <b>도달·로그인</b> 되는지 확인 (안 뜨면 DDNS·포트포워딩·HTTPS 문제)<br/>
+                                <b>📊 엑셀로 열기</b> = 진짜 엑셀로 편집 열기 (안 열리면 이 PC에 <b>신뢰 사이트 등록·WebClient</b> 준비 필요, 엑셀 설치 필수)<br/>
+                                ※ 외부망(휴대폰 테더링 등)에서 테스트해야 진짜 외부 접속을 확인할 수 있어요.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={photoInputRef} onChange={handlePhotoUpload} accept="image/*" multiple className="hidden"/>
             <input type="file" ref={reportInputRef} onChange={handleReportUpload} accept=".xlsx,.xls" multiple className="hidden"/>
@@ -1315,7 +1392,12 @@ const EstimateScreen = ({ onBack }) => {
                                         className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                         <Download size={16}/> 엑셀 다운로드
                                     </button>
-                                    <div className="h-px bg-slate-800 my-1"/>
+                                    <div className="h-px bg-gray-200 my-1"/>
+                                    <button onClick={() => { setSettingsOpen(false); setWebdavOpen(true); }}
+                                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all">
+                                        🔗 WebDAV 테스트 (외부 접속)
+                                    </button>
+                                    <div className="h-px bg-gray-200 my-1"/>
                                     <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!rows.length}
                                         className="flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-gray-100 text-gray-800 text-sm font-bold text-left transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                                         <Trash2 size={16}/> 전체 삭제
