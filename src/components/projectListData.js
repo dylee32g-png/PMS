@@ -315,7 +315,7 @@ const extNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
 //  ★ 되살리는 방법: 아래 값을 true 로만 바꾸면 원래 기능이 그대로 복구된다.
 //    규칙·경로 데이터(행의 _extSync)는 지우지 않고 클라우드에 그대로 보존해 두었다.
 //    폴더 허가증(PC별 IndexedDB)만 PC에서 다시 지정하면 된다.
-export const NAS_SYNC_ENABLED = false;
+export const NAS_SYNC_ENABLED = true;
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  ★ 규칙 등록 화면 스위치 (2026-07-31) — 오피스365 방식용

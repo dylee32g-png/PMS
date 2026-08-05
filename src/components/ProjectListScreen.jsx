@@ -113,6 +113,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extRuleDraft, setExtRuleDraft] = useState(null);     // 규칙 추가 폼(관리자)
     const [extPathDraft, setExtPathDraft] = useState(null);     // 경로 입력 중 값(관리자, null=표시 모드)
     const [extLocalDraft, setExtLocalDraft] = useState(null);   // 이 PC용 주소(드라이브 별명) 입력 중 값 — localStorage 저장 (2026-07-22)
+    const [extSharedPathDraft, setExtSharedPathDraft] = useState(null);   // 공용 폴더 주소 입력 중 값 — 클라우드 _extSync.sharedUncPath (2026-08-05)
     const extAutoRef = useRef({});                              // 팀별 자동확인 1회 가드
     const [statusMgr, setStatusMgr] = useState(null); // 진행현황 관리 모달 — 편집 중 상태이름 배열(null=닫힘) (2026-07-06 2단계)
     const [statusMgrOrig, setStatusMgrOrig] = useState([]); // 열 때의 원본 이름들 — '기존 이름 잠금' 판별용 (2026-07-07 안전안: 이름수정 금지, 추가·삭제만)
@@ -1029,14 +1030,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         let handle = null;
         try { handle = await extIdbGet(extHandleKey(row._id)); } catch (e) {}
         if (!handle) { extSetStatus(row._id, { state: 'nofolder', msg: '이 PC에 폴더 지정 안 됨' }); return []; }
+        // 공용 폴더(선택) — 다른 프로젝트 폴더에 있는 공용 파일(예: P9·P10 공용 '01 진행현황')용 (2026-08-05)
+        let sharedHandle = null;
+        try { sharedHandle = await extIdbGet(extHandleKey(row._id) + '::shared'); } catch (e) {}
         try {
             let perm = await handle.queryPermission({ mode: 'read' });
             if (perm === 'prompt' && !silent) perm = await handle.requestPermission({ mode: 'read' });
             if (perm !== 'granted') { extSetStatus(row._id, { state: 'perm', msg: '폴더 읽기 허용 필요 — NAS 버튼 → [지금 확인]' }); return []; }
+            if (sharedHandle) {
+                let permS = await sharedHandle.queryPermission({ mode: 'read' });
+                if (permS === 'prompt' && !silent) permS = await sharedHandle.requestPermission({ mode: 'read' });
+                if (permS !== 'granted') sharedHandle = null;   // 공용 폴더는 선택 사항 — 허용 전이면 기본 폴더만으로 진행
+            }
             // 폴더 안 엑셀 파일 목록(이름 + 수정시각) — 하위 폴더까지 자동 탐색 (2026-07-22)
             //   실제 NAS 구조: 01 진척자료 > 01 진행현황_L1L2 > 엑셀 (한 층 아래) → 재귀 필요.
             //   Backup·백업 이름 폴더는 옛 복사본이라 제외, 깊이는 3층까지(과도한 탐색 방지).
             const metas = [];
+            const metasShared = [];   // 공용 폴더에서 모은 파일 — 기본 폴더에 없는 파일만 여기서 찾는다 (오배정 방지)
+            let sink = metas;
             const walk = async (dir, depth, rel) => {
                 for await (const entry of dir.values()) {
                     if (entry.kind === 'directory') {
@@ -1047,10 +1058,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     }
                     const nm = String(entry.name || '');
                     if (nm.startsWith('~$') || !/\.(xlsx|xlsm|xls)$/i.test(nm)) continue;
-                    try { const f = await entry.getFile(); metas.push({ name: nm, rel: rel ? rel + '\\' + nm : nm, lastModified: f.lastModified, _file: f }); } catch (e) {}
+                    try { const f = await entry.getFile(); sink.push({ name: nm, rel: rel ? rel + '\\' + nm : nm, lastModified: f.lastModified, _file: f }); } catch (e) {}
                 }
             };
             await walk(handle, 0, '');
+            if (sharedHandle) { sink = metasShared; try { await walk(sharedHandle, 0, ''); } catch (e) {} sink = metas; metasShared.forEach(m => { m._shared = true; }); }
             const XLSX = await loadXLSX();
             const wbCache = {};
             const out = [];
@@ -1059,10 +1071,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             for (const rule of rules) {
                 // ── 하위 공종표 규칙 (2026-07-22 파일2): 공종 8행 생성/갱신 + 부모 총계 반영 제안 ──
                 if (rule.type === 'subTable') {
-                    const picked2 = pickLatestExtFile(metas, rule.filePattern);
-                    if (!picked2) { errMsg = `'${rule.filePattern}' 파일을 폴더에서 못 찾음`; continue; }
+                    const picked2 = pickLatestExtFile(metas, rule.filePattern) || pickLatestExtFile(metasShared, rule.filePattern);
+                    if (!picked2) { errMsg = `'${rule.filePattern}' 파일을 폴더${sharedHandle ? '·공용 폴더' : ''}에서 못 찾음`; continue; }
                     if (!wbCache[picked2.name]) { const ab2 = await picked2._file.arrayBuffer(); wbCache[picked2.name] = XLSX.read(ab2, { type: 'array' }); }
-                    if (!usedFiles.some(f => f.rel === picked2.rel)) usedFiles.push({ name: picked2.name, rel: picked2.rel });
+                    if (!usedFiles.some(f => f.rel === picked2.rel)) usedFiles.push({ name: picked2.name, rel: picked2.rel, shared: !!picked2._shared });
                     const res2 = computeExtSubTable(wbCache[picked2.name], rule);
                     if (res2.error) { errMsg = `하위 공종표: ${res2.error} (${picked2.name})`; continue; }
                     okInfo = { fileName: picked2.name, rel: picked2.rel, value: `공종 ${res2.rows.length}개`, target: '하위표' };
@@ -1093,7 +1105,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         const cur = String(row[hdrOf(cn)] ?? '').replace(/%/g, '').trim();
                         const curN = cur === '' ? null : Number(cur);
                         if (!(curN !== null && Number.isFinite(curN) && Math.abs(curN - v) < 0.05))
-                            out.push({ rowId: row._id, target: cn, from: cur === '' ? '—' : cur, to: v, fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row) });
+                            out.push({ rowId: row._id, target: cn, from: cur === '' ? '—' : cur, to: v, fileName: picked2.name, fileRel: picked2.rel, shared: !!picked2._shared, projectName: pickProjectName(row) });
                     }
                     // 부모 팝업 '하위별 통합' 줄 자동 채움(모니터링·그래프) — 현재 주차 장부와 다르면 제안 (2026-07-22 팀장님)
                     try {
@@ -1102,26 +1114,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             const snapP = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkP));
                             const wkP = snapP.exists() ? ((snapP.data() || {}).weekly || {}) : {};
                             const nowP = new Date(); const wKeyP = `${nowP.getFullYear()}-${nowP.getMonth() + 1}-${Math.min(5, Math.max(1, Math.ceil(nowP.getDate() / 7)))}`;
-                            const diffP = res2.rows.some((exr, i) => Number(((wkP[`sub_${i}_intCommissioning`] || {})[wKeyP]) || 0) !== Number(exr.acc || 0));
+                            const extraSubP = Object.keys(wkP).some(k => { const m = k.match(/^sub_(\d+)_(commissioning|intCommissioning)$/); return m && Number(m[1]) >= res2.rows.length; });   // 유령 칸(재등록 잔재 sub_6 등) 감지 — 그래프만 부풀리는 원인 (2026-08-05)
+                            const diffP = extraSubP || res2.rows.some((exr, i) => Number(((wkP[`sub_${i}_intCommissioning`] || {})[wKeyP]) || 0) !== Number(exr.acc || 0));
                             if (diffP) out.push({ rowId: row._id, kind: 'subLedger', target: '팝업 하위별 통합', from: '—', to: res2.rows.map(exr => `${exr.name} ${exr.acc || 0}`).join(' · '), fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row), _ints: res2.rows.map(exr => Number(exr.acc || 0)) });
                         }
                     } catch (eP) {}
                     continue;
                 }
-                const picked = pickLatestExtFile(metas, rule.filePattern);
-                if (!picked) { errMsg = `'${rule.filePattern}' 파일을 폴더에서 못 찾음`; continue; }
+                const picked = pickLatestExtFile(metas, rule.filePattern) || pickLatestExtFile(metasShared, rule.filePattern);
+                if (!picked) { errMsg = `'${rule.filePattern}' 파일을 폴더${sharedHandle ? '·공용 폴더' : ''}에서 못 찾음`; continue; }
                 if (!wbCache[picked.name]) {
                     const ab = await picked._file.arrayBuffer();
                     wbCache[picked.name] = XLSX.read(ab, { type: 'array' });
                 }
-                if (!usedFiles.some(f => f.rel === picked.rel)) usedFiles.push({ name: picked.name, rel: picked.rel });
+                if (!usedFiles.some(f => f.rel === picked.rel)) usedFiles.push({ name: picked.name, rel: picked.rel, shared: !!picked._shared });
                 const res = computeExtRuleValue(wbCache[picked.name], rule);
                 if (res.error) { errMsg = `${rule.target}: ${res.error} (${picked.name})`; continue; }
                 const curRaw = String(row[rule.target] ?? '').replace(/%/g, '').trim();
                 const cur = curRaw === '' ? null : Number(curRaw);
                 const same = cur !== null && Number.isFinite(cur) && Math.abs(cur - res.value) < 0.05;
                 okInfo = { fileName: picked.name, rel: picked.rel, value: res.value, target: rule.target };
-                if (!same) out.push({ rowId: row._id, target: rule.target, from: curRaw === '' ? '—' : curRaw, to: res.value, fileName: picked.name, fileRel: picked.rel, projectName: pickProjectName(row) });
+                if (!same) out.push({ rowId: row._id, target: rule.target, from: curRaw === '' ? '—' : curRaw, to: res.value, fileName: picked.name, fileRel: picked.rel, shared: !!picked._shared, projectName: pickProjectName(row) });
             }
             if (errMsg) extSetStatus(row._id, { state: 'error', msg: errMsg, files: usedFiles });
             else if (out.length) extSetStatus(row._id, { state: 'changed', msg: `변경 감지 ${out.length}건 — 반영 대기`, fileName: out[0].fileName, fileRel: out[0].fileRel, files: usedFiles });
@@ -1156,6 +1169,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const ps = await extCheckRow(row, { silent: false });
             if (ps.length) setExtProposals(ps);
         } catch (e) { if (e && e.name !== 'AbortError') setAlertMsg('폴더 지정 실패: ' + e.message); }
+    };
+
+    // 공용 폴더 지정(선택) — 다른 프로젝트 폴더에 있는 공용 파일(예: P9·P10 공용 '01 진행현황')을 읽을 때만 (2026-08-05)
+    //   파일은 항상 기본 폴더에서 먼저 찾고, 기본 폴더에 없는 파일만 공용 폴더에서 찾는다 (같은 이름 조각 오배정 방지).
+    //   허가증 키 = 기본키 + '::shared' (PC별 IndexedDB — 기본 폴더와 같은 방식)
+    const extPickSharedFolder = async (row) => {
+        if (!extSupported) { setAlertMsg('이 브라우저는 폴더 지정을 지원하지 않습니다.\n크롬 또는 엣지(PC)에서 해주세요.'); return; }
+        try {
+            const handle = await window.showDirectoryPicker({ mode: 'read' });
+            await extIdbSet(extHandleKey(row._id) + '::shared', handle);
+            extSetStatus(row._id, { state: 'ok', msg: `공용 폴더 지정됨: ${handle.name}` });
+            const ps = await extCheckRow(row, { silent: false });
+            if (ps.length) setExtProposals(ps);
+        } catch (e) { if (e && e.name !== 'AbortError') setAlertMsg('공용 폴더 지정 실패: ' + e.message); }
     };
 
     // 통합시운전 주간장부 심기(현재 주차, 재실행 안전) — NAS 자동 반영 공용 (2026-07-22)
@@ -1207,6 +1234,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             iw[wKeyP] = pts;
                             weeklyP[k] = iw;
                         });
+                        // 유령 칸 정리 (2026-08-05): 하위 개수 밖의 sub_i 키 삭제.
+                        //   재등록 과정에서 다른 프로젝트 공종표가 남긴 잔재(예: 010 문서의 sub_6=FFU 3027)가
+                        //   실적 그래프에만 합산돼 누적이 총점을 넘는 문제의 원인.
+                        //   (진행실적 팝업은 하위 행 개수만큼만 읽어 안 보이고, 그래프는 문서의 sub_* 전부를 합산)
+                        Object.keys(weeklyP).forEach(k => { const m = k.match(/^sub_(\d+)_(commissioning|intCommissioning)$/); if (m && Number(m[1]) >= p._ints.length) delete weeklyP[k]; });
                         await setDoc(refP, { ...dataP, weekly: weeklyP, updatedAt: new Date().toISOString() });
                         if (onProgressSaved) onProgressSaved({ docKey: dkP, weeklyData: weeklyP });
                         extSetStatus(parentRow._id, { state: 'ok', msg: `반영됨 하위별 통합 ${p._ints.length}건`, fileName: p.fileName, fileRel: p.fileRel });
@@ -1279,7 +1311,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 const patch = {
                     [tgtH]: valStr,
                     _changeHistory: histAcc[row._id],
-                    _extSync: { ...(row._extSync || {}), lastApplied: { ...((row._extSync || {}).lastApplied || {}), [p.target]: { value: p.to, fileName: p.fileName, rel: p.fileRel || '', at: new Date().toISOString() } } },
+                    _extSync: { ...(row._extSync || {}), lastApplied: { ...((row._extSync || {}).lastApplied || {}), [p.target]: { value: p.to, fileName: p.fileName, rel: p.fileRel || '', shared: !!p.shared, at: new Date().toISOString() } } },
                 };
                 // 부모 총계 %(도면입수·I/O Map·화면작성·기준정보) = 기본 미적용 항목 → 자동 '적용' 켬
                 const tn = String(p.target).replace(/\s+/g, '').toUpperCase();
@@ -1335,7 +1367,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             await setDoc(rowDocRef(currentTeam, row._id), stampSave({ _extSync: { ...(row._extSync || {}), ...next } }), { merge: true });
             recordAudit(AUDIT_ACTIONS.EDIT, row, [{ field: '진척자료 자동 규칙', from: '',
                 to: next.rules ? next.rules.map(r => r.target).join(',')
-                  : (next.folder !== undefined ? `폴더 '${next.folder || '(지정 안 함)'}'` : '경로 변경') }]);
+                  : (next.folder !== undefined ? `폴더 '${next.folder || '(지정 안 함)'}'` : (next.sharedUncPath !== undefined ? '공용 폴더 주소' : '경로 변경')) }]);
         } catch (e) { setAlertMsg('규칙 저장 오류: ' + e.message); }
     };
 
@@ -3071,7 +3103,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 let _secI = 0;
                 const secNo = () => SEC_NUMS[_secI++] || '·';
                 const dotColor = st ? (st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#94a3b8') : '#94a3b8';
-                const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); setMyReaderReqAt(null); setShowAllFiles(false); setExtFolderDraft(null); };
+                const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); setExtSharedPathDraft(null); setMyReaderReqAt(null); setShowAllFiles(false); setExtFolderDraft(null); };
                 const extJoin = (base, rel) => { const b = String(base || '').replace(/[\\/]+$/, ''); return (b && rel) ? (b + '\\' + rel) : ''; };
                 const extLocalKey = 'pms_ext_localbase_' + currentTeam + '_' + exRow._id;
                 const extLocalBase = () => { try { return (localStorage.getItem(extLocalKey) || '').trim(); } catch (er) { return ''; } };
@@ -3079,8 +3111,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 // [엑셀로 열기]용 웹주소 만들기 (2026-07-28 길A) — UNC(또는 Z:)주소 → https://…:5006/NECONSYS_PJ/…
                 const DAV_HOST = 'https://necon-pj.synology.me:5006';   // NAS WebDAV(HTTPS)
                 const DAV_SHARE = 'NECONSYS_PJ';                        // 최상위 공유 폴더(영문) — 웹주소는 반드시 여기부터 시작
-                const davUrlFor = (rel) => {
-                    const base = String(ex.uncPath || extLocalBase() || '').trim();
+                const davUrlFor = (rel, baseOverride) => {   // baseOverride: 공용 파일은 공용 폴더 주소로 (2026-08-05)
+                    const base = String(baseOverride || ex.uncPath || extLocalBase() || '').trim();
                     if (!base) return '';
                     let parts = base.replace(/^[\\/]+/, '').replace(/[\\/]+$/, '').split(/[\\/]+/).filter(Boolean);
                     if (parts.length && /^[A-Za-z]:$/.test(parts[0])) parts.shift();                                                  // Z: 드라이브 글자 제거
@@ -3280,15 +3312,29 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         )}
                                     </div>
                                     <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>회사 주소(\\neconsys_pj)가 이 PC에서 안 열리면, 아래 칸에 내 드라이브 별명 주소(Z:\...)를 넣어두세요 — [원본 파일 열기]·[파일 경로 복사]가 이 주소를 우선 사용합니다.</div>
+                                    {(String(ex.sharedUncPath || '').trim() || isAdmin) && (<>
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>공용</span>
+                                        <input style={{ ...inSt, background: isAdmin ? '#fff' : '#f8fafc' }} readOnly={!isAdmin} title={extSharedPathDraft !== null ? extSharedPathDraft : (ex.sharedUncPath || '')}
+                                            placeholder="공용 폴더 주소(전 직원 공통) — 공용 파일이 있는 폴더 (예: \\neconsys_pj\...\011 P10 ...\01 진척자료)"
+                                            value={extSharedPathDraft !== null ? extSharedPathDraft : (ex.sharedUncPath || '')}
+                                            onChange={e => isAdmin && setExtSharedPathDraft(e.target.value)}/>
+                                        {isAdmin && extSharedPathDraft !== null && extSharedPathDraft !== (ex.sharedUncPath || '') && (
+                                            <button style={bSt('#059669', '#059669', '#fff')} onClick={async () => { await extSaveSync(exRow, { sharedUncPath: String(extSharedPathDraft || '').trim() }); setExtSharedPathDraft(null); }}>저장</button>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>공용 배지가 붙은 파일의 [엑셀로 열기]·[경로 복사]는 이 공용 폴더 주소를 씁니다 — 한 번 저장하면 전 직원이 이 모달에서 바로 엽니다.</div>
+                                    </>)}
                                 </div>
                                 )}
 
                                 <div style={{ marginBottom: 13 }}>
-                                    <div style={secT}>{secNo()} 자동 반영 규칙 (클라우드 공유 — 모든 PC 동일)</div>
+                                    <div style={secT}>{secNo()} 자동 반영 규칙</div>
                                     {exRules.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', padding: '4px 2px' }}>등록된 규칙 없음{isAdmin ? ' — 아래 [규칙 추가]로 등록하세요' : ''}</div>}
                                     {exRules.map((r, i) => (
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', marginBottom: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 7 }}>
                                             <span style={{ fontSize: 12.5, fontWeight: 800, color: '#0369a1', whiteSpace: 'nowrap' }}>{r.target}</span>
+                                            {(ex.lastApplied || {})[r.target]?.shared && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 4, padding: '0 4px', flexShrink: 0 }} title="다른 프로젝트 폴더(공용 폴더)에서 읽는 공용 파일입니다">공용</span>}
                                             <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                                 title={r.type === 'subTable' ? `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 공종별 6항목%+총점, 부모 총계 5항목%+누적` : `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 셀 ${(r.cells || []).join(', ')} ${r.op === 'sum' ? '합계' : '평균'}`}>
                                                 {r.type === 'subTable'
@@ -3373,13 +3419,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         {/* 폴더 지정 · 지금 확인 · 이 PC 지정 해제 = 브라우저가 직접 파일을 읽는 NAS 방식 전용 (2026-07-31) */}
                                         {NAS_SYNC_ENABLED && (<>
                                         <button style={bSt('#1e7ac8', '#1e7ac8', '#fff')} disabled={extBusy} onClick={() => extPickFolder(exRow)}>폴더 지정/변경</button>
+                                        <button style={bSt('#f5f3ff', '#c4b5fd', '#6d28d9')} disabled={extBusy} title="다른 프로젝트 폴더에 있는 공용 엑셀(예: P9·P10 공용 01 진행현황)을 읽어야 할 때만 지정합니다 — 자기 폴더에서 먼저 찾고, 없는 파일만 공용 폴더에서 찾습니다." onClick={() => extPickSharedFolder(exRow)}>공용 폴더(선택)</button>
                                         <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} disabled={extBusy} onClick={async () => {
                                             if (!extRulesRawOf(exRow).length) { setAlertMsg('아직 자동 반영 규칙이 없습니다.\n\n위 ② [+ 규칙 추가] → [규칙 저장]을 먼저 해주세요.\n(폼에 파일1 규칙이 미리 채워져 있습니다)'); return; }
                                             const ps = await extCheckRow(exRow, { silent: false });
                                             if (ps.length) setExtProposals(ps);
                                             else { const s2 = extStatus[exRow._id]; if (!s2 || s2.state === 'ok') { setAlertMsg('확인 완료 — 변경 없음 (메인표가 최신)'); setTimeout(() => setAlertMsg(''), 2500); } }
                                         }}>{extBusy ? '확인 중...' : '지금 확인'}</button>
-                                        <button style={bSt('#fff', '#e2c4c4', '#b91c1c')} disabled={extBusy} onClick={async () => { await extIdbDel(extHandleKey(exRow._id)); extSetStatus(exRow._id, { state: 'nofolder', msg: '이 PC 지정 해제됨' }); }}>이 PC 지정 해제</button>
+                                        <button style={bSt('#fff', '#e2c4c4', '#b91c1c')} disabled={extBusy} onClick={async () => { await extIdbDel(extHandleKey(exRow._id)); await extIdbDel(extHandleKey(exRow._id) + '::shared'); extSetStatus(exRow._id, { state: 'nofolder', msg: '이 PC 지정 해제됨 (공용 폴더 포함)' }); }}>이 PC 지정 해제</button>
                                         </>)}
                                         {/* NAS 잔재 정리 (2026-07-30) — 표시용 주소·과거 반영기록(lastApplied)·이 PC 폴더 핸들만 지움. 규칙은 파일명·시트·셀 기준이라 유지 */}
                                         {isAdmin && (
@@ -3389,6 +3436,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 const nRules = extRulesRawOf(exRow).length;
                                                 await setDoc(rowDocRef(currentTeam, exRow._id), stampSave({ _extSync: { ...(exRow._extSync || {}), uncPath: deleteField(), lastApplied: deleteField() } }), { merge: true });
                                                 await extIdbDel(extHandleKey(exRow._id));
+                                                await extIdbDel(extHandleKey(exRow._id) + '::shared');
                                                 setExtPathDraft(null);
                                                 extSetStatus(exRow._id, { state: 'nofolder', msg: 'NAS 잔재 정리됨 — [폴더 지정/변경]으로 새 폴더를 지정하세요' });
                                                 recordAudit(AUDIT_ACTIONS.EDIT, exRow, [{ field: 'NAS 잔재 정리', from: `주소·반영기록 ${nGhost}건`, to: '삭제' }]);
@@ -3402,7 +3450,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         const seen = {};
                                         const files = [];
                                         (st && st.files ? st.files : []).forEach(f => { if (f && f.rel && !seen[f.rel]) { seen[f.rel] = 1; files.push(f); } });
-                                        Object.values(ex.lastApplied || {}).forEach(v => { if (v && v.rel && !seen[v.rel]) { seen[v.rel] = 1; files.push({ name: v.fileName, rel: v.rel }); } });
+                                        Object.values(ex.lastApplied || {}).forEach(v => { if (v && v.rel && !seen[v.rel]) { seen[v.rel] = 1; files.push({ name: v.fileName, rel: v.rel, shared: !!v.shared }); } });
                                         if (!files.length) return null;
                                         return (
                                             <div style={{ marginTop: 9 }}>
@@ -3411,16 +3459,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 9px', marginBottom: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
                                                         <FileSpreadsheet size={13} style={{ color: '#1e7ac8', flexShrink: 0 }}/>
                                                         <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel}>{f.name}</span>
+                                                        {f.shared && <span style={{ fontSize: 10, fontWeight: 800, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }} title="공용 폴더에서 읽는 파일 — ① 공용 폴더 주소가 저장돼 있으면 여기서 바로 열 수 있습니다">공용</span>}
                                                         <button style={bSt('#059669', '#059669', '#fff')} title="진짜 엑셀 프로그램으로 NAS 원본을 바로 열기 — 수정 후 Ctrl+S 하면 원본에 저장됩니다" onClick={() => {
-                                                            const u = davUrlFor(f.rel);
+                                                            if (f.shared && !String(ex.sharedUncPath || '').trim()) { setAlertMsg('공용 폴더에서 읽는 파일입니다.\n위 ① 공용 폴더 주소(전 직원 공통)를 저장하면 여기서 바로 열 수 있습니다.'); return; }
+                                                            const u = davUrlFor(f.rel, f.shared ? ex.sharedUncPath : '');
                                                             if (!u) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
                                                             try { window.location.href = 'ms-excel:ofe|u|' + u; } catch (er) {}
                                                             setAlertMsg(`'${f.name}'\n진짜 엑셀로 여는 중... (안 열리면 이 PC 1회 준비 필요)\n처음이면 로그인 창에 NAS 계정을 입력하세요.`);
                                                             setTimeout(() => setAlertMsg(''), 3500);
                                                         }}>엑셀로 열기</button>
                                                         <button style={bSt('#eaf2fb', '#bcd6f0', '#1358a0')} onClick={() => {
-                                                            if (!extBase()) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
-                                                            navigator.clipboard?.writeText('"' + extJoin(extBase(), f.rel) + '"');
+                                                            if (f.shared && !String(ex.sharedUncPath || '').trim()) { setAlertMsg('공용 폴더에서 읽는 파일입니다.\n위 ① 공용 폴더 주소(전 직원 공통)를 저장하면 여기서 바로 복사할 수 있습니다.'); return; }
+                                                            if (!f.shared && !extBase()) { setAlertMsg('① NAS 폴더 주소(또는 이 PC용 주소)를 먼저 저장해주세요.'); return; }
+                                                            navigator.clipboard?.writeText('"' + extJoin(f.shared ? ex.sharedUncPath : extBase(), f.rel) + '"');
                                                             setAlertMsg(`'${f.name}'\n경로가 복사되었습니다 (따옴표 포함).\nWin+R 또는 탐색기 주소창에 붙여넣고 엔터 → 엑셀이 열립니다.`);
                                                             setTimeout(() => setAlertMsg(''), 3000);
                                                         }}>경로 복사</button>
@@ -3433,6 +3484,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         {NAS_SYNC_ENABLED ? (<>
                                         담당 PC 한 대만 지정해도 그 PC에서 List를 열 때마다 팀 전체 값이 최신으로 유지됩니다.<br/>
                                         지정한 폴더의 <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) — 프로젝트 진척자료 폴더 하나만 지정하면 됩니다.<br/>
+                                        공용 파일(P9·P10 공용 진행현황 등)이 <b>다른 프로젝트 폴더</b>에 있으면 [공용 폴더(선택)]로 그 폴더를 추가 지정하세요 — 자기 폴더에서 먼저 찾고, 없는 파일만 공용 폴더에서 찾습니다. ① 공용 폴더 주소까지 저장하면 공용 파일도 이 모달에서 바로 [엑셀로 열기]가 됩니다.<br/>
                                         브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.<br/>
                                         [엑셀로 열기]는 PC마다 1회 준비(NAS 주소·Office 예외 등록)가 필요합니다 — 준비 전 PC는 [경로 복사]를 쓰세요.
                                         </>) : (<>
@@ -3448,7 +3500,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <div style={secT}>{secNo()} 마지막 자동 반영{NAS_SYNC_ENABLED ? '' : ' (칸별 · 값이 바뀐 시각)'}</div>
                                         {Object.entries(ex.lastApplied).map(([k, v]) => (
                                             <div key={k} style={{ fontSize: 11.5, color: '#475569', padding: '3px 2px' }}>
-                                                <b style={{ color: '#0369a1' }}>{k}</b> = {String(v.value)} · <span style={{ color: '#94a3b8' }}>{v.fileName}</span> · {v.at ? new Date(v.at).toLocaleString() : ''}
+                                                <b style={{ color: '#0369a1' }}>{k}</b> = {String(v.value)} · <span style={{ color: '#94a3b8' }}>{v.fileName}</span>{v.shared ? <span style={{ color: '#6d28d9', fontWeight: 800 }}> (공용)</span> : null} · {v.at ? new Date(v.at).toLocaleString() : ''}
                                             </div>
                                         ))}
                                     </div>
