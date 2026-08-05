@@ -353,11 +353,13 @@ const EstimateScreen = ({ onBack }) => {
     const [historyProject, setHistoryProject] = useState(null);              // 단일 프로젝트 변화 현황 팝업 (견적번호)
     const [execMonthSel, setExecMonthSel] = useState(new Set());             // 집행: 월별 필터 (다중 선택, 비어있으면 전체)
     const [execExcludeJan, setExecExcludeJan] = useState(false);             // 집행: 집행월이 1월인 것 제외
-    // WebDAV 테스트 도구 (외부에서 NAS 엑셀이 열리는지 팀장 독립 테스트용)
+    // WebDAV 테스트 도구 (외부에서 NAS 엑셀이 열리는지 팀장 독립 테스트용) — 입력값은 이 브라우저에 저장
+    const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (_) { return d; } };
     const [webdavOpen, setWebdavOpen] = useState(false);
-    const [webdavPath, setWebdavPath] = useState('');
-    const [webdavHost, setWebdavHost] = useState('https://necon-pj.synology.me:5006');
-    const [webdavShare, setWebdavShare] = useState('NECONSYS_PJ');
+    const [webdavPath, setWebdavPath] = useState(() => lsGet('pms_webdav_path', ''));
+    const [webdavHost, setWebdavHost] = useState(() => lsGet('pms_webdav_host', 'https://necon-pj.synology.me:5006'));
+    const [webdavShare, setWebdavShare] = useState(() => lsGet('pms_webdav_share', 'NECONSYS_PJ'));
+    useEffect(() => { try { localStorage.setItem('pms_webdav_path', webdavPath); localStorage.setItem('pms_webdav_host', webdavHost); localStorage.setItem('pms_webdav_share', webdavShare); } catch (_) {} }, [webdavPath, webdavHost, webdavShare]);
     const webdavUrl = buildDavUrl(webdavPath, webdavHost, webdavShare);
     const toggleExecMonth = (m) => setExecMonthSel(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; });
     const [execHistProject, setExecHistProject] = useState(null);            // 집행금액 변화 팝업 (견적번호)
