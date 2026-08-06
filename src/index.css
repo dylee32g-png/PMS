@@ -416,6 +416,8 @@ input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 
-/* ── 고정 열 경계 그림자 (2026-07-21): 스크롤 시 열이 고정판 밑으로 지나갈 때 층(레이어) 느낌 — 구글시트 방식 ── */
+/* ── 고정 열 경계 그림자 (2026-07-21 도입 → 2026-08-06 제거, 팀장님): 틀고정 경계가 그림자로 도드라져 보여
+   일반 셀 경계선과 똑같이 보이게 그림자를 끔. 복원하려면 아래 줄의 주석만 해제.
 .frz-edge { box-shadow: 7px 0 10px -4px rgba(15, 40, 80, 0.32) !important; }
+*/
 

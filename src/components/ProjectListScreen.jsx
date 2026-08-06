@@ -3311,7 +3311,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             <button style={bSt('#059669', '#059669', '#fff')} onClick={() => { try { localStorage.setItem(extLocalKey, String(extLocalDraft || '').trim()); } catch (er) {} setExtLocalDraft(null); setAlertMsg('이 PC용 주소 저장 완료!\n(이 PC에서만 사용 — 열기·경로 복사가 이 주소를 우선 씁니다)'); setTimeout(() => setAlertMsg(''), 2500); }}>저장</button>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>회사 주소(\\neconsys_pj)가 이 PC에서 안 열리면, 아래 칸에 내 드라이브 별명 주소(Z:\...)를 넣어두세요 — [원본 파일 열기]·[파일 경로 복사]가 이 주소를 우선 사용합니다.</div>
+                                    <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 4 }}>회사 주소(\\neconsys_pj)가 이 PC에서 안 열리면 '이 PC용 주소' 칸에 드라이브 별명(Z:\...)을 넣어두세요 — [엑셀로 열기]·[경로 복사]가 이 주소를 우선 씁니다.</div>
                                     {(String(ex.sharedUncPath || '').trim() || isAdmin) && (<>
                                     <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                                         <span style={{ fontSize: 10, fontWeight: 800, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>공용</span>
@@ -3336,9 +3336,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             <span style={{ fontSize: 12.5, fontWeight: 800, color: '#0369a1', whiteSpace: 'nowrap' }}>{r.target}</span>
                                             {(ex.lastApplied || {})[r.target]?.shared && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#6d28d9', background: '#f5f3ff', border: '1px solid #c4b5fd', borderRadius: 4, padding: '0 4px', flexShrink: 0 }} title="다른 프로젝트 폴더(공용 폴더)에서 읽는 공용 파일입니다">공용</span>}
                                             <span style={{ fontSize: 11.5, color: '#475569', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                                                title={r.type === 'subTable' ? `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 공종별 6항목%+총점, 부모 총계 5항목%+누적` : `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 셀 ${(r.cells || []).join(', ')} ${r.op === 'sum' ? '합계' : '평균'}`}>
+                                                title={r.type === 'subTable' ? `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 공종 하위행 자동생성+6항목%·총점, 부모 5항목%·누적(HMI=기준정보생성)` : `파일 '${r.filePattern}' → 시트 '${r.sheet}' → 셀 ${(r.cells || []).join(', ')} ${r.op === 'sum' ? '합계' : '평균'}`}>
                                                 {r.type === 'subTable'
-                                                    ? <>← '{r.filePattern}' 최신 파일 · 시트 '{r.sheet}' · 공종 하위행 자동생성+6항목%·총점, 부모 5항목%·누적(HMI=기준정보생성)</>
+                                                    ? <>← '{r.filePattern}' 최신 파일 · 시트 '{r.sheet}' · 공종 하위행+부모 총계 자동</>
                                                     : <>← '{r.filePattern}' 최신 파일 · 시트 '{r.sheet}' · {(r.cells || []).join(',')} {r.op === 'sum' ? '합계' : '평균'}</>}
                                             </span>
                                             {isAdmin && <button style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', padding: 2, fontWeight: 800 }} title="규칙 삭제"
@@ -3483,9 +3483,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 7, lineHeight: 1.5 }}>
                                         {NAS_SYNC_ENABLED ? (<>
                                         담당 PC 한 대만 지정해도 그 PC에서 List를 열 때마다 팀 전체 값이 최신으로 유지됩니다.<br/>
-                                        지정한 폴더의 <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) — 프로젝트 진척자료 폴더 하나만 지정하면 됩니다.<br/>
-                                        공용 파일(P9·P10 공용 진행현황 등)이 <b>다른 프로젝트 폴더</b>에 있으면 [공용 폴더(선택)]로 그 폴더를 추가 지정하세요 — 자기 폴더에서 먼저 찾고, 없는 파일만 공용 폴더에서 찾습니다. ① 공용 폴더 주소까지 저장하면 공용 파일도 이 모달에서 바로 [엑셀로 열기]가 됩니다.<br/>
-                                        브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.<br/>
+                                        <b>하위 폴더까지 자동으로</b> 찾습니다 (Backup·백업 폴더 제외) · 브라우저를 껐다 켠 뒤에는 [지금 확인]에서 허용 1번이 필요할 수 있습니다.<br/>
                                         [엑셀로 열기]는 PC마다 1회 준비(NAS 주소·Office 예외 등록)가 필요합니다 — 준비 전 PC는 [경로 복사]를 쓰세요.
                                         </>) : (<>
                                         [NAS 잔재 정리] = 옛 NAS 방식이 남긴 <b>표시용 주소 · 과거 반영기록 · 이 PC 폴더 지정</b>만 지웁니다. <b>자동 반영 규칙은 그대로 유지</b>됩니다.<br/>
