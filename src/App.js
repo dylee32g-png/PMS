@@ -725,6 +725,47 @@ const TechTeamPMS = () => {
   }, [userCheckDone, registeredUser]);
   // ─────────────────────────────────────────────────────────────────────────
 
+  // ── 메인 PC 자동 복귀 + 팀 순환 (2026-08-07) ──────────────────────────────
+  //    공용 PC(메인 PC)는 재부팅·새로고침을 하면 늘 홈 화면에서 멈춘다(화면 상태는 저장하지 않으므로).
+  //    그런데 30분 자동 반영 코드는 List 화면 안에 살아 있어서, 홈에 멈춰 있으면 아무 일도 안 한다.
+  //    → '메인 PC' 표시가 있는 PC만, 로그인 확인 직후 딱 한 번 지정된 팀의 List 화면으로 들어간다.
+  //    화면 하나는 한 팀만 보므로, 팀이 둘 이상 지정돼 있으면 15분마다 다음 팀 화면으로 옮겨간다.
+  //    화면이 바뀌면 그 팀 검사가 저절로 돌기 때문에, 팀마다 창을 따로 띄울 필요가 없다(창 1개로 커버).
+  //    표시가 없는 일반 PC는 아무 영향 없음. 사람이 [뒤로]로 나오면 다시 끌고 오지 않는다(딱 1회).
+  const MAINPC_ROTATE_MS = 15 * 60 * 1000;
+  const mainPcTeams = () => { try {
+      if (localStorage.getItem('pms_ext_mainpc') !== '1') return [];
+      return (localStorage.getItem('pms_ext_mainpc_team') || '').split(',').map(s => s.trim()).filter(Boolean);
+  } catch (e) { return []; } };
+
+  const didMainPcRouteRef = useRef(false);
+  useEffect(() => {
+      if (didMainPcRouteRef.current) return;
+      if (!userCheckDone || !registeredUser) return;
+      if (currentMode || currentTeam) return;               // 이미 어느 화면에 있으면 건드리지 않음
+      const teams = mainPcTeams();
+      if (!teams.length) return;
+      didMainPcRouteRef.current = true;
+      setCurrentTeam(teams[0]);
+      setCurrentMode('projectList');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userCheckDone, registeredUser, currentMode, currentTeam]);
+
+  // 팀 순환 — 메인 PC로 자동 진입한 뒤, 지정된 팀이 둘 이상일 때만 돈다(하나면 아무 일도 안 함 = 기존과 동일).
+  useEffect(() => {
+      if (!didMainPcRouteRef.current) return;
+      if (currentMode !== 'projectList') return;            // 사람이 다른 화면으로 나가면 순환도 멈춘다
+      if (mainPcTeams().length < 2) return;
+      const t = setInterval(() => {
+          const list = mainPcTeams();
+          if (list.length < 2) return;
+          setCurrentTeam(prev => list[(list.indexOf(prev) + 1) % list.length]);   // 목록에 없는 팀이면 첫 팀으로
+      }, MAINPC_ROTATE_MS);
+      return () => clearInterval(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMode]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!user || !db || !user.uid) return;
     addLog(`Firestore DB 구독 시작...`);

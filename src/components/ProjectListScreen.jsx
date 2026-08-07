@@ -43,8 +43,19 @@ const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(t
 const EXT_MAINPC_KEY = 'pms_ext_mainpc';
 const EXT_AUTO_MS = 30 * 60 * 1000;                       // 자동 검사 간격 30분 (2026-07-27 팀장님 확정)
 const EXT_TICK_MS = 60 * 1000;                            // 1분 심장박동 — 절전·백그라운드 지연을 벽시계로 따라잡음
-const loadMainPc = () => { try { return localStorage.getItem(EXT_MAINPC_KEY) === '1'; } catch (e) { return false; } };
-const saveMainPc = (v) => { try { if (v) localStorage.setItem(EXT_MAINPC_KEY, '1'); else localStorage.removeItem(EXT_MAINPC_KEY); } catch (e) {} };
+// (2026-08-07) 메인 PC가 지켜볼 팀 목록 — 콤마로 구분해 이 PC에만 저장 (예: "기술2팀" 또는 "기술2팀,기술1팀").
+//   화면 하나는 한 팀만 보므로, 팀이 둘 이상이면 App.js가 정해진 간격으로 다음 팀 화면으로 옮겨간다(창 1개로 여러 팀 커버).
+//   재시작 뒤 홈 화면에서 멈추지 않도록 App.js가 이 값을 읽어 그 팀 List 화면으로 자동 복귀시킨다.
+const EXT_MAINPC_TEAM_KEY = 'pms_ext_mainpc_team';
+const loadMainPcTeams = () => { try {
+    if (localStorage.getItem(EXT_MAINPC_KEY) !== '1') return [];
+    return (localStorage.getItem(EXT_MAINPC_TEAM_KEY) || '').split(',').map(s => s.trim()).filter(Boolean);
+} catch (e) { return []; } };
+const saveMainPcTeams = (list) => { try {
+    const arr = Array.from(new Set((list || []).map(s => String(s).trim()).filter(Boolean)));
+    if (arr.length) { localStorage.setItem(EXT_MAINPC_KEY, '1'); localStorage.setItem(EXT_MAINPC_TEAM_KEY, arr.join(',')); }
+    else           { localStorage.removeItem(EXT_MAINPC_KEY); localStorage.removeItem(EXT_MAINPC_TEAM_KEY); }
+} catch (e) {} };
 const extHHMM = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
 // ── 자동 반영기(NAS Docker 프로그램 pms-reader) 상태 표시 도우미 (2026-07-31) ──
@@ -92,7 +103,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extBusy, setExtBusy] = useState(false);
     const [extProposals, setExtProposals] = useState(null);     // 변경 감지 → 반영 확인창 목록
     // ── 메인 PC 자동 반영 (2026-07-27) ────────────────────────────────────
-    const [extMainPc, setExtMainPc]       = useState(loadMainPc);   // 이 PC가 메인 PC인가 (이 PC에만 저장)
+    // (2026-08-07) '이 PC가 메인 PC인가' → '지금 보고 있는 팀이 이 PC의 메인 팀 목록에 있는가'로 바뀜.
+    //   팀 순환을 넣으면서, 사람이 목록에 없는 팀으로 들어갔을 때 그 팀까지 무인 반영되는 일을 막는다.
+    const [extMainTeams, setExtMainTeams] = useState(loadMainPcTeams);   // 이 PC가 지켜볼 팀 목록 (이 PC에만 저장)
+    const extMainPc = extMainTeams.includes(currentTeam);                // 이 화면이 지금 메인 PC 역할인가
     const [extToast, setExtToast]         = useState('');           // 자동 반영 알림 — 모달과 달리 화면을 안 막음
     const [extToastWarn, setExtToastWarn] = useState(false);
     const [extLastAuto, setExtLastAuto]   = useState('');           // 마지막 자동 검사 시각 HH:MM (설정 메뉴 표시)
@@ -115,6 +129,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extLocalDraft, setExtLocalDraft] = useState(null);   // 이 PC용 주소(드라이브 별명) 입력 중 값 — localStorage 저장 (2026-07-22)
     const [extSharedPathDraft, setExtSharedPathDraft] = useState(null);   // 공용 폴더 주소 입력 중 값 — 클라우드 _extSync.sharedUncPath (2026-08-05)
     const extAutoRef = useRef({});                              // 팀별 자동확인 1회 가드
+    const extTeamRunRef = useRef({});                           // (2026-08-07) { 팀: 마지막 무인 검사 시각 } — 메인 PC 팀 순환용 되먹임 차단
     const [statusMgr, setStatusMgr] = useState(null); // 진행현황 관리 모달 — 편집 중 상태이름 배열(null=닫힘) (2026-07-06 2단계)
     const [statusMgrOrig, setStatusMgrOrig] = useState([]); // 열 때의 원본 이름들 — '기존 이름 잠금' 판별용 (2026-07-07 안전안: 이름수정 금지, 추가·삭제만)
     const [managerMgr, setManagerMgr] = useState(null); // 담당자 관리 모달 — 편집 중 이름 배열(null=닫힘) (2026-07-07 3단계)
@@ -1034,12 +1049,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         let sharedHandle = null;
         try { sharedHandle = await extIdbGet(extHandleKey(row._id) + '::shared'); } catch (e) {}
         try {
+            // (2026-08-07) 허가증 자동 되살리기 — 크롬을 껐다 켜면 허가증이 '다시 물어봄'으로 돌아갈 수 있다.
+            //   그러면 무인 공용 PC는 사람이 [지금 확인]을 눌러줄 때까지 영영 멈춘다.
+            //   폴더 지정 때 [방문할 때마다 허용]을 받아둔 폴더는 requestPermission이 창 없이 바로 허용을 돌려준다 → 스스로 복구.
+            //   ★ 단 메인 PC에서만 시도한다 — 일반 직원 PC까지 허용하면 화면에 들어오자마자 권한 창이 튀어나올 수 있다
+            //     (silent=true로 창을 막아온 원래 의도 유지). 일반 PC 동작은 이전과 100% 동일.
+            const mayRequest = !silent || extMainPc;
             let perm = await handle.queryPermission({ mode: 'read' });
-            if (perm === 'prompt' && !silent) perm = await handle.requestPermission({ mode: 'read' });
+            if (perm === 'prompt' && mayRequest) { try { perm = await handle.requestPermission({ mode: 'read' }); } catch (e) {} }
             if (perm !== 'granted') { extSetStatus(row._id, { state: 'perm', msg: '폴더 읽기 허용 필요 — NAS 버튼 → [지금 확인]' }); return []; }
             if (sharedHandle) {
                 let permS = await sharedHandle.queryPermission({ mode: 'read' });
-                if (permS === 'prompt' && !silent) permS = await sharedHandle.requestPermission({ mode: 'read' });
+                if (permS === 'prompt' && mayRequest) { try { permS = await sharedHandle.requestPermission({ mode: 'read' }); } catch (e) {} }
                 if (permS !== 'granted') sharedHandle = null;   // 공용 폴더는 선택 사항 — 허용 전이면 기본 폴더만으로 진행
             }
             // 폴더 안 엑셀 파일 목록(이름 + 수정시각) — 하위 폴더까지 자동 탐색 (2026-07-22)
@@ -1358,7 +1379,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 showExtToast(`자동 반영 ${list.length}건 · ${extHHMM(new Date())}\n${_t}`);
             } else setAlertMsg(`NAS 진척자료 반영 완료! (총 ${list.length}건)\n\n${_shown}${_more}\n\n주간 진행실적 장부에도 함께 기록되었습니다.`);
         } catch (e) { if (opts.auto) showExtToast('NAS 반영 오류: ' + e.message, true); else setAlertMsg('NAS 반영 오류: ' + e.message); }
-        finally { setExtBusy(false); setExtProposals(null); }
+        // (2026-08-07) auto = 무인 반영일 땐 확인창을 건드리지 않는다.
+        //   예전엔 무조건 null로 지워서, 사람이 보고 있던 '하위 행 새로 만들기' 확인창이 소리 없이 사라졌다.
+        finally { setExtBusy(false); if (!opts.auto) setExtProposals(null); }
     };
 
     // 규칙·경로 저장(관리자) — 행 _extSync에 병합 저장
@@ -1396,15 +1419,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     }, [currentTeam]);
 
     // 화면 진입 후 1회 자동 확인 — 이미 허용된 폴더만 조용히 검사(팀별 1번), 변경 있으면 반영 확인창
+    //   (2026-08-07) 메인 PC는 예외로 둔다. 이유 두 가지:
+    //     ① 팀을 번갈아 보므로 '팀별 딱 1번' 잠금을 걸면 두 번째 방문부터 검사가 안 된다.
+    //     ② 확인창 대신 자동 저장이어야 한다 — 무인 PC에 확인창이 쌓이면 그 뒤가 막힌다.
+    //   단 이 훅은 fbRows가 바뀔 때마다 다시 도는데, 자동 반영이 값을 바꾸면 또 fbRows가 바뀐다.
+    //   그래서 '같은 팀은 1분 안에 다시 안 돈다'는 가드로 되먹임 고리를 끊는다(팀 전환 간격은 15분이라 영향 없음).
     useEffect(() => {
         if (!NAS_SYNC_ENABLED) return;                       // NAS 동기화 전면 비활성화 (2026-07-30)
         if (dataSource !== 'firebase' || !fbRows.length) return;
-        if (extAutoRef.current[currentTeam]) return;
         if (!fbRows.some(r => extRulesOf(r).length)) return;
+        if (extMainPc) {
+            if (Date.now() - (extTeamRunRef.current[currentTeam] || 0) < 60 * 1000) return;
+            extTeamRunRef.current[currentTeam] = Date.now();
+            extLastRunRef.current = Date.now();              // 30분 타이머도 '방금 돈' 것으로 맞춰 중복 실행 방지
+            try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {}
+            return;
+        }
+        if (extAutoRef.current[currentTeam]) return;
         extAutoRef.current[currentTeam] = true;
         extCheckAll({ silent: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dataSource, currentTeam, fbRows]);
+    }, [dataSource, currentTeam, fbRows, extMainPc]);
 
     // ── 메인 PC 주기 자동 반영 (2026-07-27, 30분) ─────────────────────────────
     //   값 갱신(%·포인트·누적·하위 값 갱신)은 확인 없이 자동 저장.
@@ -1412,7 +1447,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const extAutoRun = async () => {
         if (!NAS_SYNC_ENABLED) return;                       // NAS 동기화 전면 비활성화 (2026-07-30) — 30분 주기 무인 반영 정지
         if (!extMainPc || extBusy || dataSource !== 'firebase') return;
-        if (extProposals && extProposals.length) return;                 // 확인창이 떠 있으면 다음 차례로 미룸
+        // (2026-08-07) 예전엔 확인창이 떠 있으면 검사를 통째로 건너뛰었다 → 공용 PC에 확인창이 하나 뜨고
+        //   아무도 안 누르면 그때부터 자동 반영이 영영 멈췄다(화면은 멀쩡한데 값만 안 올라옴).
+        //   이제는 값 갱신은 계속 하고, '하위 행 새로 만들기' 제안만 미룬다 — 사람이 보던 확인창을 덮어쓰지 않기 위해.
+        const holding = !!(extProposals && extProposals.length);
         const targets = fbRows.filter(r => extRulesOf(r).length);
         if (!targets.length) return;
         const all = [];
@@ -1427,7 +1465,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const autoList = all.filter(p => p.kind !== 'subCreate');
         const askList  = all.filter(p => p.kind === 'subCreate');
         if (autoList.length) await extApplyProposals(autoList, { auto: true });
-        if (askList.length) setExtProposals(askList);                    // 하위 신규 생성 → 확인창 유지
+        if (askList.length && !holding) setExtProposals(askList);         // 하위 신규 생성 → 확인창 유지 (이미 떠 있으면 그대로 둠)
     };
     extAutoFnRef.current = extAutoRun;   // 매 렌더마다 최신 함수로 교체 (타이머는 아래에서 딱 1번만 건다)
 
@@ -1445,6 +1483,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         };
         const t = setInterval(tick, EXT_TICK_MS);
         return () => clearInterval(t);
+    }, [extMainPc]);
+
+    // ── 메인 PC 창 닫기 경고 (2026-08-07) ─────────────────────────────────────
+    //   공용 PC에서 누가 무심코 창을 닫으면 자동 반영이 그대로 멈춘다(다시 열어 List까지 들어와야 재개).
+    //   메인 PC로 지정된 PC에서만 브라우저 기본 확인창을 띄운다 — 일반 PC·직원 PC는 전혀 영향 없음.
+    //   ※ 브라우저 정책상 그 창에서 클릭 등 상호작용이 한 번이라도 있어야 확인창이 뜬다(사람이 닫을 땐 항상 해당됨).
+    useEffect(() => {
+        if (!NAS_SYNC_ENABLED || !extMainPc) return;
+        const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
+        window.addEventListener('beforeunload', onBeforeUnload);
+        return () => window.removeEventListener('beforeunload', onBeforeUnload);
     }, [extMainPc]);
 
     // ── 일회성: 메인표 공정률(%) → 진행실적 주간 장부 '심기' (2026-07-21) ────────────
@@ -3869,15 +3918,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {NAS_SYNC_ENABLED && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     <button onClick={() => {
-                                            const nv = !extMainPc; setExtMainPc(nv); saveMainPc(nv); setSettingsOpen(false);
+                                            // (2026-08-07) 켜고 끄기 = 이 PC의 '지켜볼 팀 목록'에 지금 팀을 넣고 빼는 것.
+                                            //   팀을 여러 개 넣어두면 창 하나가 번갈아 보므로, 팀마다 창을 따로 띄울 필요가 없다.
+                                            const _has = extMainTeams.includes(currentTeam);
+                                            const _next = _has ? extMainTeams.filter(t => t !== currentTeam) : [...extMainTeams, currentTeam];
+                                            setExtMainTeams(_next); saveMainPcTeams(_next); setSettingsOpen(false);
                                             extLastRunRef.current = Date.now();
-                                            if (nv) { showExtToast('이 PC가 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.\n(List 화면을 켜둔 상태여야 합니다)'); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
-                                            else showExtToast('메인 PC 지정을 해제했습니다. 자동 반영이 멈춥니다.');
+                                            if (!_has) { showExtToast(`이 PC가 '${currentTeam}' 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.` + (_next.length > 1 ? `\n지켜볼 팀 ${_next.length}개 (${_next.join(', ')}) — 15분마다 화면을 번갈아 엽니다.` : '') + `\n(List 화면을 켜둔 상태여야 합니다)`); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
+                                            else showExtToast(`'${currentTeam}' 메인 PC 지정을 해제했습니다.` + (_next.length ? `\n남은 팀: ${_next.join(', ')}` : '\n자동 반영이 멈춥니다.'));
                                         }}
                                         className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${extMainPc ? 'text-emerald-700' : 'text-[#333]'}`}>
                                         <HardDrive size={14} className={extMainPc ? 'text-emerald-600' : 'text-[#999]'}/>
                                         이 PC를 메인 PC로 지정
-                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{extMainPc ? `켜짐 · 30분마다${extLastAuto ? ` · ${extLastAuto} 확인` : ''}` : '꺼짐'}</span>
+                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{extMainPc
+                                            ? `켜짐${extMainTeams.length > 1 ? ` · 팀 ${extMainTeams.length}개 번갈아` : ' · 30분마다'}${extLastAuto ? ` · ${extLastAuto} 확인` : ''}`
+                                            : (extMainTeams.length ? `꺼짐 (이 PC는 ${extMainTeams.join(', ')} 담당)` : '꺼짐')}</span>
                                     </button>
                                     </>)}
                                     </>)}
@@ -4349,8 +4404,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             {/* NAS_SYNC_ENABLED=false 이면 배지도 숨김 (2026-07-30) */}
                             {NAS_SYNC_ENABLED && extMainPc && (
                                 <span className="ml-3 font-bold" style={{ color: '#059669' }}
-                                    title={`이 PC가 메인 PC입니다. 30분마다 NAS 진척자료를 확인해 자동 반영합니다.${extLastAuto ? `\n마지막 확인 ${extLastAuto}` : ''}\n(끄기: 관리자 계정 → 설정 메뉴)`}>
-                                    · ● 메인 PC 자동 반영 중{extLastAuto ? ` (${extLastAuto} 확인)` : ''}
+                                    title={`이 PC가 메인 PC입니다. 30분마다 NAS 진척자료를 확인해 자동 반영합니다.${extMainTeams.length > 1 ? `\n지켜보는 팀 ${extMainTeams.length}개: ${extMainTeams.join(', ')} — 15분마다 화면을 번갈아 엽니다.` : ''}${extLastAuto ? `\n마지막 확인 ${extLastAuto}` : ''}\n(끄기: 관리자 계정 → 설정 메뉴)`}>
+                                    · ● 메인 PC 자동 반영 중 · {extMainTeams.join(', ')}{extLastAuto ? ` (${extLastAuto} 확인)` : ''}
                                 </span>
                             )}
                             {/* 자동 반영기 배지 (2026-07-31) — 규칙 화면을 안 열어도 프로그램이 살아있는지 보이게 */}
