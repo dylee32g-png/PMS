@@ -15,7 +15,8 @@ import {
   LogOut, Wrench, TerminalSquare, AlertTriangle, Upload, Save, Database, CornerDownRight,
   Eye, ChevronRight, HelpCircle, CheckCircle2, Menu, PieChart, Target, Zap,
   ZoomIn, ZoomOut, Maximize, Minus, Download, FileSpreadsheet, ChevronUp, ListChecks,
-  HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp, Smartphone
+  HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp, Smartphone,
+  Globe, Factory, MapPin
 } from 'lucide-react';
 
 import LoginScreen from './components/LoginScreen';
@@ -5634,9 +5635,10 @@ const TechTeamPMS = () => {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                           {[
-                              { id: '기술1팀', title: '기술1팀', desc: '설비 유지보수 및 하드웨어 인프라 제어', icon: <Wrench className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
-                              { id: '기술2팀', title: '기술2팀', desc: '자동제어 시스템 및 통합 시운전 관리', icon: <Cpu className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
-                              { id: '기술3팀', title: '기술3팀', desc: '네트워크 망 및 현장 모니터링 시스템', icon: <Monitor className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              // 팀 역할 재정의 (2026-08-10 팀장님): 담당 지역 기준 — 1팀=해외·국내 사이드 / 2팀=파주 전담 / 3팀=구미
+                              { id: '기술1팀', title: '기술1팀', desc: '해외(중국·베트남) 및 국내 사이드 업무 (파주 외)', icon: <Globe className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              { id: '기술2팀', title: '기술2팀', desc: '파주 전담 업무 (파주 LGD 중심)', icon: <Factory className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
+                              { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
                               { id: 'Software팀', title: 'Software팀', desc: '사내 포털 및 MES 데이터베이스 개발', icon: <TerminalSquare className="w-6 h-6 text-[#1e7ac8]" /> }
                           ].map(card => {
                               const handleCardClick = () => {
@@ -6059,9 +6061,9 @@ const TechTeamPMS = () => {
                       <header className="flex flex-row justify-between items-center gap-2 shrink-0 relative z-50">
                           <div className="flex items-center gap-2 min-w-0 shrink-0">
                               <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
-                                  {currentTeam === '기술1팀' && <Wrench size={20}/>}
-                                  {currentTeam === '기술2팀' && <Cpu size={20}/>}
-                                  {currentTeam === '기술3팀' && <Monitor size={20}/>}
+                                  {currentTeam === '기술1팀' && <Globe size={20}/>}
+                                  {currentTeam === '기술2팀' && <Factory size={20}/>}
+                                  {currentTeam === '기술3팀' && <MapPin size={20}/>}
                                   {currentTeam === 'Software팀' && <TerminalSquare size={20}/>}
                               </div>
                               <div className="flex items-center gap-2 min-w-0">

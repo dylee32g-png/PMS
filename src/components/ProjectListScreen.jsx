@@ -102,6 +102,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extStatus, setExtStatus] = useState({});             // { rowId: {state,msg,fileName,value,checkedAt} }
     const [extBusy, setExtBusy] = useState(false);
     const [extProposals, setExtProposals] = useState(null);     // 변경 감지 → 반영 확인창 목록
+    const [userMerge, setUserMerge] = useState(null);           // 일반 사용자 [엑셀 반영] 미리보기 (2026-08-10)
+    const userFileRef = useRef(null);                           // [엑셀 반영] 전용 파일 선택 (관리자 업로드와 별개)
     // ── 메인 PC 자동 반영 (2026-07-27) ────────────────────────────────────
     // (2026-08-07) '이 PC가 메인 PC인가' → '지금 보고 있는 팀이 이 PC의 메인 팀 목록에 있는가'로 바뀜.
     //   팀 순환을 넣으면서, 사람이 목록에 없는 팀으로 들어갔을 때 그 팀까지 무인 반영되는 일을 막는다.
@@ -501,6 +503,58 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     // ── 엑셀 업로드 → 전체 시트 파싱 → pendingData (미저장 미리보기) ────
+    // ── 엑셀 파일 → { headers, colGroups, rows } 공용 해석기 (2026-08-10) ─────────
+    //   관리자 [엑셀 업로드]와 일반 사용자 [엑셀 반영]이 같은 해석기를 쓴다 (계산 일원화).
+    //   동작은 기존 업로드 그대로 이동: 최신 연도 시트만 · 3층 헤더 · 번호 3자리 패딩.
+    const parseListWorkbook = async (file) => {
+        const XLSX = await loadXLSX();
+        const wb   = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+        addLog(`시트 ${wb.SheetNames.length}개: ${wb.SheetNames.join(', ')}`);
+
+        let allRows       = [];
+        let canonHeaders  = null;
+        let canonColGroups = null;
+        let canonColCount  = 0;
+
+        // 최신 연도 시트 1개만 읽기 (2026 등) — 2026-06-27 팀장님: 과거 연도·SM대응 제외
+        const _years   = wb.SheetNames.map(n => extractYear(n)).filter(y => /^\d{4}$/.test(y));
+        const _latestY = _years.sort((a, b) => b.localeCompare(a))[0];
+        addLog(`최신 연도 시트만 사용: ${_latestY}`);
+        for (const sheetName of wb.SheetNames) {
+            const year = extractYear(sheetName);
+            if (year !== _latestY) { addLog(`시트 "${sheetName}" 건너뜀 (최신연도 ${_latestY}만)`); continue; }
+            const ws   = wb.Sheets[sheetName];
+            const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+            addLog(`── 시트 "${sheetName}" (연도: ${year}): ${raw.length}행`);
+            if (raw.length < 2) { addLog(`  ↳ 스킵 (행 부족)`); continue; }
+
+            const { colDefs, colGroups: cg, dataStart } = parseExcelHeaders(raw, addLog);
+            if (colDefs.length === 0) { addLog(`  ↳ 스킵 (헤더 없음)`); continue; }
+
+            // 헤더 기준 = 열이 가장 많은(가장 풍부한) 시트. 맨 앞 'SM대응'(10열)처럼 단순한 시트가 기준이 돼
+            // 2026년(31열) 열들이 표에서 통째로 가려지던 문제 수정 (2026-06-26)
+            if (colDefs.length > canonColCount) { canonHeaders = colDefs.map(c => c.name); canonColGroups = cg; canonColCount = colDefs.length; }
+
+            const ts = Date.now();
+            // 번호 3자리 패딩 (2026-07-20 팀장님): 원본 엑셀은 1·2·3 그대로 두고, 업로드가 001·002·003으로 자동 변환
+            const _noColName = (colDefs.find(c => String(c.name).replace(/\s/g, '') === '번호') || {}).name;
+            const sheetRows = raw.slice(dataStart).map((row, idx) => {
+                const obj = {
+                    _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
+                    _pid:  generatePid(), // A-4a: 고유 ID (보존 병합에서 매칭되면 기존 _id·_pid가 유지되고 이건 버려짐)
+                    _year: year
+                };
+                colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
+                if (_noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
+                return colDefs.every(({ name }) => !obj[name]) ? null : obj;
+            }).filter(Boolean);
+
+            addLog(`  ↳ ${sheetRows.length}건`);
+            allRows = allRows.concat(sheetRows);
+        }
+        return { headers: canonHeaders, colGroups: canonColGroups, rows: allRows };
+    };
+
     const handleFileUpload = async (e) => {
         // ★ 관리자 전용 (2026-07-14): 업로드하면 화면이 '미리보기'로 바뀌어 클라우드와 분리됨 → 일반 사용자 혼선·오조작 방지
         if (!isAdmin) { setAlertMsg('엑셀 업로드는 관리자만 할 수 있습니다.'); return; }
@@ -509,51 +563,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setIsLoading(true); setLogs([]);
         addLog(`파일: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
         try {
-            const XLSX = await loadXLSX();
-            const wb   = XLSX.read(await file.arrayBuffer(), { cellDates: true });
-            addLog(`시트 ${wb.SheetNames.length}개: ${wb.SheetNames.join(', ')}`);
-
-            let allRows       = [];
-            let canonHeaders  = null;
-            let canonColGroups = null;
-            let canonColCount  = 0;
-
-            // 최신 연도 시트 1개만 읽기 (2026 등) — 2026-06-27 팀장님: 과거 연도·SM대응 제외
-            const _years   = wb.SheetNames.map(n => extractYear(n)).filter(y => /^\d{4}$/.test(y));
-            const _latestY = _years.sort((a, b) => b.localeCompare(a))[0];
-            addLog(`최신 연도 시트만 사용: ${_latestY}`);
-            for (const sheetName of wb.SheetNames) {
-                const year = extractYear(sheetName);
-                if (year !== _latestY) { addLog(`시트 "${sheetName}" 건너뜀 (최신연도 ${_latestY}만)`); continue; }
-                const ws   = wb.Sheets[sheetName];
-                const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
-                addLog(`── 시트 "${sheetName}" (연도: ${year}): ${raw.length}행`);
-                if (raw.length < 2) { addLog(`  ↳ 스킵 (행 부족)`); continue; }
-
-                const { colDefs, colGroups: cg, dataStart } = parseExcelHeaders(raw, addLog);
-                if (colDefs.length === 0) { addLog(`  ↳ 스킵 (헤더 없음)`); continue; }
-
-                // 헤더 기준 = 열이 가장 많은(가장 풍부한) 시트. 맨 앞 'SM대응'(10열)처럼 단순한 시트가 기준이 돼
-                // 2026년(31열) 열들이 표에서 통째로 가려지던 문제 수정 (2026-06-26)
-                if (colDefs.length > canonColCount) { canonHeaders = colDefs.map(c => c.name); canonColGroups = cg; canonColCount = colDefs.length; }
-
-                const ts = Date.now();
-                // 번호 3자리 패딩 (2026-07-20 팀장님): 원본 엑셀은 1·2·3 그대로 두고, 업로드가 001·002·003으로 자동 변환
-                const _noColName = (colDefs.find(c => String(c.name).replace(/\s/g, '') === '번호') || {}).name;
-                const sheetRows = raw.slice(dataStart).map((row, idx) => {
-                    const obj = {
-                        _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
-                        _pid:  generatePid(), // A-4a: 고유 ID (보존 병합 전까지는 재업로드 시 새로 발급됨 — A-4c에서 보존)
-                        _year: year
-                    };
-                    colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
-                    if (_noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
-                    return colDefs.every(({ name }) => !obj[name]) ? null : obj;
-                }).filter(Boolean);
-
-                addLog(`  ↳ ${sheetRows.length}건`);
-                allRows = allRows.concat(sheetRows);
-            }
+            const { headers: canonHeaders, colGroups: canonColGroups, rows: allRows } = await parseListWorkbook(file);
 
             if (!canonHeaders || allRows.length === 0) {
                 setAlertMsg('데이터를 찾지 못했습니다.\n디버그 패널을 확인해주세요.');
@@ -682,6 +692,115 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 ※ 현재 클라우드 ${fbRows.length}건 / 업로드 ${pendingData.rows.length}건 기준.
 신규가 비정상적으로 많으면 매칭 키(번호)가 안 맞는 것 — 알려주세요.`
         );
+    };
+
+    // ── 일반 사용자 [엑셀 반영] — 보존 병합 (2026-08-10 팀장님 확정) ─────────────────
+    //   배경: 직원들이 아직 웹 대신 엑셀에서 List를 관리하는 적응기 → 엑셀을 올리면
+    //   웹 데이터와 비교해 "신규 추가 + 값 갱신"만 반영한다. 삭제는 절대 없음.
+    //   보호 규칙:
+    //     ① 하위(공종) 행 완전 불변 — 주인은 NAS 자동 연동 (병합 대상에서 제외)
+    //     ② 엑셀 안 하위형 줄(실행번호 s · 이름 '- '/'└' 시작)은 무시 + 안내
+    //     ③ NAS 연동 칸·하위 부모 '포인트'(Σ합계)는 엑셀 값 무시 (자동 값 보호)
+    //     ④ 실행번호는 웹 전용 관리 값이라 열 짝짓기에서 제외 (pid·등록일·이력은 병합기가 보존)
+    //     ⑤ 표 구조(헤더)는 안 건드림 — 겹치는 열만 반영 (구조 변경 = 관리자 업로드 영역)
+    const handleUserExcelPick = async (e) => {
+        const file = e.target?.files?.[0];
+        if (!file) return;
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 반영할 수 있습니다.\n(관리자 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
+        setIsLoading(true); setLogs([]);
+        addLog(`[엑셀 반영] 파일: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+        try {
+            const parsed = await parseListWorkbook(file);
+            if (!parsed.headers || !parsed.rows.length) { setAlertMsg('데이터를 찾지 못했습니다.\n(시트·헤더 형식이 List 엑셀과 같은지 확인해주세요)'); return; }
+            const nosp = (s) => String(s ?? '').replace(/\s+/g, '');
+            // ⑤ 열 짝짓기: 웹 표 열 ↔ 엑셀 열 (공백 무시). 겹치는 열만 반영 대상.
+            const exByNosp = new Map(parsed.headers.filter(Boolean).map(h => [nosp(h), h]));
+            const colPairs = activeHeaders
+                .filter(h => h && nosp(h) !== '실행번호' && exByNosp.has(nosp(h)))
+                .map(h => ({ web: h, ex: exByNosp.get(nosp(h)) }));
+            const interCols = colPairs.map(p => p.web);
+            const usedNosp  = new Set(colPairs.map(p => nosp(p.ex)));
+            const webOnly   = activeHeaders.filter(h => h && nosp(h) !== '실행번호' && !exByNosp.has(nosp(h)));
+            const excelOnly = parsed.headers.filter(h => h && !usedNosp.has(nosp(h)));
+            if (!interCols.length) { setAlertMsg('웹 표와 겹치는 열이 하나도 없습니다.\nList 엑셀이 맞는지 확인해주세요.'); return; }
+            // ② 엑셀 줄에서 하위(공종)형 제외
+            const exNameCol = parsed.headers.find(h => { const n = nosp(h).toUpperCase(); return n === 'PROJECT' || n.includes('프로젝트') || n.includes('공사명'); });
+            const looksSub  = (r) => isSubListRow(r) || /^(-\s|└)/.test(String((exNameCol ? r[exNameCol] : '') ?? '').trim());
+            const upMains     = parsed.rows.filter(r => !looksSub(r));
+            const skippedSubs = parsed.rows.length - upMains.length;
+            // 병합기에 넣기 전, 엑셀 행을 '웹 열 이름' 기준으로 다시 담는다 (겹치는 열만)
+            const rmRows = upMains.map(r => {
+                const o = { _id: r._id, _pid: r._pid, _year: r._year };
+                colPairs.forEach(p => { o[p.web] = String(r[p.ex] ?? '').trim(); });
+                return o;
+            });
+            // ①+④ 병합 계획 — 확정 저장과 같은 계산기 (하위 제외, pid·이력 보존)
+            const mains  = fbRows.filter(r => !isSubListRow(r));
+            const subCnt = fbRows.length - mains.length;
+            const plan = computeMergePlan(mains, rmRows, interCols);
+            // ③ NAS 연동 칸 + 하위 부모 '포인트' 보호 — 엑셀의 옛 값이 자동 값을 덮지 않게
+            const byId = new Map(mains.map(r => [r._id, r]));
+            const parentsWithSubs = new Set(fbRows.filter(isSubListRow).map(s => String(s._id).replace(/_sub\d+$/, '')));
+            const nasSkips = [];
+            plan.updates.forEach(u => {
+                const m = byId.get(u._id); if (!m) return;
+                const lockedNosp = new Set(extLockedColsRow(m).map(t => nosp(t).toUpperCase()));
+                if (parentsWithSubs.has(u._id)) lockedNosp.add('포인트');
+                interCols.forEach(c => {
+                    if (!lockedNosp.has(nosp(c).toUpperCase())) return;
+                    const oldV = String(m[c] ?? ''), nv = String(u.data[c] ?? '');
+                    if (oldV !== nv) { u.data[c] = oldV; nasSkips.push({ name: pickProjectName(m), col: c }); }
+                });
+                // 보호 반영 후 다시 계산: 무엇이 어떻게 바뀌는지 (미리보기 표시용)
+                u.diffs = interCols
+                    .filter(c => String(m[c] ?? '') !== String(u.data[c] ?? ''))
+                    .map(c => ({ col: c, from: String(m[c] ?? ''), to: String(u.data[c] ?? '') }));
+                u.name = pickProjectName(m);
+                u.changed = u.diffs.length > 0 || (m._year || '') !== (u.data._year || '');
+            });
+            const changedCnt = plan.updates.filter(u => u.changed).length;
+            addLog(`[엑셀 반영] 매칭 ${plan.counts.updates} (값변경 ${changedCnt}) · 신규 ${plan.creates.length} · 엑셀에없음 ${plan.counts.missing} · 하위줄 무시 ${skippedSubs} · 잠금칸 보호 ${nasSkips.length}`);
+            setUserMerge({ fileName: file.name, plan, changedCnt, subCnt, skippedSubs, nasSkips, webOnly, excelOnly, upCnt: rmRows.length });
+        } catch (err) {
+            addLog(`[엑셀 반영 오류] ${err.message}`);
+            setAlertMsg(`엑셀 해석 오류: ${err.message}`);
+        } finally {
+            setIsLoading(false);
+            if (userFileRef.current) userFileRef.current.value = '';
+        }
+    };
+
+    const applyUserMerge = async () => {
+        const um = userMerge;
+        if (!um || isLoading) return;
+        setIsLoading(true);
+        try {
+            // 자동 백업 (JSON) — 확정 저장과 동일한 되돌리기 기준
+            await loadFileSaver();
+            const _bs = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+            window.saveAs(new Blob([JSON.stringify({ team: currentTeam, savedAt: new Date().toISOString(), headers: activeHeaders, colGroups: activeColGroups, rows: fbRows }, null, 1)], { type: 'application/json' }),
+                `ProjectList백업_${currentTeam}_${_bs}.json`);
+            // 쓰기 = 값 바뀐 갱신 + 신규만. 삭제 0건 · 메타(표 구조)도 안 건드림.
+            let batch = writeBatch(db), cnt = 0;
+            const flush = async () => { if (cnt > 0) { await batch.commit(); batch = writeBatch(db); cnt = 0; } };
+            for (const u of um.plan.updates) {
+                if (!u.changed) continue;
+                batch.set(rowDocRef(currentTeam, u._id), stampSave(u.data));
+                if (++cnt >= 400) await flush();
+            }
+            for (const c of um.plan.creates) {
+                batch.set(rowDocRef(currentTeam, c._id), stampSave(c.data));
+                if (++cnt >= 400) await flush();
+            }
+            await flush();
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(엑셀 일괄 반영)',
+                note: `엑셀 반영(보존 병합): 값 갱신 ${um.changedCnt}건 · 신규 ${um.plan.creates.length}건 — ${um.fileName}` });
+            addLog(`[엑셀 반영] 저장 완료 — 갱신 ${um.changedCnt} · 신규 ${um.plan.creates.length}`);
+            setUserMerge(null);
+            setAlertMsg(`엑셀 반영 완료!\n\n값 갱신 ${um.changedCnt}건 · 신규 추가 ${um.plan.creates.length}건\n삭제 없음 · 하위(공종) ${um.subCnt}건 보존\n(반영 직전 백업 JSON이 다운로드되었습니다)`);
+        } catch (err) {
+            setAlertMsg(`반영 오류: ${err.message}`);
+        } finally { setIsLoading(false); }
     };
 
     // ── 로컬 데이터 삭제 ─────────────────────────────────────────────────
@@ -3101,6 +3220,110 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             )}
 
+            {/* 일반 사용자 [엑셀 반영] 미리보기 — 보존 병합 (2026-08-10) */}
+            {userMerge && (() => {
+                const um = userMerge; const p = um.plan;
+                const chgRows = p.updates.filter(u => u.changed);
+                const noMatch = p.counts.updates === 0 && p.creates.length > 0;
+                const nothing = um.changedCnt === 0 && p.creates.length === 0;
+                return (
+                <div className="fixed inset-0 z-[9600] flex items-center justify-center bg-black/40" onClick={() => setUserMerge(null)}>
+                    <div className="bg-white rounded-lg shadow-2xl border border-[#c4ccd8] w-[680px] max-w-[94vw] max-h-[86vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-3.5 border-b border-[#e5eaf3] flex items-center gap-2">
+                            <CloudUpload size={16} className="text-emerald-600 shrink-0"/>
+                            <span className="font-extrabold text-[14px] text-[#1e3a5f] shrink-0">엑셀 반영 미리보기</span>
+                            <span className="text-[11px] text-[#888] truncate">{um.fileName}</span>
+                            <button className="ml-auto text-[#999] hover:text-[#333] shrink-0" onClick={() => setUserMerge(null)}><X size={16}/></button>
+                        </div>
+                        <div className="px-5 py-3 overflow-y-auto text-[12px] text-[#333]" style={{ lineHeight: 1.6 }}>
+                            {/* 요약 칩 */}
+                            <div className="flex flex-wrap gap-1.5 mb-3">
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold">＋ 신규 {p.creates.length}건</span>
+                                <span className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-[#1e7ac8] font-bold">✎ 값 갱신 {um.changedCnt}건</span>
+                                <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[#666]">변화 없음 {p.counts.updates - um.changedCnt}건</span>
+                                <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[#666]">엑셀에 없음 {p.counts.missing}건 → 유지</span>
+                                <span className="px-2 py-0.5 rounded-full bg-violet-50 border border-violet-200 text-violet-700">하위 {um.subCnt}건 보존</span>
+                            </div>
+                            {noMatch && (
+                                <div className="mb-3 px-3 py-2 rounded border border-red-300 bg-red-50 text-red-700 font-bold">
+                                    ⚠ 기존 목록과 하나도 일치하지 않습니다 — 다른 파일(진척자료 등)이 아닌지 확인하세요.
+                                    이대로 반영하면 {p.creates.length}건이 전부 새 프로젝트로 추가됩니다.
+                                </div>
+                            )}
+                            {nothing && (
+                                <div className="mb-3 px-3 py-2 rounded border border-slate-300 bg-slate-50 text-[#555]">
+                                    반영할 변경이 없습니다 — 엑셀과 웹이 이미 같습니다.
+                                </div>
+                            )}
+                            {um.skippedSubs > 0 && (
+                                <div className="mb-2 px-3 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-800 text-[11.5px]">
+                                    엑셀 안 하위(공종)형 줄 <b>{um.skippedSubs}건</b>은 무시했습니다 — 하위 행은 웹(NAS 자동 연동)에서 관리됩니다.
+                                </div>
+                            )}
+                            {um.nasSkips.length > 0 && (
+                                <div className="mb-2 px-3 py-1.5 rounded border border-violet-300 bg-violet-50 text-violet-800 text-[11.5px]">
+                                    NAS 자동 연동 칸 <b>{um.nasSkips.length}개</b>는 자동 값 보호를 위해 엑셀 값을 무시했습니다
+                                    <span className="text-[10.5px]"> — {um.nasSkips.slice(0, 4).map(s => `${s.name}·${s.col}`).join(', ')}{um.nasSkips.length > 4 ? ` 외 ${um.nasSkips.length - 4}개` : ''}</span>
+                                </div>
+                            )}
+                            {(um.webOnly.length > 0 || um.excelOnly.length > 0) && (
+                                <div className="mb-3 text-[10.5px] text-[#999]">
+                                    {um.webOnly.length > 0 && <div>· 엑셀에 없는 웹 열 (그대로 유지): {um.webOnly.join(', ')}</div>}
+                                    {um.excelOnly.length > 0 && <div>· 웹 표에 없는 엑셀 열 (무시): {um.excelOnly.join(', ')}</div>}
+                                </div>
+                            )}
+                            {/* 값 갱신 상세 */}
+                            {chgRows.length > 0 && (
+                                <div className="mb-3">
+                                    <div className="font-extrabold text-[#1e3a5f] mb-1">값이 바뀌는 행 ({um.changedCnt}건{chgRows.length > 40 ? ' — 앞 40건만 표시' : ''})</div>
+                                    <div className="border border-[#e5eaf3] rounded max-h-[220px] overflow-y-auto px-2.5 py-1 bg-[#f8fafc]">
+                                        {chgRows.slice(0, 40).map(u => (
+                                            <div key={u._id} className="py-1.5 border-b border-[#eef2f7] last:border-0">
+                                                <div className="font-bold text-[#222]">{u.data['번호'] ? `[${u.data['번호']}] ` : ''}{u.name || '(이름 없음)'}</div>
+                                                {(u.diffs || []).slice(0, 6).map((d, i) => (
+                                                    <div key={i} className="pl-3 text-[11px] text-[#555]">
+                                                        {d.col}: <span className="text-[#aaa] line-through">{d.from || '(빈칸)'}</span>
+                                                        {' → '}<span className="text-[#1e7ac8] font-bold">{d.to || '(빈칸)'}</span>
+                                                    </div>
+                                                ))}
+                                                {(u.diffs || []).length > 6 && <div className="pl-3 text-[10px] text-[#999]">외 {u.diffs.length - 6}칸</div>}
+                                                {(u.diffs || []).length === 0 && <div className="pl-3 text-[10px] text-[#999]">(연도 변경)</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {/* 신규 상세 */}
+                            {p.creates.length > 0 && (
+                                <div className="mb-3">
+                                    <div className="font-extrabold text-emerald-700 mb-1">신규 추가 ({p.creates.length}건{p.creates.length > 20 ? ' — 앞 20건만 표시' : ''})</div>
+                                    <div className="border border-emerald-100 rounded max-h-[120px] overflow-y-auto px-2.5 py-1.5 bg-emerald-50/40 text-[11.5px]">
+                                        {p.creates.slice(0, 20).map(c => (
+                                            <div key={c._id}>{c.data['번호'] ? `[${c.data['번호']}] ` : ''}{pickProjectName(c.data) || '(이름 없음)'}</div>
+                                        ))}
+                                        {p.creates.length > 20 && <div className="text-[#999]">외 {p.creates.length - 20}건</div>}
+                                    </div>
+                                </div>
+                            )}
+                            <div className="text-[10.5px] text-[#999]">
+                                삭제는 하지 않습니다 (엑셀에 없는 행·하위 행 전부 유지) · pid·등록일·변경이력·포인트실적 보존 · 반영 직전 백업(JSON) 자동 다운로드
+                            </div>
+                        </div>
+                        <div className="px-5 py-3 border-t border-[#e5eaf3] bg-[#f8fafc] flex justify-end gap-2 rounded-b-lg">
+                            <button onClick={() => setUserMerge(null)} disabled={isLoading}
+                                className="px-4 py-1.5 text-xs font-bold text-[#555] bg-white border border-[#c4ccd8] rounded hover:bg-slate-50">
+                                취소 (반영 안 함)
+                            </button>
+                            <button onClick={applyUserMerge} disabled={isLoading || nothing}
+                                className="px-4 py-1.5 text-xs font-extrabold text-white bg-emerald-600 border border-emerald-600 rounded hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                                {isLoading ? '반영 중...' : `이대로 반영 (신규 ${p.creates.length} · 갱신 ${um.changedCnt})`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                );
+            })()}
+
             {/* NAS 진척자료 반영 확인창 (2026-07-22) — 변경 감지 미리보기 → 원클릭 반영 */}
             {extProposals && extProposals.length > 0 && (
                 <div className="fixed inset-0 z-[9800] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}>
@@ -3151,7 +3374,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 const SEC_NUMS = ['①', '②', '③', '④', '⑤'];
                 let _secI = 0;
                 const secNo = () => SEC_NUMS[_secI++] || '·';
-                const dotColor = st ? (st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#94a3b8') : '#94a3b8';
+                const dotColor = st ? (st.state === 'changed' ? '#7c3aed' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#94a3b8') : '#94a3b8';
                 const closeAllExt = () => { setExtModalRowId(null); setExtRuleDraft(null); setExtPathDraft(null); setExtLocalDraft(null); setExtSharedPathDraft(null); setMyReaderReqAt(null); setShowAllFiles(false); setExtFolderDraft(null); };
                 const extJoin = (base, rel) => { const b = String(base || '').replace(/[\\/]+$/, ''); return (b && rel) ? (b + '\\' + rel) : ''; };
                 const extLocalKey = 'pms_ext_localbase_' + currentTeam + '_' + exRow._id;
@@ -3692,6 +3915,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             )}
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
+            <input type="file" ref={userFileRef} onChange={handleUserExcelPick} accept=".xlsx,.xls" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
             <header className="flex flex-row justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
@@ -3891,6 +4115,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                                         <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
                                     </button>
+                                    {/* 엑셀 반영 (추가·수정) — 일반 사용자용 보존 병합 (2026-08-10 팀장님):
+                                        엑셀 적응기 대응. 올리면 웹과 비교해 신규·갱신만 미리보기 → 반영. 삭제 없음, 하위·NAS 칸 보호 */}
+                                    {dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); if (userFileRef.current) { userFileRef.current.value = ''; userFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <CloudUpload size={14} className="text-emerald-600"/> 엑셀 반영 (추가·수정) <span className="text-[10px] text-[#999] font-normal">삭제 없음</span>
+                                    </button>
+                                    )}
                                     {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
                                     {isAdmin && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
@@ -4365,7 +4597,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         {/* 규칙 칩 버튼 — RULE_UI_ENABLED 로 켠다 (2026-07-31). 규칙이 있으면 파란 칩, 관리자는 규칙이 없어도 회색 아이콘으로 보임 */}
                                                         {RULE_UI_ENABLED && (extRulesRawOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
                                                             const st = extStatus[row._id];
-                                                            const fill = !extRulesRawOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#2563eb' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
+                                                            const fill = !extRulesRawOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#7c3aed' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
                                                             return (
                                                             <button onClick={e => { e.stopPropagation(); setExtModalRowId(row._id); }}
                                                                 className="p-1.5 hover:bg-sky-500/20 rounded transition-colors"
