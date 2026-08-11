@@ -10,16 +10,18 @@ import { subscribeAuditLog } from '../auditLog';
 //   · 사람 이름은 registeredUsers 명단에서 이메일→이름 변환.
 //   · 필터: 팀(여러 팀일 때) · 사람 · 동작 · 기간 · 검색. 전원 공개.
 //   (2026-07-10 신설 / 여러 팀 병합 지원)
+//   (2026-08-11) 디자인 통일 — 홈·List와 같은 체계(따뜻한 잉크 #37352f·머리선 #e5e3df·
+//   파스텔 칩·브랜드블루 탭). 로직 변경 없음, 스타일 값만 교체.
 // ─────────────────────────────────────────────────────────────────────────
 
 const ACTION_STYLE = {
-    '수정': { bg: '#eef2fb', color: '#1e7ac8', border: '#cfe0f2' },
-    '추가': { bg: '#ecfdf5', color: '#047857', border: '#a7f3d0' },
-    '삭제': { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
-    '보류': { bg: '#fffbeb', color: '#b45309', border: '#fde68a' },
-    '복구': { bg: '#f0f9ff', color: '#0369a1', border: '#bae6fd' },
+    '수정': { bg: '#e3effa', color: '#0f5a99', border: '#cfe4f7' },
+    '추가': { bg: '#d9f3e1', color: '#116329', border: '#bfe3c8' },
+    '삭제': { bg: '#fde8e8', color: '#b91c1c', border: '#f8cdcd' },
+    '보류': { bg: '#fef3c7', color: '#92400e', border: '#fde68a' },
+    '복구': { bg: '#dcecfa', color: '#0f5a99', border: '#bcd9f2' },
 };
-const actionStyle = (a) => ACTION_STYLE[a] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+const actionStyle = (a) => ACTION_STYLE[a] || { bg: '#f3f1ee', color: '#55524d', border: '#e5e3df' };
 
 // ★ 같은 프로젝트 식별 키 (2026-07-14) — 이름이 바뀌어도 흩어지지 않도록 고유 ID 우선
 const projKeyOf = (e) => String(e.pid || e.projectId || e.projectName || '(알수없음)');
@@ -145,7 +147,7 @@ export default function BacklogScreen({ teams, onBack }) {
         return n;
     });
 
-    const selSt = { fontSize: 12, padding: '6px 10px', border: '1px solid #c4ccd8', borderRadius: 7, color: '#333', background: '#fff', outline: 'none', cursor: 'pointer' };
+    const selSt = { fontSize: 12, fontWeight: 600, padding: '6px 10px', border: '1px solid #dcd8d2', borderRadius: 8, color: '#37352f', background: '#fff', outline: 'none', cursor: 'pointer' };
     const titleTeam = multiTeam ? '전체 팀' : (teamList[0] || '');
     const hasFilter = fTeam || fProject || fPerson || fAction || fPeriod !== '전체' || q;
 
@@ -153,19 +155,19 @@ export default function BacklogScreen({ teams, onBack }) {
     const renderEntry = (e, inGroup) => {
         const st = actionStyle(e.action);
         return (
-            <div key={e.id} style={{ background: '#fff', border: '1px solid #e5eaf3', borderRadius: 10, padding: '10px 14px', boxShadow: inGroup ? 'none' : '0 1px 2px rgba(16,24,40,0.03)' }}>
+            <div key={e.id} style={{ background: '#fff', border: '1px solid #e5e3df', borderRadius: 10, padding: '10px 14px', boxShadow: inGroup ? 'none' : '0 1px 2px rgba(55,53,47,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8', minWidth: 128 }}>{fmtDt(e.ts)}</span>
-                    <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 9px', borderRadius: 20, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{e.action}</span>
+                    <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: '#a4a097', minWidth: 128 }}>{fmtDt(e.ts)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{e.action}</span>
                     {multiTeam && e._team && !inGroup && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 5, padding: '1px 6px' }}>{e._team}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px' }}>{e._team}</span>
                     )}
-                    <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>{nameOf(e.who)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#37352f' }}>{nameOf(e.who)}</span>
                     {!inGroup && (
                         <span onClick={() => setFProject(projKeyOf(e))} title="이 프로젝트의 기록만 보기"
-                            style={{ fontSize: 13, color: '#475569', fontWeight: 600, cursor: 'pointer', borderBottom: '1px dashed #cbd5e1' }}>
+                            style={{ fontSize: 13, color: '#55524d', fontWeight: 600, cursor: 'pointer', borderBottom: '1px dashed #d8d4cf' }}>
                             {e.projectName || '(이름 없음)'}
-                            {e.execNo ? <span style={{ color: '#94a3b8', fontWeight: 400 }}> · {e.execNo}</span> : null}
+                            {e.execNo ? <span style={{ color: '#a4a097', fontWeight: 400 }}> · {e.execNo}</span> : null}
                         </span>
                     )}
                 </div>
@@ -173,10 +175,10 @@ export default function BacklogScreen({ teams, onBack }) {
                     <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3, paddingLeft: 136 }}>
                         {e.changes.map((c, i) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 800, color: '#4a5a80', minWidth: 90 }}>{c.field}</span>
-                                <span style={{ color: '#cc2a2a', textDecoration: 'line-through' }}>{c.from || '—'}</span>
-                                <span style={{ color: '#9aa8b8' }}>→</span>
-                                <span style={{ color: '#0a6a28', fontWeight: 700 }}>{c.to || '—'}</span>
+                                <span style={{ fontWeight: 800, color: '#55524d', minWidth: 90 }}>{c.field}</span>
+                                <span style={{ color: '#b91c1c', textDecoration: 'line-through' }}>{c.from || '—'}</span>
+                                <span style={{ color: '#a4a097' }}>→</span>
+                                <span style={{ color: '#116329', fontWeight: 700 }}>{c.to || '—'}</span>
                             </div>
                         ))}
                     </div>
@@ -186,30 +188,32 @@ export default function BacklogScreen({ teams, onBack }) {
     };
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f4f7fb', fontFamily: 'Pretendard, system-ui, sans-serif' }}>
+        <div style={{ minHeight: '100vh', background: '#f4f3f1', fontFamily: "'Pretendard Variable', Pretendard, 'Malgun Gothic', system-ui, sans-serif" }}>
             {/* 헤더 */}
-            <div style={{ background: '#fff', borderBottom: '1.5px solid #dbe2ee', padding: '12px 22px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 }}>
+            <div style={{ background: '#fff', borderBottom: '1px solid #e5e3df', padding: '12px 22px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 }}>
                 <button onClick={onBack}
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 700, color: '#475569', background: '#f1f5f9', border: '1px solid #dbe2ee', borderRadius: 8, padding: '7px 12px', cursor: 'pointer' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 700, color: '#73716b', background: '#fff', border: '1px solid #dcd8d2', borderRadius: 8, padding: '7px 12px', cursor: 'pointer' }}>
                     <ChevronLeft size={15} /> 뒤로 가기
                 </button>
                 <ClipboardList size={18} style={{ color: '#1e7ac8' }} />
-                <span style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>작업 백로그</span>
-                {titleTeam && <span style={{ fontSize: 12, fontWeight: 700, color: '#1e7ac8', background: '#eef2fb', border: '1px solid #cfe0f2', borderRadius: 6, padding: '2px 8px' }}>{titleTeam}</span>}
-                <span style={{ fontSize: 12, color: '#8a97a8' }}>— 누가·언제·무엇을 바꿨는지 (전원 공개)</span>
-                {/* 보기 전환: 시간순 / 프로젝트별 (2026-07-14) */}
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#37352f', letterSpacing: '-0.2px' }}>작업 백로그</span>
+                {titleTeam && <span style={{ fontSize: 12, fontWeight: 700, color: '#0f5a99', background: '#e3effa', border: '1px solid #cfe4f7', borderRadius: 999, padding: '2px 9px' }}>{titleTeam}</span>}
+                <span style={{ fontSize: 12, color: '#8f8b84' }}>— 누가·언제·무엇을 바꿨는지 (전원 공개)</span>
+                {/* 보기 전환: 시간순 / 프로젝트별 (2026-07-14) — List 팀 탭과 같은 세그먼트 스타일 (2026-08-11) */}
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ display: 'flex', border: '1px solid #c4ccd8', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', gap: 2, padding: 2, background: '#eef1f5', border: '1px solid #dde2e9', borderRadius: 8 }}>
                         <button onClick={() => setGroupMode(false)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, padding: '6px 11px', cursor: 'pointer', border: 'none', background: groupMode ? '#fff' : '#1e7ac8', color: groupMode ? '#64748b' : '#fff' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, padding: '5px 11px', cursor: 'pointer', border: 'none', borderRadius: 6,
+                                background: groupMode ? 'transparent' : '#fff', color: groupMode ? '#5d6b7c' : '#1e7ac8', boxShadow: groupMode ? 'none' : '0 1px 2px rgba(0,0,0,0.08)' }}>
                             <Clock size={13} /> 시간순
                         </button>
                         <button onClick={() => setGroupMode(true)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, padding: '6px 11px', cursor: 'pointer', border: 'none', borderLeft: '1px solid #c4ccd8', background: groupMode ? '#1e7ac8' : '#fff', color: groupMode ? '#fff' : '#64748b' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, padding: '5px 11px', cursor: 'pointer', border: 'none', borderRadius: 6,
+                                background: groupMode ? '#fff' : 'transparent', color: groupMode ? '#1e7ac8' : '#5d6b7c', boxShadow: groupMode ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
                             <FolderOpen size={13} /> 프로젝트별
                         </button>
                     </div>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                    <span style={{ fontSize: 12, color: '#73716b', fontVariantNumeric: 'tabular-nums' }}>
                         {groupMode
                             ? <span>프로젝트 <b style={{ color: '#1e7ac8' }}>{grouped.length}</b>개 · 기록 {filtered.length}건</span>
                             : <span>표시 <b style={{ color: '#1e7ac8' }}>{filtered.length}</b> / 전체 {entries.length}건</span>}
@@ -218,7 +222,7 @@ export default function BacklogScreen({ teams, onBack }) {
             </div>
 
             {/* 필터 바 */}
-            <div style={{ background: '#fff', borderBottom: '1px solid #e6ecf5', padding: '10px 22px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <div style={{ background: '#fff', borderBottom: '1px solid #f0edea', padding: '10px 22px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 {multiTeam && (
                     <select value={fTeam} onChange={e => setFTeam(e.target.value)} style={selSt}>
                         <option value="">팀 — 전체</option>
@@ -246,14 +250,14 @@ export default function BacklogScreen({ teams, onBack }) {
                     <option value="7">최근 7일</option>
                     <option value="30">최근 30일</option>
                 </select>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #c4ccd8', borderRadius: 7, padding: '6px 10px', background: '#fff', minWidth: 220, flex: 1, maxWidth: 380 }}>
-                    <Search size={14} style={{ color: '#94a3b8' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #dcd8d2', borderRadius: 8, padding: '6px 10px', background: '#fff', minWidth: 220, flex: 1, maxWidth: 380 }}>
+                    <Search size={14} style={{ color: '#a4a097' }} />
                     <input value={q} onChange={e => setQ(e.target.value)} placeholder="프로젝트·항목·값·이름 검색"
-                        style={{ border: 'none', outline: 'none', fontSize: 12, color: '#333', background: 'transparent', width: '100%' }} />
+                        style={{ border: 'none', outline: 'none', fontSize: 12, color: '#37352f', background: 'transparent', width: '100%' }} />
                 </div>
                 {hasFilter && (
                     <button onClick={() => { setFTeam(''); setFProject(''); setFPerson(''); setFAction(''); setFPeriod('전체'); setQ(''); }}
-                        style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', background: '#fff', border: '1px solid #fecaca', borderRadius: 7, padding: '6px 10px', cursor: 'pointer' }}>
+                        style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', background: '#fff', border: '1px solid #fecaca', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>
                         × 필터 초기화
                     </button>
                 )}
@@ -262,9 +266,9 @@ export default function BacklogScreen({ teams, onBack }) {
             {/* 목록 */}
             <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 1100, margin: '0 auto' }}>
                 {loading ? (
-                    <div style={{ textAlign: 'center', color: '#8a97a8', fontSize: 13, padding: '60px 0' }}>불러오는 중…</div>
+                    <div style={{ textAlign: 'center', color: '#8f8b84', fontSize: 13, padding: '60px 0' }}>불러오는 중…</div>
                 ) : filtered.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: '#8a97a8', fontSize: 13, padding: '60px 0' }}>
+                    <div style={{ textAlign: 'center', color: '#8f8b84', fontSize: 13, padding: '60px 0' }}>
                         {entries.length === 0 ? '아직 기록이 없습니다. 프로젝트를 수정하면 여기에 쌓입니다.' : '조건에 맞는 기록이 없습니다.'}
                     </div>
                 ) : groupMode ? (
@@ -273,32 +277,32 @@ export default function BacklogScreen({ teams, onBack }) {
                         const open = openKeys.has(g.key);
                         const last = g.items[0];
                         return (
-                            <div key={g.key} style={{ background: '#fff', border: '1px solid #e5eaf3', borderRadius: 10, boxShadow: '0 1px 2px rgba(16,24,40,0.03)', overflow: 'hidden' }}>
+                            <div key={g.key} style={{ background: '#fff', border: '1px solid #e5e3df', borderRadius: 10, boxShadow: '0 1px 2px rgba(55,53,47,0.04)', overflow: 'hidden' }}>
                                 <div onClick={() => toggleOpen(g.key)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', background: open ? '#f8fafc' : '#fff' }}>
+                                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', background: open ? '#faf9f7' : '#fff' }}>
                                     {open
                                         ? <ChevronDown size={16} style={{ color: '#1e7ac8', flexShrink: 0 }} />
-                                        : <ChevronRight size={16} style={{ color: '#94a3b8', flexShrink: 0 }} />}
+                                        : <ChevronRight size={16} style={{ color: '#a4a097', flexShrink: 0 }} />}
                                     <span title={g.name}
-                                        style={{ fontSize: 13, fontWeight: 800, color: '#1e293b', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        style={{ fontSize: 13, fontWeight: 800, color: '#37352f', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {g.name}
-                                        {g.execNo ? <span style={{ color: '#94a3b8', fontWeight: 500 }}> · {g.execNo}</span> : null}
+                                        {g.execNo ? <span style={{ color: '#a4a097', fontWeight: 500 }}> · {g.execNo}</span> : null}
                                     </span>
                                     {multiTeam && g.team && (
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 5, padding: '1px 6px', flexShrink: 0 }}>{g.team}</span>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px', flexShrink: 0 }}>{g.team}</span>
                                     )}
-                                    <span title="이 프로젝트를 고친 사람" style={{ fontSize: 11, color: '#64748b', flexShrink: 0, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <span title="이 프로젝트를 고친 사람" style={{ fontSize: 11, color: '#73716b', flexShrink: 0, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {[...g.people].map(nameOf).join(', ')}
                                     </span>
-                                    <span title="최근 수정일" style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8', flexShrink: 0 }}>
+                                    <span title="최근 수정일" style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: '#a4a097', flexShrink: 0 }}>
                                         {fmtDay(last && last.ts)}
                                     </span>
-                                    <span style={{ fontSize: 11, fontWeight: 800, color: '#1e7ac8', background: '#eef2fb', border: '1px solid #cfe0f2', borderRadius: 20, padding: '2px 9px', flexShrink: 0 }}>
+                                    <span style={{ fontSize: 11, fontWeight: 800, color: '#0f5a99', background: '#e3effa', border: '1px solid #cfe4f7', borderRadius: 999, padding: '2px 9px', flexShrink: 0 }}>
                                         {g.items.length}건
                                     </span>
                                 </div>
                                 {open && (
-                                    <div style={{ borderTop: '1px solid #e5eaf3', background: '#fbfcfe', padding: '8px 10px 10px 28px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <div style={{ borderTop: '1px solid #f0edea', background: '#fbfaf8', padding: '8px 10px 10px 28px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                                         {g.items.map(e => renderEntry(e, true))}
                                     </div>
                                 )}

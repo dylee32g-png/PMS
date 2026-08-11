@@ -16,12 +16,15 @@ import {
   Eye, ChevronRight, HelpCircle, CheckCircle2, Menu, PieChart, Target, Zap,
   ZoomIn, ZoomOut, Maximize, Minus, Download, FileSpreadsheet, ChevronUp, ListChecks,
   HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp, Smartphone,
-  Globe, Factory, MapPin
+  Globe, Factory, MapPin, Megaphone
 } from 'lucide-react';
 
 import LoginScreen from './components/LoginScreen';
 import UserManagementScreen from './components/UserManagementScreen';
 import ProjectListScreen from './components/ProjectListScreen';
+import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
+import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
+import { LIST_TEAMS } from './teamProfiles';
 import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
 import WeeklyReportScreen from './components/WeeklyReportScreen';
@@ -389,6 +392,22 @@ const TechTeamPMS = () => {
   const [pmsLocalInfo, setPmsLocalInfo] = useState(null); // { savedAt, count } — IDB에서 로드된 경우
   
   const [currentTeam, setCurrentTeam] = useState(null);
+  // ── 홈 팀 카드 미니 지표 (2026-08-11 팀장님 — 벤치마크 D안의 홈 축소판. 표시 전용·읽기만) ──
+  const [homeStats, setHomeStats] = useState({});
+  useEffect(() => {
+      if (!user || currentTeam) return;          // 홈(팀 선택 화면)일 때만 로드
+      let alive = true;
+      LIST_TEAMS.forEach(t => {
+          const c = cachedTeamStats(t);
+          if (c) setHomeStats(p => ({ ...p, [t]: c }));                       // 세션 캐시 즉시 표시
+          fetchTeamStats(t).then(st => { if (alive && st) setHomeStats(p => ({ ...p, [t]: st })); });
+      });
+      return () => { alive = false; };
+  }, [user, currentTeam]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // ── 홈 공지사항 (2026-08-11) — notices.js가 원본, 배포하면 자동 반영. 안 본 공지 = 빨간 점 ──
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeSeen, setNoticeSeen] = useState(() => { try { return localStorage.getItem('pms_notice_seen') === (NOTICES[0]?.date || ''); } catch (e) { return true; } });
+  const openNotices = () => { setNoticeOpen(true); setNoticeSeen(true); try { localStorage.setItem('pms_notice_seen', NOTICES[0]?.date || ''); } catch (e) {} };
   
   const [currentMode, setCurrentMode] = useState(null); // ★ 'pms' (월간보고) 또는 'projectList' 또는 'estimate' 상태 추가
   const [backlogReturn, setBacklogReturn] = useState(null); // 백로그를 어디서 열었는지 기억 → 뒤로가기 복귀용 (2026-07-10)
@@ -5552,7 +5571,8 @@ const TechTeamPMS = () => {
                   </div>
               </div>
           ) : !currentMode || (!currentTeam && currentMode !== 'estimate' && currentMode !== 'weeklyReport' && currentMode !== 'weeklyInput' && currentMode !== 'weeklySummary' && currentMode !== 'backlog' && currentMode !== 'mobileInput') ? (
-              <div className="h-screen bg-gray-50 text-gray-800 flex flex-col items-center justify-center p-3 relative overflow-hidden">
+              <div className="min-h-screen text-gray-800 flex flex-col relative overflow-x-hidden"
+                  style={{ background: 'radial-gradient(900px 380px at 50% -80px, rgba(30,122,200,0.07), transparent 70%), linear-gradient(180deg, #faf9f7 0%, #f3f1ee 100%)' }}>
 
                   {/* 팀 선택 화면 상단 우측 — 사용자 정보 + 관리 버튼 */}
                   <div style={{ position: 'absolute', top: 12, right: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -5579,20 +5599,69 @@ const TechTeamPMS = () => {
                       </div>
                   </div>
 
-                  <div className="max-w-5xl w-full animate-in">
-                      <div className="text-center mb-3">
-                          <div className="inline-flex items-center justify-center gap-2 mb-1">
-                              <div className="p-2 bg-white rounded-xl border border-gray-200">
-                                  <LayoutGrid size={22} className="text-[#1e7ac8]" />
-                              </div>
-                              <h1 className="text-3xl font-extrabold tracking-tight text-gray-800">
-                                  통합 프로젝트 관리 플랫폼
-                              </h1>
-                              
+                  {/* pt-16→pt-6 (2026-08-11): 카드에 지표 대시보드가 들어가 키가 커짐 — FHD에서 스크롤 없이 한 화면 */}
+                  <div className="max-w-5xl w-full animate-in m-auto px-4 md:px-6 pt-6 pb-6">
+                      <div className="text-center mb-5">
+                          <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl mb-2.5 bg-white border border-[#e5e3df] shadow-[0_1px_3px_rgba(55,53,47,0.08)]">
+                              <LayoutGrid size={22} className="text-[#1e7ac8]" />
                           </div>
-                          <p className="text-gray-400 text-xs">접속하실 부서를 선택해 주세요.</p>
+                          <div className="text-[11px] font-bold text-[#1e7ac8] mb-1.5" style={{ letterSpacing: '0.18em' }}>NECONSYS · TECHTEAM PMS</div>
+                          <h1 className="text-2xl md:text-[32px] font-extrabold tracking-tight text-[#37352f] leading-tight">
+                              통합 프로젝트 관리 플랫폼
+                          </h1>
+                          <p className="text-[#8f8b84] text-[13px] mt-2">접속하실 부서를 선택해 주세요</p>
                       </div>
                       
+                      {/* ── 공지사항 줄 (2026-08-11) — 최신 1건 한 줄, 클릭 = 전체 목록 팝업 ── */}
+                      {NOTICES.length > 0 && (
+                          <button onClick={openNotices}
+                              className="w-full mb-4 flex items-center gap-2.5 bg-white border border-[#e5e3df] rounded-xl px-4 py-2.5 hover:border-[#1e7ac8]/50 hover:shadow-[0_2px_8px_rgba(30,122,200,0.08)] transition-all text-left cursor-pointer">
+                              <Megaphone size={15} className="text-[#1e7ac8] shrink-0"/>
+                              <span className="text-[11px] font-extrabold text-[#1e7ac8] shrink-0 tracking-wide">공지</span>
+                              {!noticeSeen && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="새 공지"/>}
+                              <span className="text-[12.5px] text-[#37352f] font-semibold truncate flex-1 min-w-0">
+                                  <span className="text-[#a4a097] font-bold mr-1.5">{(NOTICES[0].date || '').slice(5).replace('-', '/')}</span>{NOTICES[0].title}
+                              </span>
+                              <span className="text-[11px] text-[#a4a097] font-bold shrink-0">전체 보기 ›</span>
+                          </button>
+                      )}
+
+                      {/* ── 공지사항 팝업 ── */}
+                      {noticeOpen && (
+                          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setNoticeOpen(false)}>
+                              <div className="bg-white border border-[#e5e3df] rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center gap-2.5 px-6 pt-5 pb-4 border-b border-[#f0edea] shrink-0">
+                                      <div className="w-9 h-9 rounded-xl bg-[#e3effa] flex items-center justify-center"><Megaphone size={17} className="text-[#1e7ac8]"/></div>
+                                      <h3 className="text-[#37352f] font-bold text-[16px] flex-1">공지사항</h3>
+                                      <button onClick={() => setNoticeOpen(false)} className="p-1.5 rounded-lg hover:bg-[#f3f1ee] text-[#8f8b84] transition-colors"><XIcon size={16}/></button>
+                                  </div>
+                                  <div className="overflow-y-auto px-6 py-4 custom-scrollbar">
+                                      {NOTICES.map((n, i) => (
+                                          <div key={n.date + i} className={i > 0 ? 'mt-5 pt-5 border-t border-[#f0edea]' : ''}>
+                                              <div className="flex items-center gap-2 mb-1.5">
+                                                  <span className="text-[11px] font-extrabold text-[#1e7ac8] bg-[#e3effa] rounded-md px-2 py-0.5">{n.date}</span>
+                                                  {i === 0 && <span className="text-[10px] font-extrabold text-rose-500">NEW</span>}
+                                              </div>
+                                              <div className="text-[#37352f] font-bold text-[14px] leading-snug">{n.title}</div>
+                                              {(n.items || []).length > 0 && (
+                                                  <ul className="mt-2 space-y-1">
+                                                      {n.items.map((it, j) => (
+                                                          <li key={j} className="text-[12.5px] text-[#73716b] leading-relaxed flex gap-1.5">
+                                                              <span className="text-[#a4a097] shrink-0">·</span><span>{it}</span>
+                                                          </li>
+                                                      ))}
+                                                  </ul>
+                                              )}
+                                          </div>
+                                      ))}
+                                  </div>
+                                  <div className="px-6 py-3.5 border-t border-[#f0edea] text-right shrink-0">
+                                      <button onClick={() => setNoticeOpen(false)} className="px-5 py-2 rounded-xl bg-[#1e7ac8] hover:bg-[#1a6cb3] text-white text-[13px] font-bold transition-colors">확인</button>
+                                  </div>
+                              </div>
+                          </div>
+                      )}
+
                       {/* ── 패스워드 모달 ── */}
                       {showEstimateModal && (
                           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowEstimateModal(false); setEstimatePwInput(''); setEstimatePwError(false); }}>
@@ -5633,14 +5702,16 @@ const TechTeamPMS = () => {
                           </div>
                       )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
                           {[
                               // 팀 역할 재정의 (2026-08-10 팀장님): 담당 지역 기준 — 1팀=해외·국내 사이드 / 2팀=파주 전담 / 3팀=구미
-                              { id: '기술1팀', title: '기술1팀', desc: '해외(중국·베트남) 및 국내 사이드 업무 (파주 외)', icon: <Globe className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
-                              { id: '기술2팀', title: '기술2팀', desc: '파주 전담 업무 (파주 LGD 중심)', icon: <Factory className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
-                              { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin className="w-6 h-6 text-[#1e7ac8]" />, hasSubMenu: true },
-                              { id: 'Software팀', title: 'Software팀', desc: '사내 포털 및 MES 데이터베이스 개발', icon: <TerminalSquare className="w-6 h-6 text-[#1e7ac8]" /> }
+                              // 팀별 파스텔 틴트 + 같은 계열 진한 아이콘 (2026-08-11 메인 개편 — Notion 태그 공식)
+                              { id: '기술1팀', title: '기술1팀', desc: '해외(중국·베트남) 및 국내 사이드 업무 (파주 외)', icon: <Globe size={22} style={{ color: '#0f5a99' }} />, tint: '#dcecfa', hasSubMenu: true },
+                              { id: '기술2팀', title: '기술2팀', desc: '파주 전담 업무 (파주 LGD 중심)', icon: <Factory size={22} style={{ color: '#1e7ac8' }} />, tint: '#e3effa', hasSubMenu: true },
+                              { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin size={22} style={{ color: '#116329' }} />, tint: '#d9f3e1', hasSubMenu: true },
+                              { id: 'Software팀', title: 'Software팀', desc: '사내 포털·MES DB 개발 · 현재 웹(PMS) 개발 중', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5' }
                           ].map(card => {
+                              // eslint-disable-next-line no-unused-vars -- Software팀 공사중 표시 동안 미사용 (협의 완료 시 [열기] 행 복원용)
                               const handleCardClick = () => {
                                   if (!card.hasSubMenu) {
                                       setCurrentTeam(card.id);
@@ -5654,34 +5725,82 @@ const TechTeamPMS = () => {
                               };
 
                               return (
-                                  <div key={card.id} className={`team-card flex flex-col text-left bg-white border border-gray-200 ${card.hasSubMenu ? '' : 'hover:bg-gray-100 hover:-translate-y-0.5'} rounded-xl transition-all overflow-hidden relative group`}>
+                                  <div key={card.id}
+                                      className="team-card flex flex-col text-left bg-white border border-[#e5e3df] rounded-2xl overflow-hidden relative group shadow-[0_1px_2px_rgba(55,53,47,0.05)]">
 
                                       {/* 상단 (헤더) 영역 */}
-                                      <div className={`mx-2 mt-2 px-4 py-3 bg-[#f3f6fa] rounded-lg relative z-10 flex items-center gap-3 ${!card.hasSubMenu ? 'cursor-pointer' : ''}`} onClick={handleCardClick}>
-                                          {card.icon}
-                                          <div>
-                                              <h2 className="text-base font-bold text-gray-800 group-hover:text-[#1e7ac8] transition-colors leading-tight">{card.title}</h2>
-                                              <p className="text-gray-400 text-xs">{card.desc}</p>
+                                      {/* 제목 영역 = 라벨 (클릭 안 됨 — 들어가기는 아래 [열기] 행에서) */}
+                                      <div className="px-5 pt-5 pb-4 flex items-center gap-3.5 cursor-default select-none">
+                                          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: card.tint }}>
+                                              {card.icon}
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                              <h2 className="text-[17px] font-bold text-[#37352f] leading-tight tracking-tight">{card.title}</h2>
+                                              <p className="text-[#8f8b84] text-xs mt-0.5 leading-snug">{card.desc}</p>
                                           </div>
                                       </div>
 
+                                      {/* ── 팀 미니 대시보드 (2026-08-11 — 보고용 확대판: 큰 숫자 + 도넛 2개 + 근거 캡션.
+                                            List KPI 카드와 같은 규칙·올해 기준. 데이터 없으면 자동 숨김) ── */}
+                                      {(() => {
+                                          const st = homeStats[card.id];
+                                          if (!st || !st.total) return null;
+                                          const Donut = ({ pct, color, dim }) => (
+                                              <div style={{ width: 68, height: 68, borderRadius: '50%', flex: 'none',
+                                                  background: `conic-gradient(${color} ${Math.max(0, Math.min(100, pct)) * 3.6}deg, #edeae6 0)` , position: 'relative' }}>
+                                                  <div style={{ position: 'absolute', inset: 7, background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                      <span style={{ fontSize: pct >= 100 ? 15 : 16, fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 10, fontWeight: 700, color: '#a4a097' }}>%</span></span>
+                                                  </div>
+                                              </div>
+                                          );
+                                          return (
+                                              <div className="px-5 pb-3 pt-0.5 flex items-stretch gap-2 flex-wrap cursor-default select-none border-t border-[#f5f2ef]">
+                                                  {/* 진행중 — 큰 숫자 + 근거 */}
+                                                  <div className="flex-1 min-w-[110px] pt-2">
+                                                      <div className="text-[11px] font-bold text-[#8f8b84]">진행중</div>
+                                                      <div className="leading-none mt-1">
+                                                          <span className="text-[30px] font-extrabold text-[#37352f] tracking-tight">{st.progCnt}</span>
+                                                          <span className="text-[13px] font-bold text-[#a4a097]"> / {st.total}건</span>
+                                                      </div>
+                                                      <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</div>
+                                                  </div>
+                                                  {/* 공정률 도넛 */}
+                                                  {st.avgPct !== null && (
+                                                      <div className="flex-1 min-w-[110px] pt-2 flex flex-col items-center text-center">
+                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1.5">평균 공정률</div>
+                                                          <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'}/>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">값 있는 {st.pctN}건 평균<br/>(PLC·ETOS·HMI·통합)</div>
+                                                      </div>
+                                                  )}
+                                                  {/* 포인트 달성률 도넛 */}
+                                                  {st.ptPct !== null && (
+                                                      <div className="flex-1 min-w-[110px] pt-2 flex flex-col items-center text-center">
+                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1.5">포인트 달성률</div>
+                                                          <Donut pct={st.ptPct} color="#059669" dim="#047857"/>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</div>
+                                                      </div>
+                                                  )}
+                                              </div>
+                                          );
+                                      })()}
+
                                       {/* 하위 메뉴 영역 (hasSubMenu 카드는 항상 표시) */}
                                       {card.hasSubMenu && (
-                                          <div className="border-t border-gray-100 bg-white">
+                                          <div className="border-t border-[#f0edea] bg-white mt-auto">
 
                                               {/* 1. 프로젝트 List 관리 */}
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('projectList');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-emerald-50 border-b border-gray-200/50 transition-colors text-left group/btn">
-                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-emerald-500/20 transition-colors border border-gray-200 group-hover/btn:border-emerald-500/30">
-                                                      <ListChecks size={14} className="text-gray-500 group-hover/btn:text-emerald-400 transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-5 py-3 border-l-[3px] border-l-transparent hover:border-l-[#047857] hover:bg-[#f0faf4] transition-all text-left group/btn cursor-pointer">
+                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bfe3c8] transition-colors shrink-0">
+                                                      <ListChecks size={15} className="text-[#73716b] group-hover/btn:text-[#047857] transition-colors" />
                                                   </div>
-                                                  <div className="flex-1">
-                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-emerald-400 transition-colors">프로젝트 List 관리</div>
-                                                      <div className="text-gray-400 text-xs">팀 전체 프로젝트 목록 엑셀 기반 관리</div>
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#047857] transition-colors">프로젝트 List 관리</div>
+                                                      <div className="text-[#a4a097] text-xs mt-px">팀 전체 프로젝트 목록 · 엑셀 기반 관리</div>
                                                   </div>
-                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-emerald-400 transition-colors" />
+                                                  <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#047857] group-hover/btn:text-white group-hover/btn:border-[#047857] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
 
                                               {/* 2. 월간 업무 보고 */}
@@ -5693,17 +5812,31 @@ const TechTeamPMS = () => {
                                                   setActiveFilterStatuses(new Set(saved));
                                                   setActiveFilterFactories(new Set(defaults?.defaultActiveFactories || []));
                                                   setSearchTerm('');
-                                              }} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 border-t border-gray-100 transition-colors text-left group/btn">
-                                                  <div className="p-1.5 bg-gray-100 rounded-lg group-hover/btn:bg-blue-50 transition-colors border border-gray-200 group-hover/btn:border-[#1e7ac8]">
-                                                      <FileText size={14} className="text-gray-500 group-hover/btn:text-[#1e7ac8] transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-5 py-3 border-t border-[#f0edea] border-l-[3px] border-l-transparent hover:border-l-[#1e7ac8] hover:bg-[#f0f7fd] transition-all text-left group/btn cursor-pointer">
+                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bcd6f0] transition-colors shrink-0">
+                                                      <FileText size={15} className="text-[#73716b] group-hover/btn:text-[#1e7ac8] transition-colors" />
                                                   </div>
-                                                  <div className="flex-1">
-                                                      <div className="text-gray-800 font-bold text-sm group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
-                                                      <div className="text-gray-400 text-xs">시운전 실적 및 공정률 월간 현황 관리</div>
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
+                                                      <div className="text-[#a4a097] text-xs mt-px">시운전 실적 및 공정률 월간 현황 관리</div>
                                                   </div>
-                                                  <ChevronRight size={14} className="text-gray-400 group-hover/btn:text-[#1e7ac8] transition-colors" />
+                                                  <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#1e7ac8] group-hover/btn:text-white group-hover/btn:border-[#1e7ac8] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
 
+                                          </div>
+                                      )}
+
+                                      {/* Software팀 — 프로젝트 관리 방식 협의 중이라 공사 표시 (2026-08-11 팀장님. 협의 완료 시 [열기] 행으로 복원 — App.js.bak-2026-08-11b) */}
+                                      {!card.hasSubMenu && (
+                                          <div className="border-t border-[#f0edea] mt-auto">
+                                              <div className="flex items-center gap-3 px-5 py-3 cursor-default select-none bg-[#fffaf0]">
+                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#fef3c7] shrink-0 text-[15px]">🚧</div>
+                                                  <div className="flex-1 min-w-0">
+                                                      <div className="text-[#92400e] font-semibold text-[13.5px]">현재 프로젝트 관리 협의 중</div>
+                                                      <div className="text-[#bfa065] text-xs mt-px">관리 방식이 정해지면 이 자리에 메뉴가 열립니다</div>
+                                                  </div>
+                                                  <span className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full bg-[#fef3c7] text-[#92400e]">공사 중</span>
+                                              </div>
                                           </div>
                                       )}
                                   </div>
@@ -5711,8 +5844,10 @@ const TechTeamPMS = () => {
                           })}
                       </div>
 
-                      {/* ── 하단 메뉴 (주간보고 3종 + 견적) ── */}
-                      <div className="mt-3 flex flex-col gap-3">
+                      {/* ── 하단 메뉴 ── */}
+                      <div className="mt-4 flex flex-col gap-3">
+                          {/* 주간보고 3종 — 2026-08-11 팀장님: 추후 논의 시까지 숨김 (삭제 아님 — 아래 false를 지우면 복원) */}
+                          {false && (
                           <div className="grid grid-cols-3 gap-2.5">
                               <div
                                   onClick={() => setCurrentMode('weeklyReport')}
@@ -5756,17 +5891,18 @@ const TechTeamPMS = () => {
                                   <div className="text-gray-400 text-xs leading-relaxed">주차 실적·이슈·계획 → 보고 자동화</div>
                               </div>
                           </div>
+                          )}
 
-                          <div className="flex justify-center items-center gap-2 pt-1">
+                          <div className="flex justify-center items-center gap-2 pt-2">
                               <button
                                   onClick={() => { setBacklogReturn(null); setCurrentMode('backlog'); }}
-                                  className="flex items-center gap-1.5 px-3 py-1 border border-[#1e7ac8]/40 bg-white text-[#1e7ac8] hover:bg-blue-50 hover:border-[#1e7ac8]/60 text-xs font-bold transition-all rounded-lg"
+                                  className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-[#1e7ac8] hover:border-[#bcd6f0] hover:bg-[#f5f9fd] text-xs font-semibold transition-all rounded-lg"
                               >
                                   작업 백로그
                               </button>
                               <button
                                   onClick={() => setCurrentMode('estimate')}
-                                  className="flex items-center gap-1.5 px-3 py-1 border border-gray-200 bg-white text-gray-400 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50 text-xs font-bold transition-all rounded-lg"
+                                  className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-amber-600 hover:border-amber-300 hover:bg-amber-50 text-xs font-semibold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적
                               </button>
@@ -5802,6 +5938,7 @@ const TechTeamPMS = () => {
                   isAdmin={registeredUser?.role === 'admin'}   /* ★ 위험 버튼(엑셀 확정저장·전체저장) 관리자 전용 게이팅 (2026-07-14) */
                   openProgressPid={openProgressPid}                     /* ★ 그래프 → 진행실적 팝업 이동 (2026-07-14) */
                   onProgressOpened={() => setOpenProgressPid(null)}
+                  onSwitchTeam={(t) => setCurrentTeam(t)}   /* 헤더 팀 탭 — projectList 화면 유지한 채 팀만 전환 (2026-08-11) */
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
                   onGoToPms={(execNo) => {
                       setCurrentMode('pms');

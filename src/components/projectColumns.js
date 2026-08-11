@@ -4,6 +4,8 @@
 // 전부 순수 상수·함수라 화면 동작에는 영향 없음. 컬럼 규칙을 한곳에서 관리.
 // ─────────────────────────────────────────────────────────────────────────
 
+import { getTeamProfile } from '../teamProfiles';   // 팀 프로파일 카드 (2026-08-11 2단계)
+
 // ─── 필터/날짜 열 판별 ────────────────────────────────────────────────────
 export const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당자', '담당자', '발주처'];
 export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
@@ -122,15 +124,11 @@ export const isProgressContentCol = (h) => String(h ?? '').replace(/\s/g, '').in
 // 공사진행 '날짜' 칸 = '날짜' 글자 포함. '공사계약'·'공사완료'에는 '날짜' 글자가 없어 자동 제외(그 둘은 안 건드림).
 export const isProgressDateCol = (h) => String(h ?? '').replace(/\s/g, '').includes('날짜');
 
-// ⑥ 참조 UNC 경로 — 참조 폴더명 앞에 붙는 팀별 공용서버 주소 (2026-07-08).
-//   기술2팀만 확정(원본 샘플 기준). 해외·구미팀은 지역이 달라 경로 확보 후 한 줄씩 추가.
-//   경로 끝 역슬래시 필수(폴더명이 바로 이어붙음). JS 문자열이라 역슬래시는 \\ 로 씀.
-export const UNC_PREFIX_BY_TEAM = {
-    '기술2팀': '\\\\neconsys_pj\\001 Project\\001 파주\\107 기술3팀 2026년 Project\\',
-};
-// 팀 + 폴더명 → UNC 전체경로. 미등록 팀이거나 폴더명 없으면 '' (버튼 비활성 판단용).
+// ⑥ 참조 UNC 경로 (2026-07-08 · 2026-08-11 팀 카드로 이동) — 주소는 팀 카드 '참조UNC'에만 있다.
+//   경로 끝 역슬래시 필수(폴더명이 바로 이어붙음). 새 팀 경로 확정 = 그 팀 카드 한 줄 수정.
+// 팀 + 폴더명 → UNC 전체경로. 카드에 경로 없으면(미확정 팀) '' (버튼 비활성 판단용).
 export const buildUncPath = (team, folderName) => {
-    const prefix = UNC_PREFIX_BY_TEAM[team];
+    const prefix = getTeamProfile(team)?.참조UNC;
     const name = String(folderName ?? '').trim();
     return (prefix && name) ? prefix + name : '';
 };

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>PMS 업무보고 디자인 시안 — 현재 vs 개선안 (2026-08-11)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Pretendard','Malgun Gothic',sans-serif; background:#eceae6; padding:32px 24px 64px; color:#37352f; }
+  .wrap { max-width:1240px; margin:0 auto; }
+  h1 { font-size:22px; font-weight:700; margin-bottom:6px; }
+  .sub { font-size:13px; color:#73716b; margin-bottom:28px; line-height:1.6; }
+  .panel-label { display:inline-block; font-size:12px; font-weight:800; padding:4px 12px; border-radius:9999px; margin-bottom:10px; }
+  .lab-cur { background:#e2e0dc; color:#5d5b54; }
+  .lab-new { background:#1e7ac8; color:#fff; }
+  .section { margin-bottom:44px; }
+  .note { font-size:12px; color:#73716b; margin-top:10px; line-height:1.7; }
+  .note b { color:#37352f; }
+
+  /* ══════════════ A. 현재 (지금 화면 재현) ══════════════ */
+  .cur { background:#fff; border:1px solid #c4ccd8; border-radius:6px; padding:14px; }
+  .cur .toolbar { display:flex; gap:6px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .cur .tt { font-size:15px; font-weight:800; color:#1e7ac8; margin-right:10px; }
+  .cur .btn { font-size:11px; font-weight:700; padding:5px 10px; border-radius:5px; border:1px solid transparent; }
+  .cur .b-green { background:#059669; color:#fff; }
+  .cur .b-blue  { background:#1e7ac8; color:#fff; }
+  .cur .b-gray  { background:#334155; color:#fff; }
+  .cur .b-line  { background:#fff; color:#555; border-color:#cbd5e1; }
+  .cur .chiprow { display:flex; gap:5px; margin-bottom:10px; }
+  .cur .chip { font-size:11px; font-weight:700; padding:3px 10px; border-radius:6px; border:1.5px solid; }
+  .cur .c-on  { background:#1e7ac8; color:#fff; border-color:#1e7ac8; }
+  .cur .c-off { background:#fff; color:#888; border-color:#e5e7eb; }
+  .cur table { border-collapse:separate; border-spacing:0; width:100%; font-size:11px; white-space:nowrap; }
+  .cur th { background:#d4dde8; color:#334155; font-weight:800; padding:7px 8px; border-right:1px solid #94a3b8; border-bottom:1px solid #94a3b8; }
+  .cur td { padding:6px 8px; border-right:1px solid #94a3b8; border-bottom:1px solid #94a3b8; color:#334155; background:#fff; }
+  .cur td.num { text-align:right; }
+  .cur .st { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:9999px; border:1px solid; }
+  .cur .st-go   { background:rgba(30,122,200,.12); color:#1358a0; border-color:rgba(30,122,200,.45); }
+  .cur .st-done { background:rgba(5,150,105,.16); color:#047857; border-color:rgba(5,150,105,.5); }
+  .cur .st-hold { background:rgba(245,158,11,.16); color:#92400e; border-color:rgba(245,158,11,.5); }
+  .cur .bar { position:relative; width:86px; height:13px; background:#eef2f7; border-radius:3px; display:inline-block; vertical-align:middle; margin-right:5px; }
+  .cur .bar i { position:absolute; left:0; top:0; bottom:0; background:#1e7ac8; border-radius:3px; }
+
+  /* ══════════════ B. 개선안 (간부 보고용) ══════════════ */
+  .new { background:#fdfcfb; border:1px solid #d8d4cf; border-radius:12px; padding:18px; }
+  .new .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+  .new .tt { font-size:16px; font-weight:700; color:#37352f; margin-right:12px; letter-spacing:-0.3px; }
+  .new .tt::before { content:''; display:inline-block; width:8px; height:16px; background:#1e7ac8; border-radius:3px; margin-right:8px; vertical-align:-2px; }
+  .new .btn { font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:8px; border:1px solid #d8d4cf; background:#fff; color:#37352f; }
+  .new .b-primary { background:#1e7ac8; color:#fff; border-color:#1e7ac8; }
+  .new .b-save { background:#37352f; color:#fff; border-color:#37352f; }
+  .new .chiprow { display:flex; gap:6px; margin-bottom:12px; }
+  .new .chip { font-size:12px; font-weight:600; padding:4px 12px; border-radius:9999px; border:1px solid #e5e3df; background:#fff; color:#73716b; }
+  .new .c-on { background:#e3effa; color:#0f5a99; border-color:#9ec7e8; font-weight:700; }
+  .new table { border-collapse:separate; border-spacing:0; width:100%; font-size:12.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .new th { background:#f3f1ee; color:#5d5b54; font-weight:700; padding:9px 10px; border-bottom:2px solid #d8d4cf; border-right:1px solid #e9e6e1; font-size:12px; }
+  .new td { padding:9px 10px; border-bottom:1px solid #efedeb; border-right:1px solid #f3f1ee; color:#37352f; background:#fff; }
+  .new tr:nth-child(even) td { background:#fbfaf8; }
+  .new td.num { text-align:right; font-weight:600; }
+  .new td.dim { color:#a4a097; text-align:center; font-weight:400; }
+  .new .pj { font-weight:600; }
+  .new .st { display:inline-block; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:9999px; }
+  .new .st-go   { background:#dcecfa; color:#0f5a99; }
+  .new .st-done { background:#d9f3e1; color:#116329; }
+  .new .st-hold { background:#fef3c7; color:#92400e; }
+  .new .prog { display:flex; align-items:center; gap:8px; }
+  .new .bar { position:relative; width:110px; height:9px; background:#edeae6; border-radius:9999px; overflow:hidden; }
+  .new .bar i { position:absolute; left:0; top:0; bottom:0; border-radius:9999px; background:#1e7ac8; }
+  .new .bar i.full { background:#059669; }
+  .new .pct { font-size:14.5px; font-weight:800; color:#1e5f9e; min-width:52px; letter-spacing:-0.3px; }
+  .new .pct small { font-size:11px; font-weight:600; color:#a4a097; }
+  .new .pct.full { color:#047857; }
+
+  /* 바뀐 점 요약 */
+  .diff { background:#fff; border:1px solid #d8d4cf; border-radius:12px; padding:20px 24px; }
+  .diff h2 { font-size:15px; font-weight:700; margin-bottom:12px; }
+  .diff table { font-size:12.5px; border-collapse:collapse; width:100%; }
+  .diff th { text-align:left; color:#73716b; font-weight:700; padding:7px 10px; border-bottom:2px solid #d8d4cf; }
+  .diff td { padding:8px 10px; border-bottom:1px solid #efedeb; line-height:1.55; vertical-align:top; }
+  .diff td:first-child { font-weight:700; white-space:nowrap; }
+  .safe { margin-top:16px; font-size:12.5px; background:#eef7f0; border:1px solid #bfe3c8; color:#116329; border-radius:8px; padding:12px 16px; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PMS 업무보고 — 디자인 비교 시안</h1>
+  <div class="sub">2026-08-11 · 목적: 간부 보고용(눈 편함 + 공정률 즉시 인지) · 방향: Notion(따뜻한 회색·눈 편한 대비) + Stripe(숫자 정렬) 혼합<br>
+  ★ 이 파일은 미리보기 전용입니다 — 실제 앱은 아직 아무것도 바뀌지 않았습니다.</div>
+
+  <!-- ═══════════ A. 현재 ═══════════ -->
+  <div class="section">
+    <span class="panel-label lab-cur">A. 현재 화면</span>
+    <div class="cur">
+      <div class="toolbar">
+        <span class="tt">기술2팀 프로젝트 List</span>
+        <button class="btn b-line">컴팩트</button>
+        <button class="btn b-blue">+ 프로젝트 추가</button>
+        <button class="btn b-green">전체 저장</button>
+        <button class="btn b-gray">월간보고</button>
+        <button class="btn b-gray">백로그</button>
+        <button class="btn b-line">설정</button>
+      </div>
+      <div class="chiprow">
+        <span class="chip c-on">진행중 (88)</span><span class="chip c-on">추진중 (21)</span>
+        <span class="chip c-off">완료 (30)</span><span class="chip c-off">취소 (8)</span><span class="chip c-off">Hold (5)</span>
+      </div>
+      <table>
+        <tr><th>번호</th><th>발주처</th><th>Project</th><th>진행현황</th><th>담당자</th><th>PLC</th><th>ETOS</th><th>HMI</th><th>공정률(%)</th><th>포인트</th></tr>
+        <tr><td>006</td><td>LGD</td><td>P10A동 CR2F 초대형 Cell 후공정 UMS Roll-In</td><td><span class="st st-go">진행중</span></td><td>김준혁 팀장</td><td class="num">98.6</td><td class="num">75.0</td><td class="num">94.5</td><td><span class="bar"><i style="width:73%"></i></span>72.5</td><td class="num">3,766/17,230</td></tr>
+        <tr><td>011</td><td>LGD</td><td>CO 확산 Infra 환경설비 종합효율 관리</td><td><span class="st st-go">진행중</span></td><td>최영환 담당</td><td class="num">89.6</td><td class="num">75.0</td><td class="num">94.5</td><td><span class="bar"><i style="width:85%"></i></span>85.4</td><td class="num">1,221/1,221</td></tr>
+        <tr><td>014</td><td>코리아써키트</td><td>안산공장 26년도 상반기 Leak 센서 투자공사</td><td><span class="st st-done">완료</span></td><td>조장현 팀장</td><td class="num">100</td><td class="num">100</td><td class="num">100</td><td><span class="bar"><i style="width:100%"></i></span>100</td><td class="num">850/850</td></tr>
+        <tr><td>020</td><td>TCL</td><td>광저우공장 CMS 1초 저장 Data Base 구축</td><td><span class="st st-hold">Hold</span></td><td>김윤재C</td><td class="num">45.0</td><td class="num">—</td><td class="num">30.2</td><td><span class="bar"><i style="width:31%"></i></span>31.0</td><td class="num">210/2,400</td></tr>
+        <tr><td>023</td><td>LGD</td><td>N3 Auto OEM_TopRUN 전환 대응 UMS Roll-In</td><td><span class="st st-go">진행중</span></td><td>장명휘C</td><td class="num">61.3</td><td class="num">55.0</td><td class="num">48.8</td><td><span class="bar"><i style="width:55%"></i></span>55.1</td><td class="num">980/3,200</td></tr>
+      </table>
+    </div>
+    <div class="note">지금 모습 재현: 채움 버튼 4색 병립 · 표선이 전부 같은 진한 회색 · 글자 11px · 공정률 숫자가 다른 숫자들과 같은 크기라 스캔 시 안 튐.</div>
+  </div>
+
+  <!-- ═══════════ B. 개선안 ═══════════ -->
+  <div class="section">
+    <span class="panel-label lab-new">B. 개선안 — 간부 보고용 (추천)</span>
+    <div class="new">
+      <div class="toolbar">
+        <span class="tt">기술2팀 프로젝트 List</span>
+        <button class="btn b-primary">+ 프로젝트 추가</button>
+        <button class="btn">컴팩트</button>
+        <button class="btn">월간보고</button>
+        <button class="btn">백로그</button>
+        <button class="btn">설정</button>
+        <button class="btn b-save">전체 저장</button>
+      </div>
+      <div class="chiprow">
+        <span class="chip c-on">진행중 88</span><span class="chip c-on">추진중 21</span>
+        <span class="chip">완료 30</span><span class="chip">취소 8</span><span class="chip">Hold 5</span>
+      </div>
+      <table>
+        <tr><th>번호</th><th>발주처</th><th>Project</th><th>진행현황</th><th>담당자</th><th>PLC</th><th>ETOS</th><th>HMI</th><th>공정률</th><th>포인트</th></tr>
+        <tr><td>006</td><td>LGD</td><td class="pj">P10A동 CR2F 초대형 Cell 후공정 UMS Roll-In</td><td><span class="st st-go">진행중</span></td><td>김준혁 팀장</td><td class="num">98.6</td><td class="num">75.0</td><td class="num">94.5</td><td><span class="prog"><span class="bar"><i style="width:73%"></i></span><span class="pct">72<small>.5%</small></span></span></td><td class="num">3,766<span style="color:#a4a097;font-weight:400"> /17,230</span></td></tr>
+        <tr><td>011</td><td>LGD</td><td class="pj">CO 확산 Infra 환경설비 종합효율 관리</td><td><span class="st st-go">진행중</span></td><td>최영환 담당</td><td class="num">89.6</td><td class="num">75.0</td><td class="num">94.5</td><td><span class="prog"><span class="bar"><i style="width:85%"></i></span><span class="pct">85<small>.4%</small></span></span></td><td class="num">1,221<span style="color:#a4a097;font-weight:400"> /1,221</span></td></tr>
+        <tr><td>014</td><td>코리아써키트</td><td class="pj">안산공장 26년도 상반기 Leak 센서 투자공사</td><td><span class="st st-done">완료</span></td><td>조장현 팀장</td><td class="num">100</td><td class="num">100</td><td class="num">100</td><td><span class="prog"><span class="bar"><i class="full" style="width:100%"></i></span><span class="pct full">100<small>%</small></span></span></td><td class="num">850<span style="color:#a4a097;font-weight:400"> /850</span></td></tr>
+        <tr><td>020</td><td>TCL</td><td class="pj">광저우공장 CMS 1초 저장 Data Base 구축</td><td><span class="st st-hold">Hold</span></td><td>김윤재C</td><td class="num">45.0</td><td class="dim">—</td><td class="num">30.2</td><td><span class="prog"><span class="bar"><i style="width:31%"></i></span><span class="pct">31<small>.0%</small></span></span></td><td class="num">210<span style="color:#a4a097;font-weight:400"> /2,400</span></td></tr>
+        <tr><td>023</td><td>LGD</td><td class="pj">N3 Auto OEM_TopRUN 전환 대응 UMS Roll-In</td><td><span class="st st-go">진행중</span></td><td>장명휘C</td><td class="num">61.3</td><td class="num">55.0</td><td class="num">48.8</td><td><span class="prog"><span class="bar"><i style="width:55%"></i></span><span class="pct">55<small>.1%</small></span></span></td><td class="num">980<span style="color:#a4a097;font-weight:400"> /3,200</span></td></tr>
+      </table>
+    </div>
+    <div class="note"><b>핵심 변화</b>: ① 공정률 = 큰 굵은 숫자(14.5px)+둥근 막대, 100%는 초록 — 표에서 제일 먼저 눈에 옴 ② 글자 11→12.5px, 행높이 여유 ③ 행 사이 선은 아주 연하게+옅은 줄무늬(행 따라가기 쉬움) ④ 채움 버튼은 파랑 1개(+저장만 진회색), 나머지는 테두리형 ⑤ 숫자는 tabular-nums로 세로 정렬 ⑥ 배경을 순백 대신 따뜻한 미색(#fdfcfb)으로 — 눈부심 감소.</div>
+  </div>
+
+  <!-- ═══════════ 바뀐 점 + 안전 ═══════════ -->
+  <div class="diff">
+    <h2>바뀐 점 정리 (전부 CSS 견본판 수정 — 데이터·엑셀 기능 무접촉)</h2>
+    <table>
+      <tr><th style="width:150px">항목</th><th>현재</th><th>개선안</th></tr>
+      <tr><td>공정률 표시</td><td>다른 숫자와 같은 11px</td><td><b>14.5px 굵은 숫자 + 굵은 둥근 막대</b>, 100% 도달 시 초록 — 간부가 제일 먼저 보는 칸을 제일 크게</td></tr>
+      <tr><td>기본 글자</td><td>11px · 차가운 회색</td><td>12.5px · 따뜻한 회색 사다리(제목 #37352f / 본문 / 보조 #a4a097) — 어르신 가독성</td></tr>
+      <tr><td>표 선</td><td>전부 같은 진한 선</td><td>바깥·헤더만 진하게, 행 사이는 아주 연하게 + 옅은 줄무늬</td></tr>
+      <tr><td>버튼</td><td>초록·파랑·진회색 채움 병립</td><td>채움은 파랑(추가) 1개 + 저장(진회색), 나머지 테두리형 — 시선 분산 제거</td></tr>
+      <tr><td>숫자 정렬</td><td>글꼴 기본</td><td>tabular-nums — 자릿수 세로 정렬(CSS 1줄)</td></tr>
+      <tr><td>상태 칩</td><td>테두리+반투명 배경</td><td>파스텔 배경+같은 계열 진한 글자 (Notion 공식)</td></tr>
+      <tr><td>배경·모서리</td><td>순백 · 6px</td><td>따뜻한 미색 · 카드 12px — 눈부심 줄이고 부드럽게</td></tr>
+    </table>
+    <div class="safe"><b>안전 계획</b> — ① 적용 = src/index.css(견본판)와 표시용 클래스만 수정, 파서·병합·저장 코드 무접촉 → 엑셀 업로드/반영 영향 0 ② 적용 직전 index.css 백업 생성 ③ <b>원복 = 백업 파일 1개 되돌리기</b>(1분) ④ ★불변 기준(한 줄 펼침 .list-oneline)은 그대로 유지.</div>
+  </div>
+</div>
+</body>
+</html>

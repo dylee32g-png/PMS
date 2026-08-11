@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>List 벤치마크 비교 시안 — 현재 vs monday풍 vs 리니어풍 (2026-08-11)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Pretendard','Malgun Gothic',sans-serif; background:#f4f3f1; color:#37352f; padding:28px 20px 60px; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  h1 { font-size:21px; font-weight:800; margin-bottom:6px; }
+  .sub { font-size:13px; color:#73716b; margin-bottom:26px; line-height:1.6; }
+  .panel { background:#fff; border:1px solid #e5e3df; border-radius:14px; padding:18px 20px 22px; margin-bottom:30px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .tag { display:inline-block; font-size:11px; font-weight:800; padding:3px 10px; border-radius:999px; margin-bottom:4px; }
+  .tagA { background:#eef2f7; color:#41546b; }
+  .tagB { background:#ffe8d9; color:#b34700; }
+  .tagC { background:#e8e8fd; color:#4b4ba8; }
+  h2 { font-size:16px; font-weight:800; margin:2px 0 2px; }
+  .desc { font-size:12.5px; color:#73716b; margin-bottom:14px; line-height:1.6; }
+  .tbl-scroll { overflow-x:auto; border:1px solid #e5e3df; border-radius:10px; }
+  table { border-collapse:collapse; white-space:nowrap; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; }
+  td.num, th.num { text-align:right; }
+
+  /* ── A: 현재 (오늘 적용본) ── */
+  .vA th { background:#f3f6fa; color:#5a6b7f; font-size:11px; font-weight:800; padding:9px 12px; border-bottom:1px solid #d8d4cf; border-right:1px solid #eaeef4; }
+  .vA td { font-size:12.5px; padding:8px 12px; border-bottom:1px solid #efedeb; border-right:1px solid #efedeb; background:#fff; }
+  .vA tr:nth-child(even) td { background:#fbfaf8; }
+  .chip { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .c-prog { background:#dbeafe; color:#1e40af; } .c-done { background:#d1fae5; color:#065f46; } .c-hold { background:#fef3c7; color:#92400e; }
+  .bar { display:inline-flex; align-items:center; gap:6px; }
+  .bar i { position:relative; width:44px; height:7px; background:#edeae6; border-radius:99px; overflow:hidden; display:inline-block; }
+  .bar i b { position:absolute; left:0; top:0; bottom:0; background:#1e7ac8; border-radius:99px; }
+  .bar i b.full { background:#059669; }
+  .bar em { font-style:normal; font-weight:800; font-size:12.5px; color:#1e5f9e; }
+  .bar em.full { color:#047857; }
+  .bar small { font-size:10px; font-weight:700; color:#a4a097; }
+
+  /* ── B: monday풍 — 상태가 셀을 꽉 채우는 색 블록 ── */
+  .vB th { background:#fff; color:#676879; font-size:11.5px; font-weight:700; padding:10px 12px; border-bottom:1px solid #d0d4e4; border-right:1px solid #e6e9f2; }
+  .vB td { font-size:13px; padding:0; border-bottom:1px solid #e6e9f2; border-right:1px solid #e6e9f2; background:#fff; height:40px; }
+  .vB td > .pad { padding:9px 12px; }
+  .vB .lane { width:6px; padding:0 !important; }
+  .lane1 { background:#579bfc; } .lane2 { background:#00c875; }
+  .stB { display:flex; align-items:center; justify-content:center; height:40px; color:#fff; font-weight:800; font-size:12.5px; }
+  .sB-prog { background:#fdab3d; } .sB-done { background:#00c875; } .sB-hold { background:#e2445c; }
+  .mbar { position:relative; height:22px; background:#eceff8; border-radius:5px; overflow:hidden; min-width:120px; }
+  .mbar b { position:absolute; left:0; top:0; bottom:0; background:#00c875; }
+  .mbar b.mid { background:#fdab3d; }
+  .mbar span { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:800; color:#323338; }
+  .avatar { display:inline-flex; width:24px; height:24px; border-radius:50%; background:#579bfc; color:#fff; font-size:10.5px; font-weight:800; align-items:center; justify-content:center; margin-right:2px; border:2px solid #fff; }
+  .avatar.g { background:#00c875; } .avatar.p { background:#a25ddc; }
+
+  /* ── C: 리니어풍 — 절제·여백·회색조 ── */
+  .vC table { background:#fcfcfc; }
+  .vC th { background:#fcfcfc; color:#8f8b84; font-size:11px; font-weight:600; padding:8px 14px; border-bottom:1px solid #e5e3df; border-right:none; }
+  .vC td { font-size:13px; padding:11px 14px; border-bottom:1px solid #f0efed; border-right:none; background:#fcfcfc; color:#37352f; }
+  .vC tr:hover td { background:#f4f3f1; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+  .d-prog { background:#f2994a; } .d-done { background:#27ae60; } .d-hold { background:#eb5757; }
+  .stC { font-size:12.5px; font-weight:600; color:#55524d; }
+  .pctC { font-weight:700; font-size:13px; }
+  .pctC small { color:#a4a097; font-size:10.5px; }
+  .ring { display:inline-block; width:16px; height:16px; border-radius:50%; margin-right:7px; vertical-align:-3px;
+          background:conic-gradient(#27ae60 var(--p), #e5e3df 0); position:relative; }
+  .ring::after { content:''; position:absolute; inset:3.5px; background:#fcfcfc; border-radius:50%; }
+
+  /* 비교표 */
+  .cmp { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .cmp th { background:#f3f6fa; font-weight:800; padding:8px 12px; border:1px solid #e5e3df; font-size:12px; }
+  .cmp td { padding:8px 12px; border:1px solid #e5e3df; line-height:1.55; white-space:normal; vertical-align:top; }
+  .note { font-size:12px; color:#8f8b84; margin-top:10px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>프로젝트 List — 벤치마크 비교 시안 (스타일 A·B·C + 기능 D·E·F)</h1>
+  <p class="sub">2026-08-11 · <b>보기 전용 자료입니다 (아직 아무것도 결정·적용 안 함 — 팀장님과 함께 정한 뒤 적용)</b><br>
+  같은 데이터(기술2팀 모양 5행)를 세 가지 스타일로 그렸습니다. 어떤 요소든 골라서 섞을 수 있습니다 (예: "상태만 B안, 나머지 A안").</p>
+
+  <!-- ══ A안: 현재 ══ -->
+  <div class="panel">
+    <span class="tag tagA">A안 · 현재 (오늘까지 적용된 모습)</span>
+    <h2>클린 화이트 + 칩 + 막대</h2>
+    <p class="desc">상태=작은 칩, 공정률=가는 막대+굵은 숫자. 정보량 손실 없이 단정한 방향.</p>
+    <div class="tbl-scroll"><table class="vA">
+      <tr><th>번호</th><th>발주처</th><th>Project</th><th>진행현황</th><th>담당자</th><th class="num">PLC</th><th class="num">HMI</th><th>공정률(%)</th><th class="num">포인트</th></tr>
+      <tr><td>011</td><td>LGD</td><td>P9 P10 Ph3 물류</td><td><span class="chip c-prog">진행중</span></td><td>김준혁 팀장</td><td class="num">98.6</td><td class="num">94.5</td><td><span class="bar"><i><b style="width:29%"></b></i><em>29<small>%</small></em></span></td><td class="num">3,766</td></tr>
+      <tr><td>010</td><td>LGD</td><td>P9 증설 CVD</td><td><span class="chip c-prog">진행중</span></td><td>최영환 담당</td><td class="num">85.4</td><td class="num">31.6</td><td><span class="bar"><i><b style="width:52%"></b></i><em>52<small>%</small></em></span></td><td class="num">1,221</td></tr>
+      <tr><td>006</td><td>LGE</td><td>구미 A3 개조</td><td><span class="chip c-done">보고완료</span></td><td>조장현 팀장</td><td class="num">100</td><td class="num">100</td><td><span class="bar"><i><b class="full" style="width:100%"></b></i><em class="full">100<small>%</small></em></span></td><td class="num">800</td></tr>
+      <tr><td>004</td><td>SKH</td><td>이천 M16 반송</td><td><span class="chip c-hold">Hold</span></td><td>신정환 책임</td><td class="num">40</td><td class="num">12</td><td><span class="bar"><i><b style="width:18%"></b></i><em>18<small>%</small></em></span></td><td class="num">450</td></tr>
+      <tr><td>002</td><td>LGD</td><td>파주 P8 개조</td><td><span class="chip c-prog">추진중</span></td><td>김윤재 책임</td><td class="num">72</td><td class="num">64</td><td><span class="bar"><i><b style="width:66%"></b></i><em>66<small>%</small></em></span></td><td class="num">980</td></tr>
+    </table></div>
+  </div>
+
+  <!-- ══ B안: monday풍 ══ -->
+  <div class="panel">
+    <span class="tag tagB">B안 · monday풍 (색 중심 — 멀리서도 보임)</span>
+    <h2>상태 = 셀을 꽉 채운 색 블록 · 공정률 = 큰 막대 안 숫자 · 왼쪽 그룹 색 띠</h2>
+    <p class="desc">간부 보고에 최적화된 노선. 회의실 스크린 멀리서도 주황(진행)·초록(완료)·빨강(Hold)이 즉시 구분됨. 대신 화면이 화려해서 매일 실무로 쓰면 눈이 피로할 수 있음.</p>
+    <div class="tbl-scroll"><table class="vB">
+      <tr><th></th><th>번호</th><th>발주처</th><th>Project</th><th>진행현황</th><th>담당자</th><th class="num">PLC</th><th class="num">HMI</th><th>공정률</th><th class="num">포인트</th></tr>
+      <tr><td class="lane lane1"></td><td><div class="pad">011</div></td><td><div class="pad">LGD</div></td><td><div class="pad"><b>P9 P10 Ph3 물류</b></div></td><td style="min-width:110px"><div class="stB sB-prog">진행중</div></td><td><div class="pad"><span class="avatar">김준</span>김준혁 팀장</div></td><td class="num"><div class="pad">98.6</div></td><td class="num"><div class="pad">94.5</div></td><td><div class="pad"><div class="mbar"><b class="mid" style="width:29%"></b><span>29%</span></div></div></td><td class="num"><div class="pad">3,766</div></td></tr>
+      <tr><td class="lane lane1"></td><td><div class="pad">010</div></td><td><div class="pad">LGD</div></td><td><div class="pad"><b>P9 증설 CVD</b></div></td><td><div class="stB sB-prog">진행중</div></td><td><div class="pad"><span class="avatar g">최영</span>최영환 담당</div></td><td class="num"><div class="pad">85.4</div></td><td class="num"><div class="pad">31.6</div></td><td><div class="pad"><div class="mbar"><b class="mid" style="width:52%"></b><span>52%</span></div></div></td><td class="num"><div class="pad">1,221</div></td></tr>
+      <tr><td class="lane lane2"></td><td><div class="pad">006</div></td><td><div class="pad">LGE</div></td><td><div class="pad"><b>구미 A3 개조</b></div></td><td><div class="stB sB-done">보고완료</div></td><td><div class="pad"><span class="avatar p">조장</span>조장현 팀장</div></td><td class="num"><div class="pad">100</div></td><td class="num"><div class="pad">100</div></td><td><div class="pad"><div class="mbar"><b style="width:100%"></b><span style="color:#fff">100%</span></div></div></td><td class="num"><div class="pad">800</div></td></tr>
+      <tr><td class="lane lane1"></td><td><div class="pad">004</div></td><td><div class="pad">SKH</div></td><td><div class="pad"><b>이천 M16 반송</b></div></td><td><div class="stB sB-hold">Hold</div></td><td><div class="pad"><span class="avatar">신정</span>신정환 책임</div></td><td class="num"><div class="pad">40</div></td><td class="num"><div class="pad">12</div></td><td><div class="pad"><div class="mbar"><b class="mid" style="width:18%"></b><span>18%</span></div></div></td><td class="num"><div class="pad">450</div></td></tr>
+      <tr><td class="lane lane1"></td><td><div class="pad">002</div></td><td><div class="pad">LGD</div></td><td><div class="pad"><b>파주 P8 개조</b></div></td><td><div class="stB sB-prog">추진중</div></td><td><div class="pad"><span class="avatar g">김윤</span>김윤재 책임</div></td><td class="num"><div class="pad">72</div></td><td class="num"><div class="pad">64</div></td><td><div class="pad"><div class="mbar"><b class="mid" style="width:66%"></b><span>66%</span></div></div></td><td class="num"><div class="pad">980</div></td></tr>
+    </table></div>
+  </div>
+
+  <!-- ══ C안: 리니어풍 ══ -->
+  <div class="panel">
+    <span class="tag tagC">C안 · 리니어풍 (여백 중심 — 절제)</span>
+    <h2>세로선 없음 · 상태 = 색 점 + 글자 · 공정률 = 미니 도넛 + 숫자</h2>
+    <p class="desc">선을 다 걷어내고 여백·정렬로만 구분. 눈이 가장 편하지만, 열이 35개인 우리 표에서는 세로선이 없으면 행을 따라가기 어려울 수 있음 (리니어는 열이 5~6개라 가능한 방식).</p>
+    <div class="tbl-scroll"><table class="vC">
+      <tr><th>번호</th><th>발주처</th><th>Project</th><th>진행현황</th><th>담당자</th><th class="num">PLC</th><th class="num">HMI</th><th>공정률</th><th class="num">포인트</th></tr>
+      <tr><td>011</td><td>LGD</td><td><b>P9 P10 Ph3 물류</b></td><td><span class="dot d-prog"></span><span class="stC">진행중</span></td><td>김준혁 팀장</td><td class="num">98.6</td><td class="num">94.5</td><td><span class="ring" style="--p:29%"></span><span class="pctC">29<small>%</small></span></td><td class="num">3,766</td></tr>
+      <tr><td>010</td><td>LGD</td><td><b>P9 증설 CVD</b></td><td><span class="dot d-prog"></span><span class="stC">진행중</span></td><td>최영환 담당</td><td class="num">85.4</td><td class="num">31.6</td><td><span class="ring" style="--p:52%"></span><span class="pctC">52<small>%</small></span></td><td class="num">1,221</td></tr>
+      <tr><td>006</td><td>LGE</td><td><b>구미 A3 개조</b></td><td><span class="dot d-done"></span><span class="stC">보고완료</span></td><td>조장현 팀장</td><td class="num">100</td><td class="num">100</td><td><span class="ring" style="--p:100%"></span><span class="pctC" style="color:#1e8a52">100<small>%</small></span></td><td class="num">800</td></tr>
+      <tr><td>004</td><td>SKH</td><td><b>이천 M16 반송</b></td><td><span class="dot d-hold"></span><span class="stC">Hold</span></td><td>신정환 책임</td><td class="num">40</td><td class="num">12</td><td><span class="ring" style="--p:18%"></span><span class="pctC">18<small>%</small></span></td><td class="num">450</td></tr>
+      <tr><td>002</td><td>LGD</td><td><b>파주 P8 개조</b></td><td><span class="dot d-prog"></span><span class="stC">추진중</span></td><td>김윤재 책임</td><td class="num">72</td><td class="num">64</td><td><span class="ring" style="--p:66%"></span><span class="pctC">66<small>%</small></span></td><td class="num">980</td></tr>
+    </table></div>
+  </div>
+
+  <!-- ══ 기능 시안 D·E·F (갤러리 3곳 조사분 — 스타일이 아니라 '기능'이라 A·B·C 어느 스타일과도 조합 가능) ══ -->
+  <style>
+    .tagD { background:#e0f2f1; color:#00695c; } .tagE { background:#fce7f3; color:#9d174d; } .tagF { background:#fef9c3; color:#854d0e; }
+    /* D: KPI 요약 바 + 필터 탭 */
+    .kpis { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .kpi { flex:1; min-width:150px; background:#fff; border:1px solid #e5e3df; border-radius:12px; padding:12px 16px; }
+    .kpi .l { font-size:11px; font-weight:700; color:#8f8b84; margin-bottom:4px; }
+    .kpi .v { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+    .kpi .s { font-size:11px; color:#a4a097; margin-top:2px; }
+    .ftabs { display:flex; gap:4px; margin-bottom:0; border:1px solid #e5e3df; border-bottom:none; border-radius:10px 10px 0 0; background:#f8f7f5; padding:6px 8px; }
+    .ftab { font-size:12px; font-weight:700; padding:5px 12px; border-radius:8px; color:#73716b; cursor:default; }
+    .ftab.on { background:#fff; color:#1e7ac8; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+    .ftab b { font-weight:800; margin-left:4px; font-size:11px; color:#a4a097; }
+    .ftab.on b { color:#1e7ac8; }
+    /* E: 그룹 헤더 + 소계 */
+    .grp td { background:#f3f6fa !important; font-size:12px; font-weight:800; color:#41546b; padding:7px 12px; border-bottom:1px solid #d8d4cf; }
+    .grp .cnt { font-weight:700; color:#8f8b84; font-size:11.5px; margin-left:8px; }
+    .grp .fold { display:inline-block; width:14px; color:#a4a097; }
+    /* F: 기간 타임라인 */
+    .tl-head { display:grid; grid-template-columns:210px repeat(12,1fr); font-size:10.5px; font-weight:700; color:#8f8b84; border-bottom:1px solid #d8d4cf; }
+    .tl-head span { padding:6px 0; text-align:center; border-left:1px solid #f0efed; }
+    .tl-row { display:grid; grid-template-columns:210px 1fr; align-items:center; border-bottom:1px solid #efedeb; }
+    .tl-name { font-size:12.5px; font-weight:700; padding:9px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tl-track { position:relative; height:34px; background:repeating-linear-gradient(to right,transparent,transparent calc(100%/12 - 1px),#f0efed calc(100%/12 - 1px),#f0efed calc(100%/12)); }
+    .tl-bar { position:absolute; top:8px; height:18px; border-radius:99px; font-size:10.5px; font-weight:800; color:#fff; display:flex; align-items:center; padding:0 8px; white-space:nowrap; }
+    .tl-blue { background:linear-gradient(90deg,#3b82f6,#1e7ac8); } .tl-green { background:#059669; } .tl-red { background:#e2445c; }
+    .tl-today { position:absolute; top:0; bottom:0; width:2px; background:#e2445c; }
+    .tl-today::after { content:'오늘'; position:absolute; top:-2px; left:4px; font-size:9.5px; font-weight:800; color:#e2445c; }
+  </style>
+
+  <div class="panel">
+    <span class="tag tagD">D안 · 상단 요약 지표 + 필터 탭 (Stripe·Cal.com 대시보드 패턴)</span>
+    <h2>표 위에 "간부가 물어볼 숫자" 4개를 상시 표시</h2>
+    <p class="desc">갤러리 공통 패턴: 표 위 KPI 카드 + 탭형 필터(건수 병기). 지금 상태 칩 필터를 탭 모양으로 승격 + 숫자 카드 추가. <b>대시보드 구상(월말 보고)의 미니 선행판</b> — 전부 기존 데이터에서 계산되는 값.</p>
+    <div class="kpis">
+      <div class="kpi"><div class="l">진행중 프로젝트</div><div class="v">12<span style="font-size:13px;color:#a4a097">건</span></div><div class="s">전체 152건 중</div></div>
+      <div class="kpi"><div class="l">평균 공정률</div><div class="v" style="color:#1e7ac8">54<span style="font-size:13px">%</span></div><div class="s">진행중 기준</div></div>
+      <div class="kpi"><div class="l">포인트 달성률</div><div class="v" style="color:#059669">22<span style="font-size:13px">%</span></div><div class="s">3,766 / 17,230</div></div>
+      <div class="kpi"><div class="l">금월 완료</div><div class="v">3<span style="font-size:13px;color:#a4a097">건</span></div><div class="s">신규 2건</div></div>
+    </div>
+    <div class="ftabs">
+      <span class="ftab on">진행중<b>12</b></span><span class="ftab">추진중<b>8</b></span><span class="ftab">보고완료<b>98</b></span><span class="ftab">Hold<b>5</b></span><span class="ftab">전체<b>152</b></span>
+    </div>
+    <div class="tbl-scroll" style="border-radius:0 0 10px 10px"><table class="vA">
+      <tr><th>번호</th><th>발주처</th><th>Project</th><th>담당자</th><th>공정률(%)</th><th class="num">포인트</th></tr>
+      <tr><td>011</td><td>LGD</td><td>P9 P10 Ph3 물류</td><td>김준혁 팀장</td><td><span class="bar"><i><b style="width:29%"></b></i><em>29<small>%</small></em></span></td><td class="num">3,766</td></tr>
+      <tr><td>010</td><td>LGD</td><td>P9 증설 CVD</td><td>최영환 담당</td><td><span class="bar"><i><b style="width:52%"></b></i><em>52<small>%</small></em></span></td><td class="num">1,221</td></tr>
+    </table></div>
+  </div>
+
+  <div class="panel">
+    <span class="tag tagE">E안 · 상태별 그룹 묶기 + 소계 행 (Attio·HubSpot 패턴)</span>
+    <h2>같은 상태끼리 묶고, 묶음마다 건수·포인트 합·평균 공정률 소계</h2>
+    <p class="desc">간부 보고 때 "진행중이 몇 건이고 다 합치면 어디까지 왔나"를 표 안에서 바로 답함. ▸ 클릭으로 묶음 접기(완료 98건은 접어두고 진행중만 펼침). 정렬·필터와 겹치므로 <b>켜고 끄는 보기 모드</b>로 넣는 게 안전.</p>
+    <div class="tbl-scroll"><table class="vA">
+      <tr><th>번호</th><th>발주처</th><th>Project</th><th>담당자</th><th>공정률(%)</th><th class="num">포인트</th></tr>
+      <tr class="grp"><td colspan="6"><span class="fold">▾</span>🔵 진행중 <span class="cnt">2건 · 포인트 합 4,987 · 평균 공정률 41%</span></td></tr>
+      <tr><td>011</td><td>LGD</td><td>P9 P10 Ph3 물류</td><td>김준혁 팀장</td><td><span class="bar"><i><b style="width:29%"></b></i><em>29<small>%</small></em></span></td><td class="num">3,766</td></tr>
+      <tr><td>010</td><td>LGD</td><td>P9 증설 CVD</td><td>최영환 담당</td><td><span class="bar"><i><b style="width:52%"></b></i><em>52<small>%</small></em></span></td><td class="num">1,221</td></tr>
+      <tr class="grp"><td colspan="6"><span class="fold">▸</span>🟢 보고완료 <span class="cnt">98건 · 포인트 합 41,200 (접힘)</span></td></tr>
+      <tr class="grp"><td colspan="6"><span class="fold">▸</span>🟡 Hold <span class="cnt">5건 (접힘)</span></td></tr>
+    </table></div>
+  </div>
+
+  <div class="panel">
+    <span class="tag tagF">F안 · 공사기간 타임라인 막대 (간트 간이판)</span>
+    <h2>공사계약~완료 날짜를 연간 축 위 가로 막대로 — "언제 끝나?"가 한눈에</h2>
+    <p class="desc">이미 있는 공사계약·공사완료 날짜 두 칸만으로 그림 (새 입력 없음). 막대 색=상태, 빨간 세로선=오늘. 오늘 선을 지났는데 안 끝난 프로젝트(지연)가 즉시 보임 — monday '지연된 태스크' 위젯의 표 버전. 메인표를 바꾸는 게 아니라 <b>List 안의 별도 보기 탭(표 보기 ↔ 기간 보기)</b>으로 추가하는 방식.</p>
+    <div style="border:1px solid #e5e3df; border-radius:10px; overflow:hidden">
+      <div class="tl-head"><span style="border-left:none; text-align:left; padding-left:12px">프로젝트 (2026년)</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span></div>
+      <div class="tl-row"><div class="tl-name">P9 P10 Ph3 물류</div><div class="tl-track"><div class="tl-today" style="left:61%"></div><div class="tl-bar tl-blue" style="left:8%; width:75%">2/1 ~ 11/1 · 29%</div></div></div>
+      <div class="tl-row"><div class="tl-name">P9 증설 CVD</div><div class="tl-track"><div class="tl-today" style="left:61%"></div><div class="tl-bar tl-blue" style="left:25%; width:42%">4/1 ~ 8/31 · 52%</div></div></div>
+      <div class="tl-row"><div class="tl-name">구미 A3 개조</div><div class="tl-track"><div class="tl-today" style="left:61%"></div><div class="tl-bar tl-green" style="left:0%; width:45%">1/5 ~ 6/15 · 완료</div></div></div>
+      <div class="tl-row"><div class="tl-name">이천 M16 반송</div><div class="tl-track"><div class="tl-today" style="left:61%"></div><div class="tl-bar tl-red" style="left:16%; width:38%">3/1 ~ 7/20 · 지연!</div></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="margin-bottom:10px">기능 3종 비교 (D·E·F — A·B·C 스타일과 자유 조합)</h2>
+    <table class="cmp">
+      <tr><th style="width:14%"></th><th>D안 · 요약 지표+탭</th><th>E안 · 그룹+소계</th><th>F안 · 기간 타임라인</th></tr>
+      <tr><td><b>간부 효과</b></td><td><b>큼</b> — 질문받기 전에 숫자가 먼저 보임</td><td>큼 — "몇 건·합계" 즉답</td><td><b>큼</b> — 일정·지연이 그림으로</td></tr>
+      <tr><td><b>데이터</b></td><td>기존 값 계산만 (신규 입력 0)</td><td>기존 값 계산만</td><td>기존 공사계약·완료 날짜만 (빈 날짜 행은 목록 하단 별도 표기)</td></tr>
+      <tr><td><b>구현 부담</b></td><td>소 — 칩 필터를 탭으로 승격+카드 4개</td><td>중 — 정렬·필터와 상호작용 정리 필요 (보기 모드로 격리)</td><td>중 — 별도 보기 탭이라 기존 표 무접촉</td></tr>
+      <tr><td><b>위험</b></td><td>거의 없음 (표시 전용)</td><td>메인표 구조에 행이 끼므로 '한 줄 펼침' 불변 기준과 충돌 없게 보기 모드 한정</td><td>없음 (별도 화면)</td></tr>
+    </table>
+    <p class="note">※ 갤러리 조사 출처: SaaS Interface(필터·검색·일괄작업·사이드패널이 표의 단짝 구성), SaaSFrame(표 위 필터 탭·상태 뱃지·행 hover 액션 — Intercom·Remote·Cal.com), Nicelydone(요금표·설정 목록 위주라 수확 적음). 행 hover 액션(마우스 올리면 연필·삭제 버튼)은 이미 우리 우클릭 메뉴가 대신하므로 제외.</p>
+  </div>
+
+  <!-- ══ 비교표 ══ -->
+  <div class="panel">
+    <h2 style="margin-bottom:10px">한눈 비교</h2>
+    <table class="cmp">
+      <tr><th style="width:14%"></th><th>A안 · 현재</th><th>B안 · monday풍</th><th>C안 · 리니어풍</th></tr>
+      <tr><td><b>간부 보고<br>(멀리서)</b></td><td>보통 — 칩이 작아 근거리용</td><td><b>최강</b> — 색 블록이 회의실 끝에서도 보임</td><td>약함 — 가까이서 봐야 함</td></tr>
+      <tr><td><b>실무 키인<br>(매일 사용)</b></td><td><b>균형</b> — 눈 피로 적고 정보량 유지</td><td>피로할 수 있음 — 색이 많아 오래 보면 어지러움</td><td><b>가장 편안</b> — 단, 35열엔 세로선 부재가 약점</td></tr>
+      <tr><td><b>우리 35열<br>가로스크롤</b></td><td>적합 (세로선 유지)</td><td>적합 (세로선 유지·색 띠로 그룹)</td><td>부적합 위험 (행 따라가기 어려움)</td></tr>
+      <tr><td><b>구현 부담</b></td><td>완료 (0)</td><td>중 — 상태·공정률·그룹띠 셀만 교체 (표시 전용, 엑셀 무접촉)</td><td>중 — CSS 위주 (표시 전용)</td></tr>
+    </table>
+    <p class="note">※ 섞기 예시: <b>「보고 모드」 스위치</b> — 평소엔 A안(실무), 버튼 하나 누르면 B안 요소(큰 상태 블록·큰 막대)로 전환해 회의실 화면에 띄우는 방식도 가능. 어느 안이든 셀 값·엑셀 업로드·병합 로직은 손대지 않고 '그리는 방법'만 바꿈 + 원복 스위치 유지.</p>
+  </div>
+</div>
+</body>
+</html>

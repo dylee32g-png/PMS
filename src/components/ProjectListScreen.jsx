@@ -6,7 +6,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home
 } from 'lucide-react';
 import { collection, doc, setDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -16,6 +16,7 @@ import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef } from './projectListData';
+import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 
 const VERSION = 'v6.8.7';
 
@@ -87,15 +88,24 @@ const EXT_SUBTABLE_PRESET = { type: 'subTable', target: '하위 공종표', file
     subCols: { '도면입수': 'H', 'I/O Map': 'M', '화면작성': 'R', '기준정보': 'Z', '자체시운전': 'AH', '통합시운전': 'AP' },
     subPtCol: 'AG', parentCols: { '도면입수': 'H', 'I/O Map': 'M', '화면작성': 'R', '기준정보': 'Z', 'HMI': 'Z' }, parentAccCol: 'AN', decimals: 1 };   // HMI = 기준정보생성 총계 진척율 (2026-07-22 팀장님)
 
+// ─── 세션 메모리 캐시 (2026-08-11 진입 속도) ───────────────────────────────
+//   마지막으로 받은 팀별 행·헤더를 앱 메모리에 보관 → 재진입·팀 탭 전환 시 즉시 표시.
+//   onSnapshot 실시간 구독은 그대로 살아 있어 서버 최신값 도착 즉시 자동 교체됨 (표시 순서만 캐시 먼저).
+//   F5(새로고침) 하면 비워짐 — 데이터의 원본은 언제나 Firestore.
+const _memRowsCache = {};   // { 팀: rows[] }
+const _memMetaCache = {};   // { 팀: { headers, colGroups } }
+
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
-const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, highlightExecNo, allProjects, onShowGraph,
+const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, onSwitchTeam, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
     baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings, isAdmin = false,
     openProgressPid = null, onProgressOpened }) => {
-    // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선, 없으면 하드코딩 폴백. List 상태는 월간보고 status와 별개 (2026-07-06 2단계: 구조 정정)
+    // ── 팀 프로파일 카드 (2026-08-11 2단계) — 팀별 값·규칙은 카드에서만 읽는다 (src/teamProfiles/, if(팀명) 하드코딩 금지)
+    const teamProfile = getTeamProfile(currentTeam);
+    // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선 → 팀 카드 → 공용 기본값 (2026-07-06 구조 + 2026-08-11 카드)
     const _teamCfg = currentTeam ? (teamSettings?.[currentTeam] || null) : null;
-    const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : DEFAULT_STATUS_OPTIONS;
-    const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : ASSIGNEE_LIST;
+    const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : (teamProfile?.상태?.기본목록 || DEFAULT_STATUS_OPTIONS);
+    const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : (teamProfile?.담당자목록 || ASSIGNEE_LIST);   // 팀 카드 담당자 명단 (2026-08-11 — 기술1팀 칩이 기술2팀 명단으로 뜨던 문제)
     const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ...STATUS_CHIP_COLORS, ..._teamCfg.listStatusColors } : STATUS_CHIP_COLORS;
     // ── NAS 진척자료 자동 반영 상태 (2026-07-22) ──────────────────────────────
     const [extModalRowId, setExtModalRowId] = useState(null);   // NAS 연결 모달(행 _id)
@@ -142,9 +152,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [statusDelIdx, setStatusDelIdx] = useState(null); // 진행현황 삭제 확인 대기 행
     const [managerDelIdx, setManagerDelIdx] = useState(null); // 담당자 삭제 확인 대기 행
     // ── Firebase 데이터 ──
-    const [fbHeaders,   setFbHeaders]   = useState([]);
-    const [fbColGroups, setFbColGroups] = useState([]);
-    const [fbRows,      setFbRows]      = useState([]);
+    const [fbHeaders,   setFbHeaders]   = useState(() => _memMetaCache[currentTeam]?.headers   || []);
+    const [fbColGroups, setFbColGroups] = useState(() => _memMetaCache[currentTeam]?.colGroups || []);
+    const [fbRows,      setFbRows]      = useState(() => _memRowsCache[currentTeam] || []);
+    const [fbLoaded,    setFbLoaded]    = useState(() => !!_memRowsCache[currentTeam]);   // 첫 스냅샷 도착 여부 — 캐시 있으면 즉시 true (2026-08-11)
 
     // ── 로컬(IndexedDB) 임시 데이터 ──
     const [localData, setLocalData]     = useState(null); // { headers, colGroups, rows, savedAt } | null
@@ -153,7 +164,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [pendingData, setPendingData] = useState(null); // { headers, colGroups, rows, fileName } | null
 
     // ── UI 상태 ──
-    const [isLoading, setIsLoading]         = useState(true);
+    const [isLoading, setIsLoading]         = useState(false);   // 진입 시엔 가림막 안 씀 — 업로드·저장 등 작업 중에만 (2026-08-11)
     const [alertMsg, setAlertMsg]           = useState('');
     const [searchTerm, setSearchTerm]       = useState('');
     const [sortConfig, setSortConfig]       = useState({ key: null, dir: 'asc' });
@@ -161,7 +172,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [openFilter, setOpenFilter]       = useState(null);
     const [hiddenCols, setHiddenCols]         = useState(() => loadHiddenCols(currentTeam)); // 브라우저 기억 로드 (2026-07-09)
     const [colDropOpen, setColDropOpen]       = useState(false);
-    const [activeStatusChips, setActiveStatusChips] = useState(new Set(['진행중', '추진중']));
+    // 기본 활성 상태 칩 = 팀 카드 '상태.기본활성칩' (2026-08-11 — 기술2팀 [진행중·추진중] 그대로, 기술1팀 []=전체)
+    const [activeStatusChips, setActiveStatusChips] = useState(() => new Set(getTeamProfile(currentTeam)?.상태?.기본활성칩 ?? ['진행중', '추진중']));
     const [activeAssignees, setActiveAssignees]     = useState(new Set());
     const [activeManagers, setActiveManagers]       = useState(new Set());   // 관리자 칩 필터 (2026-07-22 팀장님 — 담당자와 동일 형식)
     const [settingsOpen, setSettingsOpen]           = useState(false);
@@ -190,6 +202,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [tableScale, setTableScale]       = useState(loadScale);                        // 표 배율(%) — 이 PC에 기억 (2026-07-13)
     const resizeRef                          = useRef({ col: null, startX: 0, startWidth: 0 });
     useEffect(() => { setColWidths(loadColWidths(currentTeam)); }, [currentTeam]);   // 팀 전환 시 그 팀 열 너비 복원 (2026-07-13)
+    // 팀 전환 시 상태 칩도 그 팀 기본값으로 — 다른 팀 칩(진행중 등)이 남아 새 팀 표가 비어 보이는 것 방지 (2026-08-11)
+    useEffect(() => { setActiveStatusChips(new Set(getTeamProfile(currentTeam)?.상태?.기본활성칩 ?? ['진행중', '추진중'])); }, [currentTeam]);
     const [logs, setLogs]                   = useState([]);
     const [showDebug, setShowDebug]         = useState(false);
     const [selectedYear, setSelectedYear]   = useState(String(new Date().getFullYear()));
@@ -238,11 +252,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ── Firebase 구독 ────────────────────────────────────────────────────
     useEffect(() => {
         if (!user || !db) return;
-        setIsLoading(true);
-        addLog(`[Firebase] ${currentTeam} 구독 시작`);
+        // 진입 가림막 제거 (2026-08-11): 화면 뼈대는 바로 보여주고 표 안에 '불러오는 중' 한 줄만.
+        //   팀 전환·재진입 시 세션 메모리 캐시로 즉시 채우고(0초), 서버 최신값 도착 시 자동 교체.
+        const memR = _memRowsCache[currentTeam], memM = _memMetaCache[currentTeam];
+        setFbRows(memR || []); setFbLoaded(!!memR);
+        setFbHeaders(memM?.headers || []); setFbColGroups(memM?.colGroups || []);
+        addLog(`[Firebase] ${currentTeam} 구독 시작${memR ? ` (캐시 ${memR.length}행 선표시)` : ''}`);
 
         const unsubMeta = onSnapshot(metaDocRef(currentTeam), snap => {
             const d = snap.exists() ? snap.data() : {};
+            _memMetaCache[currentTeam] = { headers: d.headers || [], colGroups: d.colGroups || [] };
             setFbHeaders(d.headers || []);
             setFbColGroups(d.colGroups || []);
             addLog(`[Firebase] 헤더 ${(d.headers||[]).length}개`);
@@ -252,7 +271,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const r = snap.docs
                 .map(d => ({ _id: d.id, ...d.data() }))
                 .sort((a, b) => String(a._id).localeCompare(String(b._id)));
+            _memRowsCache[currentTeam] = r;
             setFbRows(r);
+            setFbLoaded(true);
             setIsLoading(false);
             addLog(`[Firebase] 행 ${r.length}개`);
         }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); });
@@ -307,8 +328,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try { v = localStorage.getItem(frozenKey(currentTeam)); } catch (e) {}
         if (v === 'NONE') { setFrozenUpTo(null); return; }              // 사용자가 명시적으로 해제해 둔 상태
         if (v && activeHeaders.includes(v)) { setFrozenUpTo(v); return; } // 기억된 열
-        setFrozenUpTo(projectNameCol || null);                            // 기본: Project 열까지
-    }, [currentTeam, projectNameCol]); // eslint-disable-line react-hooks/exhaustive-deps
+        // 기본값 = 팀 카드 '열.고정기본열' (2026-08-11): null=고정 없음(기술1팀 — 이름 열이 12번째라 절반이 고정되던 문제),
+        //   '자동'/미지정=이름 열까지(기술2팀 현행 Project까지), 열 이름=그 열까지
+        const dft = teamProfile?.열?.고정기본열;
+        if (dft === null) { setFrozenUpTo(null); return; }
+        if (typeof dft === 'string' && dft !== '자동' && activeHeaders.includes(dft)) { setFrozenUpTo(dft); return; }
+        setFrozenUpTo(projectNameCol || null);                            // 기본: 이름 열까지 (기술2팀 현행)
+    }, [currentTeam, projectNameCol, teamProfile]); // eslint-disable-line react-hooks/exhaustive-deps
     const toggleFreeze = (h) => setFrozenUpTo(p => {
         const nv = p === h ? null : h;
         try { localStorage.setItem(frozenKey(currentTeam), nv === null ? 'NONE' : nv); } catch (e) {}
@@ -326,7 +352,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [frzMeasured, setFrzMeasured] = useState({});
     useLayoutEffect(() => {
         if (!frozenUpTo) { setFrzMeasured(p => (Object.keys(p).length ? {} : p)); return; }
-        const tr = tbodyRef.current ? tbodyRef.current.querySelector('tr') : null;
+        // 데이터 행만 실측 (2026-08-11): '불러오는 중/데이터 없음'은 colSpan 한 칸짜리 행이라
+        //   그걸로 재면 발주처·Project 오프셋이 빠져 고정 열이 좁은 예비값으로 겹침 → 번호 잘림.
+        let tr = null;
+        if (tbodyRef.current) {
+            for (const cand of tbodyRef.current.querySelectorAll('tr')) {
+                const first = cand.children[0];
+                if (first && (!first.colSpan || first.colSpan <= 1)) { tr = cand; break; }
+            }
+        }
         if (!tr) return;
         const tds = tr.children;
         const base = tds.length ? tds[0].offsetLeft : 0;   // ★ 첫 칸 기준 정규화 — 표 앞 여백·기준 오차가 있어도 첫 칸=0 보장(멈춘 상태 잘림 원천 차단)
@@ -394,6 +428,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 편집: % 떼고 숫자만. 데이터는 숫자로 저장 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k=>s.includes(k)); };
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
+    // 시운전%·공정률 칸 = 막대+굵은 숫자 (2026-08-11 승인 시안 — 간부가 제일 먼저 보는 칸을 제일 크게. 100% 도달=초록)
+    //   표시 전용: 셀 편집·저장·엑셀 생성은 원래 숫자 값 그대로. PLC·ETOS·HMI 등 세부 %는 숫자만 굵게.
+    const pctCell = (h, val) => {
+        const disp = pctDisplay(h, val);
+        if (!isPctCol(h)) return disp;
+        const num = parseFloat(String(val ?? '').replace(/%/g, ''));
+        if (!isFinite(num)) return disp;
+        const s = String(h).replace(/\s/g, '');
+        if (!(s.includes('시운전') || s.includes('공정률'))) return <span style={{ fontWeight: 600 }}>{disp}</span>;
+        const w = Math.max(0, Math.min(100, num));
+        const full = num >= 100;
+        return (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                <span style={{ position: 'relative', width: 44, height: 7, background: '#edeae6', borderRadius: 9999, overflow: 'hidden', flex: 'none' }}>
+                    <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: w + '%', background: full ? '#059669' : '#1e7ac8', borderRadius: 9999 }}/>
+                </span>
+                <span style={{ fontWeight: 800, fontSize: '12.5px', color: full ? '#047857' : '#1e5f9e' }}>{num}<span style={{ fontSize: '10px', fontWeight: 700, color: '#a4a097' }}>%</span></span>
+            </span>
+        );
+    };
     // 프로젝트별 '미적용' 항목 (2026-07-21): _naItems(헤더명 배열)에 든 공정/시운전 칸 = 이 프로젝트엔 해당 없음 → 메인표 회색 ×
     // ★ 기본 미적용 (2026-07-21 팀장님): 엑셀에 열이 없는 진행 항목(도면입수·I/O Map·화면작성·기준정보·자체시운전 등)은
     //   전 프로젝트 기본 off — 상세팝업에서 켠 항목(_naOn)만 예외. 기본값 방식이라 기존 행·신규 행·엑셀 재업로드 전부 자동 적용.
@@ -516,19 +570,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         let canonColGroups = null;
         let canonColCount  = 0;
 
+        // 팀 카드 파서옵션 (2026-08-11 2단계) — 없으면 전부 기존 동작
+        const po = teamProfile?.파서옵션 || {};
+        const poHdr = Number.isInteger(po.헤더시작행) ? { startRow: po.헤더시작행, layers: po.헤더층 } : undefined;
         // 최신 연도 시트 1개만 읽기 (2026 등) — 2026-06-27 팀장님: 과거 연도·SM대응 제외
         const _years   = wb.SheetNames.map(n => extractYear(n)).filter(y => /^\d{4}$/.test(y));
         const _latestY = _years.sort((a, b) => b.localeCompare(a))[0];
         addLog(`최신 연도 시트만 사용: ${_latestY}`);
+        // 한시트만(기술1팀): 최신 연도 시트가 여러 개면("2026"+"2026 (2)") 열이 가장 많은 1개만 — 중복 적재 방지
+        let _useSheets = wb.SheetNames.filter(n => extractYear(n) === _latestY);
+        if (po.한시트만 && _useSheets.length > 1) {
+            let best = null, bestCols = -1;
+            for (const sn of _useSheets) {
+                const raw0 = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+                const cols = raw0.length >= 2 ? parseExcelHeaders(raw0, () => {}, poHdr).colDefs.length : 0;
+                if (cols > bestCols) { best = sn; bestCols = cols; }
+            }
+            addLog(`한 시트만(팀 카드): "${best}" (${bestCols}열) — 나머지 ${_useSheets.length - 1}개 제외`);
+            _useSheets = [best];
+        }
         for (const sheetName of wb.SheetNames) {
             const year = extractYear(sheetName);
-            if (year !== _latestY) { addLog(`시트 "${sheetName}" 건너뜀 (최신연도 ${_latestY}만)`); continue; }
+            if (!_useSheets.includes(sheetName)) { addLog(`시트 "${sheetName}" 건너뜀 (최신연도 ${_latestY}만)`); continue; }
             const ws   = wb.Sheets[sheetName];
             const raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
             addLog(`── 시트 "${sheetName}" (연도: ${year}): ${raw.length}행`);
             if (raw.length < 2) { addLog(`  ↳ 스킵 (행 부족)`); continue; }
 
-            const { colDefs, colGroups: cg, dataStart } = parseExcelHeaders(raw, addLog);
+            const { colDefs, colGroups: cg, dataStart } = parseExcelHeaders(raw, addLog, poHdr);
             if (colDefs.length === 0) { addLog(`  ↳ 스킵 (헤더 없음)`); continue; }
 
             // 헤더 기준 = 열이 가장 많은(가장 풍부한) 시트. 맨 앞 'SM대응'(10열)처럼 단순한 시트가 기준이 돼
@@ -538,6 +607,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const ts = Date.now();
             // 번호 3자리 패딩 (2026-07-20 팀장님): 원본 엑셀은 1·2·3 그대로 두고, 업로드가 001·002·003으로 자동 변환
             const _noColName = (colDefs.find(c => String(c.name).replace(/\s/g, '') === '번호') || {}).name;
+            // 필수열(팀 카드): 문자열 1개 또는 배열 — 하나라도 빈 행은 제외.
+            //   기술1팀 = 순번+공사명 둘 다: 템플릿 행(순번만)은 공사명에서, 하단 집계표(접수건·수주·완료·잔여 — 공사명 칸에 라벨만)는 순번에서 탈락 (2026-08-11 실측)
+            const _reqCols = (po.필수열 ? [].concat(po.필수열) : [])
+                .map(rq => (colDefs.find(c => String(c.name).replace(/\s/g, '') === String(rq).replace(/\s/g, '')) || {}).name)
+                .filter(Boolean);
             const sheetRows = raw.slice(dataStart).map((row, idx) => {
                 const obj = {
                     _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
@@ -545,7 +619,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     _year: year
                 };
                 colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
-                if (_noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
+                if (po.번호패딩 !== false && _noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
+                if (_reqCols.length && _reqCols.some(n => !obj[n])) return null;
                 return colDefs.every(({ name }) => !obj[name]) ? null : obj;
             }).filter(Boolean);
 
@@ -2048,14 +2123,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   ※ 지금은 '프로젝트 추가'에만 적용. 상세/수정 팝업은 기존 152건 중 완료일이 빈 행이 많아
     //     그대로 걸면 수정 자체가 막힘 → 데이터 정리 후 함께 적용 예정. [[contract-date-pair-rule]]
     //   ※ 계약일 > 완료일(순서 뒤바뀜) 검사도 데이터 정리 때 함께 결정 예정.
+    // 날짜짝 열 찾기 — 팀 카드 '열.날짜짝' [시작열, 끝열] (2026-08-11 2단계: 기술2팀 = 공사 계약/공사 완료)
+    const datePairCols = useMemo(() => {
+        const pair = teamProfile?.열?.날짜짝;
+        if (!Array.isArray(pair) || pair.length !== 2) return [undefined, undefined];
+        return pair.map(nm => {
+            const key = String(nm).replace(/\s/g, '');
+            return activeHeaders.find(h => String(h).replace(/\s/g, '').includes(key));
+        });
+    }, [activeHeaders, teamProfile]);
     const checkContractDates = (rowObj) => {
-        const cCol = activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사계약'));
-        const dCol = activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사완료'));
+        const [cCol, dCol] = datePairCols;                     // 팀 카드 '열.날짜짝' (2026-08-11 2단계)
         if (!cCol || !dCol) return null;                       // 해당 열이 없는 팀/양식이면 검사 안 함
+        const [cName, dName] = teamProfile.열.날짜짝;           // 안내문도 팀 열 이름으로 (기술2팀 = 기존 문구 그대로)
         const c = String(rowObj?.[cCol] ?? '').trim();
         const d = String(rowObj?.[dCol] ?? '').trim();
-        if (c && !d) return '[공사 완료] 일자를 입력해 주세요.\n\n공사 계약 일자를 넣으면 공사 완료 일자도 함께 넣어야 합니다.\n(둘 다 비워두는 것은 가능합니다)';
-        if (!c && d) return '[공사 계약] 일자를 입력해 주세요.\n\n공사 완료 일자만 넣을 수는 없습니다.\n(둘 다 비워두는 것은 가능합니다)';
+        if (c && !d) return `[${dName}] 일자를 입력해 주세요.\n\n${cName} 일자를 넣으면 ${dName} 일자도 함께 넣어야 합니다.\n(둘 다 비워두는 것은 가능합니다)`;
+        if (!c && d) return `[${cName}] 일자를 입력해 주세요.\n\n${dName} 일자만 넣을 수는 없습니다.\n(둘 다 비워두는 것은 가능합니다)`;
         return null;                                           // 둘 다 있음 / 둘 다 없음 → 통과
     };
 
@@ -2105,8 +2189,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!pid) { setAlertMsg('이 프로젝트는 내부 ID가 없어 그래프를 열 수 없습니다. (상세/수정에서 한 번 저장하면 발급됩니다)'); return; }
         const linked = allProjects ? allProjects.find(p => p.pid === pid) : null;
         // 그래프 기간 = List '공사 계약'(시작) ~ '공사 완료'(끝). 없으면 월간보고 값으로 폴백 (2026-07-13 규칙)
-        const _contractCol = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사계약'));
-        const _doneCol     = activeHeaders.find(h => String(h).replace(/\s/g,'').includes('공사완료'));
+        const [_contractCol, _doneCol] = datePairCols;   // 팀 카드 '열.날짜짝' (2026-08-11 2단계)
         const _sd = _contractCol ? toDateInputVal(row[_contractCol]) : '';
         const _ed = _doneCol     ? toDateInputVal(row[_doneCol])     : '';
         const _spTot = effTotalPt(row);   // 2단계(2026-07-20): 하위 합계 자동 총점 (합 0이면 부모 총점)
@@ -2208,10 +2291,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return activeRows.filter(r => !r._year || r._year === selectedYear);
     }, [activeRows, availableYears, selectedYear]);
 
-    // ── 기준월 필터 (2026-07-13) — 기준 날짜 = '공사 계약' 칸 ─────────────
-    const contractDateCol = useMemo(() =>
-        activeHeaders.find(h => String(h).replace(/\s/g, '').includes('공사계약')),
-    [activeHeaders]);
+    // ── 기준월 필터 (2026-07-13) — 기준 날짜 열 = 팀 카드 '열.기준월기준' (2026-08-11 2단계 연결)
+    //    기술2팀 = '공사 계약' 그대로 · 카드 값이 null(기술1팀 미정)이면 기준월 필터 비활성(전체 취급)
+    const contractDateCol = useMemo(() => {
+        const base = teamProfile?.열?.기준월기준;
+        if (!base) return undefined;
+        const key = String(base).replace(/\s/g, '');
+        return activeHeaders.find(h => String(h).replace(/\s/g, '').includes(key));
+    }, [activeHeaders, teamProfile]);
 
     // '기준연도 + 완전한 날짜(년·월·일 전부)'만 그 달로 인정 (2026-07-13 팀장님: 연도까지 따짐).
     //   → 기타 = 기준연도의 어느 달에도 못 들어가는 나머지 전부
@@ -2245,9 +2332,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     }, [yearFilteredRows, selectedMonth, contractDateCol, selectedYear]); // eslint-disable-line
 
     // ── 진행현황 칩 필터 ─────────────────────────────────────────────────
-    const statusFilterCol = useMemo(() =>
-        activeHeaders.find(h => ['진행현황', '현황', '진행'].some(k => h.includes(k))),
-    [activeHeaders]);
+    //   기준열 = 팀 카드 '상태.칩기준열'(공백무시 정확일치 — '계약'이 '공사 계약'에 안 걸리게) 우선,
+    //   카드 미지정(기술2팀 null)이면 현행 키워드 자동 그대로 (2026-08-11)
+    const statusFilterCol = useMemo(() => {
+        const base = teamProfile?.상태?.칩기준열;
+        if (base) {
+            const key = String(base).replace(/\s/g, '');
+            const hit = activeHeaders.find(h => String(h).replace(/\s/g, '') === key);
+            if (hit) return hit;
+        }
+        return activeHeaders.find(h => ['진행현황', '현황', '진행'].some(k => h.includes(k)));
+    }, [activeHeaders, teamProfile]);
 
     const statusChipData = useMemo(() => {
         if (!statusFilterCol) return [];
@@ -2268,6 +2363,43 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     }, [monthFilteredRows, statusFilterCol]);
 
+    // ── D안 KPI 요약 카드 (2026-08-11 팀장님 승인) — 표시 전용 파생 계산, 저장·엑셀 무접촉 ──
+    //   기준 = 칩 필터와 같은 monthFilteredRows(기준연도·월 반영) · 하위/삭제 행 제외.
+    //   공정률 = 그래프 공정률과 같은 PLC·ETOS·HMI·통합시운전 평균(열 없는 팀은 '공정률/진척률' 열 폴백).
+    //   포인트 = Σ누적 ÷ Σ총점(effTotalPt — 하위합 자동 규칙 그대로). 해당 열 없으면 카드 자동 숨김.
+    const kpiData = useMemo(() => {
+        const norm = (h) => String(h).replace(/\s/g, '');
+        const mains = monthFilteredRows.filter(r => !isSubListRow(r) && String(statusFilterCol ? (r[statusFilterCol] || '') : '').trim() !== '삭제');
+        const subCnt = monthFilteredRows.filter(r => isSubListRow(r)).length;
+        const progCnt = statusFilterCol ? mains.filter(r => String(r[statusFilterCol] || '').trim() === '진행중').length : 0;
+        const pctCols0 = activeHeaders.filter(h => ['PLC', 'ETOS', 'HMI', '통합시운전'].includes(norm(h)));
+        const useCols = pctCols0.length ? pctCols0 : activeHeaders.filter(h => norm(h).includes('공정률') || norm(h).includes('진척률'));
+        let pctSum = 0, pctN = 0;
+        mains.forEach(r => {
+            const vals = useCols.map(c => parseFloat(String(r[c] ?? '').replace(/%/g, ''))).filter(Number.isFinite);
+            if (vals.length) { pctSum += vals.reduce((a, b) => a + b, 0) / vals.length; pctN += 1; }
+        });
+        const accCol = activeHeaders.find(h => norm(h) === '누적');
+        let accSum = 0, totSum = 0;
+        mains.forEach(r => {
+            totSum += effTotalPt(r);
+            if (accCol) { const v = Number(String(r[accCol] ?? '').replace(/,/g, '')); if (Number.isFinite(v)) accSum += v; }
+        });
+        accSum = Math.round(accSum); totSum = Math.round(totSum);
+        const doneCol = activeHeaders.find(h => norm(h).includes('공사완료'));
+        const now = new Date();
+        const ymKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        return {
+            total: mains.length, subCnt, progCnt, month: now.getMonth() + 1,
+            avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN,
+            ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
+            doneCnt: doneCol ? mains.filter(r => String(r[doneCol] || '').startsWith(ymKey)).length : null,
+            newCnt: mains.filter(r => String(r._regDate || '').startsWith(ymKey)).length,
+            // '—' 카드 사유 구분용 (2026-08-11): 항목 자체가 없음 vs 열은 있는데 아직 값 없음
+            pctColCnt: useCols.length, hasAccCol: !!accCol, hasDoneCol: !!doneCol,
+        };
+    }, [monthFilteredRows, activeHeaders, statusFilterCol]);   // eslint-disable-line react-hooks/exhaustive-deps
+
     // '이름, 이름' 다중 담당자 지원 (2026-07-28 팀장님) — 쉼표 형식 + 옛 형식 모두 사람별로 나눠 취급
     const splitAssignees = (v) => splitAssigneeCell(v);
     const assigneeKeys = (v) => {   // 같은 사람 중복 표기('김종석 책임'+'김종석C')는 1명으로
@@ -2276,9 +2408,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return out;
     };
 
-    const assigneeFilterCol = useMemo(() =>
-        activeHeaders.find(h => h.includes('담당자') && !h.includes('업체')),
-    [activeHeaders]);
+    //   담당자 칩 열 = 팀 카드 '열.담당자필터열'(기술1팀 '수행' — 2026-08-11 확정) 우선, 없으면 현행 키워드
+    const assigneeFilterCol = useMemo(() => {
+        const base = teamProfile?.열?.담당자필터열;
+        if (base) {
+            const key = String(base).replace(/\s/g, '');
+            const hit = activeHeaders.find(h => String(h).replace(/\s/g, '') === key);
+            if (hit) return hit;
+        }
+        return activeHeaders.find(h => h.includes('담당자') && !h.includes('업체'));
+    }, [activeHeaders, teamProfile]);
 
     const assigneeCountMap = useMemo(() => {
         if (!assigneeFilterCol) return {};
@@ -2678,12 +2817,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         );
     };
 
-    // ─── 데이터 소스 배지 색상 ──────────────────────────────────────────
+    // ─── 데이터 소스 배지 색상 — 라이트 테마 대비 (2026-08-11: amber-300 등 다크용 옅은 글자가 흰 배경에서 안 보임)
     const srcBadge = {
-        pending:  { bg: 'bg-amber-500/15 border-amber-500/50',  text: 'text-amber-300',  icon: <Clock size={14}/>,       label: '미저장 미리보기' },
-        local:    { bg: 'bg-violet-500/15 border-violet-500/50', text: 'text-violet-300', icon: <HardDrive size={14}/>,   label: '로컬 임시 저장' },
-        firebase: { bg: 'bg-cyan-500/10 border-cyan-500/30',    text: 'text-cyan-400',   icon: <Database size={14}/>,    label: '' },
+        pending:  { bg: 'bg-amber-100 border-amber-500 rounded',  text: 'text-amber-900',  icon: <Clock size={14}/>,       label: '미저장 미리보기' },
+        local:    { bg: 'bg-violet-100 border-violet-500 rounded', text: 'text-violet-900', icon: <HardDrive size={14}/>,   label: '로컬 임시 저장' },
+        firebase: { bg: 'bg-cyan-50 border-cyan-500 rounded',     text: 'text-cyan-900',   icon: <Database size={14}/>,    label: '' },
     }[dataSource];
+
+    // ─── 홈/팀 전환 탭 (2026-08-11 팀장님) ─────────────────────────────────
+    //   미저장(pending/local) 상태에서는 이동 차단 — 미리보기 데이터가 다른 팀에 섞이는 사고 방지
+    const switchTeam = (t) => {
+        if (t === currentTeam) return;
+        if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 팀 이동을 할 수 없습니다.\n확정 저장 또는 업로드 취소 후 이동해 주세요.'); return; }
+        if (onSwitchTeam) onSwitchTeam(t);
+    };
 
     // ─── 렌더 ──────────────────────────────────────────────────────────────
     return (
@@ -3918,14 +4065,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             <input type="file" ref={userFileRef} onChange={handleUserExcelPick} accept=".xlsx,.xls" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
-            <header className="flex flex-row justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
-                {/* 왼쪽: 타이틀 + 연도 + 카운트 */}
+            <header className="flex flex-row flex-wrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
+                {/* 왼쪽: 홈·팀 탭 + 타이틀 + 연도 + 카운트 */}
                 <div className="flex items-center gap-2 min-w-0 shrink-0">
+                    {/* 홈 + 팀 전환 탭 (2026-08-11 팀장님 — 목록=팀 카드(LIST_TEAMS), Software팀 공사중 제외) */}
+                    <div className="flex items-center gap-0.5 p-0.5 bg-[#eef1f5] border border-[#dde2e9] rounded-lg shrink-0">
+                        <button onClick={onBack} title="홈 — 팀 선택 화면으로"
+                            className="flex items-center justify-center w-7 h-[26px] rounded-md text-[#5d6b7c] hover:bg-white hover:text-[#1e7ac8] hover:shadow-sm transition-all">
+                            <Home size={14}/>
+                        </button>
+                        {LIST_TEAMS.map(t => (
+                            <button key={t} onClick={() => switchTeam(t)} title={t + ' 프로젝트 List로 이동'}
+                                className={`px-2.5 h-[26px] rounded-md text-[11.5px] font-bold transition-all whitespace-nowrap ${t === currentTeam ? 'bg-white text-[#1e7ac8] shadow-sm' : 'text-[#5d6b7c] hover:bg-white/70 hover:text-[#37352f]'}`}>
+                                {t}
+                            </button>
+                        ))}
+                    </div>
                     <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                         <ListChecks size={20}/>
                     </div>
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
+                        <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap min-w-0 overflow-hidden text-ellipsis">
                             {currentTeam} 프로젝트 List
                         </h1>
                         {/* 연도 선택 — 월선택기·그달만/이전전체 토글을 연도 선택기로 단순화 (2026-07-06, List 실제 필터는 연도만) */}
@@ -3971,38 +4131,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
                 {/* 오른쪽: 버튼 (월간업무보고 동일 스타일) */}
                 <div className="flex items-center justify-end gap-1 shrink-0">
-                    {/* 이전화면 (팀 변경) */}
-                    <button onClick={onBack} title="팀 변경"
-                        className="flex items-center justify-center px-2.5 py-1.5 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
-                        이전화면
-                    </button>
+                    {/* 이전화면 버튼 → 왼쪽 홈 탭으로 통합 (2026-08-11) */}
 
                     {/* 표시 모드 — 컴팩트 */}
                     <button
                         onClick={() => setCompactMode(v => { const nv = (v + 1) % 3; try { localStorage.setItem('pms_list_compactMode', String(nv)); } catch (e) {} return nv; })}
                         title={['보통 → 컴팩트', '컴팩트 → 초소형', '초소형 → 보통'][compactMode]}
-                        style={{ background: compactMode === 0 ? '#eef2f7' : compactMode === 1 ? '#dbeafe' : '#bfdbfe', borderColor: compactMode === 0 ? '#cbd5e1' : compactMode === 1 ? '#60a5fa' : '#3b82f6', color: '#111827' }}
+                        style={{ background: compactMode === 0 ? '#ffffff' : compactMode === 1 ? '#eaf2fb' : '#d8e9f9', borderColor: '#d8d4cf', color: '#37352f' }}
                         className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border transition-all text-xs font-bold shrink-0"
                     >
-                        <AlignJustify size={14} style={{ color: '#111827' }} />
-                        <span style={{ color: '#111827' }}>{['보통','컴팩트','초소형'][compactMode]}</span>
+                        <AlignJustify size={14} style={{ color: '#37352f' }} />
+                        <span style={{ color: '#37352f' }}>{['보통','컴팩트','초소형'][compactMode]}</span>
                     </button>
 
                     {/* 표 배율 — 내 PC에만 저장(개인별). 모니터에 맞춰 한 번 고르면 계속 유지 (2026-07-13) */}
-                    <div className="flex items-center gap-1 px-2 py-1 rounded border border-[#cbd5e1] bg-[#eef2f7] shrink-0"
+                    <div className="flex items-center gap-1 px-2 py-1 rounded border border-[#d8d4cf] bg-white shrink-0"
                          title="표 전체 확대/축소 — 이 컴퓨터에만 저장됩니다(다른 사람 화면에 영향 없음)">
                         <ZoomIn size={13} className="text-[#1e7ac8]" />
                         <select
                             value={tableScale}
                             onChange={e => { const v = Number(e.target.value); setTableScale(v); saveScale(v); }}
-                            className="bg-transparent border-none text-[#111827] text-xs font-bold outline-none cursor-pointer">
+                            className="bg-transparent border-none text-[#37352f] text-xs font-bold outline-none cursor-pointer">
                             {SCALE_OPTIONS.map(v => <option key={v} value={v}>{v}%</option>)}
                         </select>
                     </div>
 
                     {/* 프로젝트 추가 */}
                     <button onClick={handleOpenAddRow}
-                        className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded border border-blue-500/60 bg-blue-500/15 hover:bg-blue-500 text-[#111827] hover:text-white transition-all text-xs font-bold shrink-0">
+                        className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border border-[#1e7ac8] bg-[#1e7ac8] hover:bg-[#1866a8] text-white transition-all text-xs font-bold shrink-0 shadow-sm">
                         <Plus size={14}/> 프로젝트 추가
                     </button>
 
@@ -4010,22 +4166,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <div className="flex items-center shrink-0">
                         <div className="relative">
                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none z-10 transition-colors" size={13}
-                                style={{ color: searchTerm ? '#f59e0b' : '#111827' }}/>
+                                style={{ color: searchTerm ? '#d97706' : '#8f8b84' }}/>
                             <input type="text" placeholder="전체 검색..." value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
-                                style={{ borderRadius: 0 }}
-                                className="bg-slate-900 border border-slate-700 hover:border-slate-600 py-1.5 pl-7 pr-2 text-xs text-white outline-none w-32 focus:w-48 transition-all placeholder-slate-500"/>
+                                style={{ borderRadius: 8 }}
+                                className="bg-white border border-[#d8d4cf] hover:border-[#b9b3ab] focus:border-[#1e7ac8] py-1.5 pl-7 pr-2 text-xs text-[#37352f] outline-none w-32 focus:w-48 transition-all placeholder-[#a4a097]"/>
                         </div>
                     </div>
 
 
-                    {/* 전체 저장 — ★관리자 전용 (2026-07-14). 일반 사용자는 셀·상세팝업 개별 저장만 사용 */}
-                    {(isAdmin || dataSource !== 'firebase') && (
+                    {/* 전체 저장 — ★관리자 전용 (2026-07-14). 일반 사용자는 셀·상세팝업 개별 저장만 사용
+                        ★2026-08-11 팀장님: 숨김 처리 — 모든 수정 경로가 즉시 저장이라 평상시 용도 없음 + 전량 덮어쓰기 위험.
+                        원개발자 의도 불명이라 삭제 아닌 숨김 (아래 false 지우면 복원. 로컬 임시 저장은 설정 메뉴에 있음) */}
+                    {false && (isAdmin || dataSource !== 'firebase') && (
                     <button onClick={confirmSaveAll} title="전체 행 저장"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-bold transition-all shrink-0"
-                        style={{ backgroundColor:'#16a34a', borderColor:'#15803d', color:'#fff', boxShadow:'0 1px 4px rgba(22,163,74,0.4)' }}
-                        onMouseEnter={e=>e.currentTarget.style.backgroundColor='#15803d'}
-                        onMouseLeave={e=>e.currentTarget.style.backgroundColor='#16a34a'}>
+                        style={{ backgroundColor:'#37352f', borderColor:'#37352f', color:'#fff', boxShadow:'0 1px 3px rgba(55,53,47,0.35)' }}
+                        onMouseEnter={e=>e.currentTarget.style.backgroundColor='#232019'}
+                        onMouseLeave={e=>e.currentTarget.style.backgroundColor='#37352f'}>
                         <Save size={13}/> 전체 저장
                     </button>
                     )}
@@ -4036,7 +4194,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     {/* 월간 업무 보고 이동 버튼 */}
                     {onGoToPms && (
                         <button onClick={() => onGoToPms()} title="월간 업무 보고"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-blue-700 bg-blue-100 hover:bg-blue-600 text-[#111827] hover:text-white transition-all shrink-0 text-xs font-bold">
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
                             <FileText size={13}/> 월간보고
                         </button>
                     )}
@@ -4044,7 +4202,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     {/* 작업 백로그 이동 (2026-07-10) */}
                     {onGoToBacklog && (
                         <button onClick={() => onGoToBacklog()} title="작업 백로그 — 누가·언제·무엇을 바꿨는지"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded border border-[#1e7ac8] bg-white hover:bg-[#1e7ac8] text-[#1e7ac8] hover:text-white transition-all shrink-0 text-xs font-bold">
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
                             <Clock size={13}/> 백로그
                         </button>
                     )}
@@ -4053,7 +4211,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     {/* 설정 드롭다운 */}
                     <div className="relative shrink-0">
                         <button onClick={() => setSettingsOpen(v=>!v)}
-                            className="flex items-center justify-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 px-2 py-1.5 rounded transition-all text-xs font-bold text-slate-300 hover:text-white">
+                            className="flex items-center justify-center gap-1 bg-white hover:bg-[#f7f5f2] border border-[#d8d4cf] px-2.5 py-1.5 rounded-lg transition-all text-xs font-bold text-[#37352f]">
                             <Settings size={13}/> 설정 <ChevronDown size={11}/>
                         </button>
                         {settingsOpen && (
@@ -4226,7 +4384,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
 
             {/* ── 빈 상태 / 테이블 ── */}
-            {activeHeaders.length === 0 ? (
+            {activeHeaders.length === 0 ? ((!fbLoaded && dataSource === 'firebase') ? (
+                /* 첫 데이터 도착 전 — 업로드 안내가 먼저 번쩍이지 않게 '불러오는 중'만 (2026-08-11) */
+                <div className="flex-1 flex flex-col items-center justify-center">
+                    <div className="text-center">
+                        <div className="inline-block w-8 h-8 border-[3px] border-[#1e7ac8] border-t-transparent rounded-full animate-spin mb-4"/>
+                        <p className="text-slate-400 font-bold text-base">데이터를 불러오는 중입니다…</p>
+                    </div>
+                </div>
+            ) : (
                 <div className="flex-1 flex flex-col items-center justify-center animate-in">
                     <div className="max-w-lg w-full text-center">
                         <div className="inline-flex items-center justify-center p-5 bg-slate-900 rounded-3xl shadow-[0_0_40px_rgba(16,185,129,0.12)] border border-slate-800 mb-8">
@@ -4246,8 +4412,52 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         )}
                     </div>
                 </div>
-            ) : (
+            )) : (
                 <div className="flex-1 bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden flex flex-col min-h-0">
+                    {/* ── KPI 요약 카드 (D안 2026-08-11 — 표시 전용. 간부가 물어볼 숫자를 표 위에 상시) ── */}
+                    {kpiData.total > 0 && (
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: '#edf1f7', flexShrink: 0 }}>
+                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>프로젝트</div>
+                                <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.total}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
+                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{statusFilterCol ? `진행중 ${kpiData.progCnt}건 · ` : ''}하위 {kpiData.subCnt}건</div>
+                            </div>
+                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>평균 공정률</div>
+                                {kpiData.avgPct !== null ? (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#1e7ac8', lineHeight: 1.2 }}>{kpiData.avgPct}<span style={{ fontSize: '12px' }}>%</span></div>
+                                ) : (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
+                                )}
+                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
+                                    {kpiData.avgPct !== null ? `값 있는 ${kpiData.pctN}건 평균` : (kpiData.pctColCnt ? '아직 입력된 공정률 없음' : '이 팀 표엔 공정률 항목 없음')}
+                                </div>
+                            </div>
+                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>포인트 달성률</div>
+                                {kpiData.ptPct !== null ? (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{kpiData.ptPct}<span style={{ fontSize: '12px' }}>%</span></div>
+                                ) : (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
+                                )}
+                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
+                                    {kpiData.ptPct !== null ? `${kpiData.accSum.toLocaleString()} / ${kpiData.totSum.toLocaleString()}`
+                                        : (!kpiData.hasAccCol ? '이 팀 표엔 누적 항목 없음' : '아직 총점(포인트) 값 없음')}
+                                </div>
+                            </div>
+                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>{kpiData.month}월 완료</div>
+                                {kpiData.doneCnt !== null ? (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.doneCnt}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
+                                ) : (
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
+                                )}
+                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
+                                    {kpiData.doneCnt !== null ? `공사완료 날짜 기준 · 신규 등록 ${kpiData.newCnt}건` : '이 팀 표엔 공사완료 날짜 항목 없음'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {/* ── 진행현황 + 담당자 칩 필터 바 (한 행) ── */}
                     {statusFilterCol && statusChipData.length > 0 && (
                         <div style={{ padding: '6px 14px', borderBottom: '1px solid #c4ccd8', backgroundColor: '#edf1f7', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flexShrink: 0 }}>
@@ -4341,25 +4551,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 const thPx    = compactMode===0 ? 'px-3 py-1'   : compactMode===1 ? 'px-2 py-px'  : 'px-1.5 py-0';
                                 const thSub   = compactMode===0 ? 'px-2 py-0.5' : compactMode===1 ? 'px-2 py-px'  : 'px-1.5 py-0';
                                 const tdPx    = compactMode===0 ? 'px-3 py-2'   : compactMode===1 ? 'px-2 py-1'   : 'px-1.5 py-0.5';
+                                const cellSz  = compactMode===0 ? 'text-[12.5px]' : compactMode===1 ? 'text-[11.5px]' : 'text-[10px]';   // 간부 가독성: 보통 12.5px (2026-08-11 시안)
                                 const noTdPx  = compactMode===0 ? 'px-2 py-2'   : compactMode===1 ? 'px-2 py-1'   : 'px-1 py-0.5';
                                 const actTdPx = compactMode===0 ? 'px-1 py-1'   : compactMode===1 ? 'px-1 py-0.5'   : 'px-0.5 py-0';
                                 const noSz    = compactMode===0 ? 'text-[11px]' : compactMode===1 ? 'text-[11px]' : 'text-[9px]';
                                 const mgrSz   = compactMode===0 ? 'text-[11px]' : compactMode===1 ? 'text-[10px]' : 'text-[9px]';
                                 const iconSz  = compactMode===2 ? 12 : 14;
 
-                                // ── 고정 열 오프셋 — 실측값 우선 (2026-07-21: 내용맞춤 표라 getW 누적은 겹침 버그), 실측 전엔 getW 누적 폴백 ──
+                                // ── 고정 열 오프셋 — '실측값'만 사용 (2026-08-11 잘림 수리) ──
+                                //   getW 기본폭 누적 폴백은 실제 내용맞춤 폭보다 좁아(번호 22px 등) 스크롤 시
+                                //   고정 열끼리 겹쳐 왼쪽 열이 잘리는 원인이라 폐기. 실측 전 찰나엔 고정 미적용
+                                //   (스크롤 전이라 화면 차이 없음 — 실측(useLayoutEffect)이 같은 프레임에 채워줌).
                                 let frozenOffsets = {};
-                                if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo)) {
-                                    if (Object.keys(frzMeasured).length) {
-                                        frozenOffsets = frzMeasured;
-                                    } else {
-                                        let left = 0;
-                                        for (const h of mainVisibleHeaders) {
-                                            frozenOffsets[h] = left;
-                                            left += getW(h);
-                                            if (h === frozenUpTo) break;
-                                        }
-                                    }
+                                if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo) && Object.keys(frzMeasured).length) {
+                                    frozenOffsets = frzMeasured;
                                 }
                                 const isFrz  = h => frozenOffsets[h] !== undefined;
                                 const isPinH = h => h === frozenUpTo;
@@ -4442,14 +4647,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 {sortedRows.length === 0 ? (
                                     <tr>
                                         <td colSpan={mainVisibleHeaders.length+2} className="py-20 text-center">
-                                            <p className="text-slate-400 font-bold text-base mb-1">조건에 맞는 데이터가 없습니다.</p>
-                                            <p className="text-slate-600 text-sm">필터/검색 조건을 변경해보세요.</p>
+                                            {(!fbLoaded && dataSource === 'firebase') ? (
+                                                <>
+                                                    <div className="inline-block w-6 h-6 border-[3px] border-[#1e7ac8] border-t-transparent rounded-full animate-spin mb-3"/>
+                                                    <p className="text-slate-400 font-bold text-base mb-1">데이터를 불러오는 중입니다…</p>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p className="text-slate-400 font-bold text-base mb-1">조건에 맞는 데이터가 없습니다.</p>
+                                                    <p className="text-slate-600 text-sm">필터/검색 조건을 변경해보세요.</p>
+                                                </>
+                                            )}
                                         </td>
                                     </tr>
                                 ) : sortedRows.map((row,ri) => {
                                     const isSelected    = selectedRowId    === row._id;
                                     const isHlRow       = highlightedRowId === row._id;
-                                    const rowBg = isHlRow ? 'rgba(251,191,36,0.18)' : isSelected ? '#dbeafe' : '#ffffff';
+                                    // 고정(sticky) 열은 스크롤 내용이 밑으로 지나가므로 배경 반투명 금지 — 같은 톤 불투명 색 (2026-08-11 틀고정 겹침 수리)
+                                    const rowBg = isHlRow ? '#fdf3d8' : isSelected ? '#dbeafe' : '#ffffff';
                                     return (
                                     <tr key={row._id}
                                         data-row-id={row._id}
@@ -4496,10 +4711,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20 transition-colors
                                                         ${isPinH(h)?'border-r-2 border-blue-400/50 frz-edge':'border-r border-slate-400'}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
-                                                        ${isDateCol(h)?'text-slate-400 text-[11px]':'text-slate-300 text-[11px]'}
-                                                        ${isHl?'bg-amber-950/20 text-amber-200':''}
+                                                        ${cellSz}
+                                                        ${isHl?'bg-amber-100 text-amber-900':''}
                                                         ${isFrz(h)?'z-10':''}`}
-                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'':rowBg}:{})}}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
                                                     title={val||''}
                                                     onClick={e=>{
                                                         e.stopPropagation();
@@ -4553,7 +4768,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         const _tot = _auto ? _sp.sum : String(val).trim();
                                                         const _tip = _auto ? `포인트 ${_tot} = 하위 ${_sp.count}개 합계 (자동)` : undefined;
                                                         return <span title={_tip} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{_auto ? 'Σ ' : ''}{String(_tot)}</span>;
-                                                    })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctDisplay(h, val)}</span> : <span className="text-slate-700">—</span>)}
+                                                    })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span> : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}

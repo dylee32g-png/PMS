@@ -199,12 +199,19 @@ export function computeMergePlan(existingRows, pendingRows, headers) {
 }
 
 // ─── 엑셀 헤더 파싱 ────────────────────────────────────────────────────────
-export function parseExcelHeaders(raw, addLog) {
+// opts(선택, 팀 카드 '파서옵션' — 2026-08-11): { startRow: 헤더 시작행(0부터), layers: 2 = 그룹+세부 고정 }
+//   opts 미지정 = 지금까지의 자동 감지 그대로 (기술2팀 등 기존 팀 동작 불변).
+export function parseExcelHeaders(raw, addLog, opts) {
     let startRow = 0;
+    if (opts && Number.isInteger(opts.startRow)) {
+        startRow = opts.startRow;
+        addLog(`헤더 시작행 지정: 행 ${startRow} (팀 카드 파서옵션)`);
+    } else {
     while (startRow < Math.min(raw.length - 1, 5)) {
         const ne = (raw[startRow] || []).filter(v => String(v).trim() !== '').length;
         if (ne <= 2) { addLog(`행 ${startRow} 건너뜀 (비빈칸 ${ne}개)`); startRow++; }
         else break;
+    }
     }
     const rowA = raw[startRow]     || [];
     const rowB = raw[startRow + 1] || [];
@@ -220,7 +227,11 @@ export function parseExcelHeaders(raw, addLog) {
         rowC.some((v, i) => String(v).trim() !== '' && String(rowB[i] || '').trim() === '');
 
     let groupArr, colArr, dataStart;
-    if (threeLayer) {
+    if (opts && opts.layers === 2) {
+        // 팀 카드 지정: 그룹행+세부행 2층 고정 (기술1팀 — 그룹행이 세부행보다 칸수가 적어 자동감지 조건(neA>neB)에 안 걸림)
+        groupArr = rowA; colArr = rowB; dataStart = startRow + 2;
+        addLog(`2행 헤더(카드 지정): 그룹[${startRow}], 컬럼[${startRow + 1}], 데이터=[${startRow + 2}~]`);
+    } else if (threeLayer) {
         // 그룹=rowA(맨 위), 컬럼명=세부(rowC) 우선·없으면 중간(rowB)
         groupArr = rowA;
         colArr   = rowA.map((_, i) => String(rowC[i] || '').trim() || String(rowB[i] || '').trim());

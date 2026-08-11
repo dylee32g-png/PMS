@@ -120,9 +120,9 @@ thead tr:last-child td {
 
 tbody tr td {
   background-color: #ffffff !important;
-  color: #000000 !important;
-  border-right: 1px solid var(--line) !important;
-  border-bottom: 1px solid var(--line) !important;
+  color: #37352f !important;                                /* 순검정 → 따뜻한 잉크 (2026-08-11 시안) */
+  border-right: 1px solid var(--line-soft) !important;      /* 행 안쪽 선은 연하게 */
+  border-bottom: 1px solid var(--line-soft) !important;
   border-top: none !important;
   border-left: none !important;
 }
@@ -142,7 +142,10 @@ tr:hover td.sticky-col { background-color: #d8e8fa !important; }
 .sticky-last { border-right: none !important; box-shadow: 4px 0 6px -2px rgba(0,0,0,0.08) !important; }
 
 /* ── 짝수 행 배경 (엑셀 스타일) ── */
-tbody tr:nth-child(even) td { background-color: #f9fafc !important; }
+tbody tr:nth-child(even) td { background-color: #fbfaf8 !important; }   /* 웜톤 줄무늬 (2026-08-11 시안) */
+
+/* 숫자 세로 정렬 — 자릿수 폭 통일 (Stripe tabular-nums, 2026-08-11 시안) */
+table { font-variant-numeric: tabular-nums !important; }
 tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 
 /* ── 공사 진행 묶음 — 일반 항목과 동일 표시 (2026-06-29, 강조 색·경계 제거) ── */
@@ -378,8 +381,9 @@ tbody td:first-child {
   --st-done:     #059669;
   --st-hold:     #f59e0b;
   --st-danger:   #dc2626;
-  /* 표·선·배경 */
+  /* 표·선·배경 (2026-08-11 시안: 선 2단계 — 헤더·바깥=--line 진하게, 행 사이=--line-soft 연하게) */
   --line:    #eaeef4;
+  --line-soft: #efedeb;
   --head-bg: #f3f6fa;
   /* 글자색 (진/중/연) */
   --txt-strong: #1f2937;
