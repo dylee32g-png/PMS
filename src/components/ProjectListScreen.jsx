@@ -155,7 +155,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [fbHeaders,   setFbHeaders]   = useState(() => _memMetaCache[currentTeam]?.headers   || []);
     const [fbColGroups, setFbColGroups] = useState(() => _memMetaCache[currentTeam]?.colGroups || []);
     const [fbRows,      setFbRows]      = useState(() => _memRowsCache[currentTeam] || []);
-    const [fbLoaded,    setFbLoaded]    = useState(() => !!_memRowsCache[currentTeam]);   // 첫 스냅샷 도착 여부 — 캐시 있으면 즉시 true (2026-08-11)
+    const [fbLoaded,    setFbLoaded]    = useState(() => !!_memRowsCache[currentTeam]);   // 행 첫 스냅샷 도착 여부 — 캐시 있으면 즉시 true (2026-08-11)
+    const [fbMetaLoaded, setFbMetaLoaded] = useState(() => !!_memMetaCache[currentTeam]);  // 헤더(메타) 첫 도착 여부 — 행보다 늦게 오면 '없습니다' 오판하던 원인 (2026-08-12)
 
     // ── 로컬(IndexedDB) 임시 데이터 ──
     const [localData, setLocalData]     = useState(null); // { headers, colGroups, rows, savedAt } | null
@@ -257,6 +258,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const memR = _memRowsCache[currentTeam], memM = _memMetaCache[currentTeam];
         setFbRows(memR || []); setFbLoaded(!!memR);
         setFbHeaders(memM?.headers || []); setFbColGroups(memM?.colGroups || []);
+        setFbMetaLoaded(!!memM);
         addLog(`[Firebase] ${currentTeam} 구독 시작${memR ? ` (캐시 ${memR.length}행 선표시)` : ''}`);
 
         const unsubMeta = onSnapshot(metaDocRef(currentTeam), snap => {
@@ -264,8 +266,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             _memMetaCache[currentTeam] = { headers: d.headers || [], colGroups: d.colGroups || [] };
             setFbHeaders(d.headers || []);
             setFbColGroups(d.colGroups || []);
+            setFbMetaLoaded(true);
             addLog(`[Firebase] 헤더 ${(d.headers||[]).length}개`);
-        }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); });
+        }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); setFbLoaded(true); setFbMetaLoaded(true); });
 
         const unsubRows = onSnapshot(rowsColRef(currentTeam), snap => {
             const r = snap.docs
@@ -276,7 +279,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setFbLoaded(true);
             setIsLoading(false);
             addLog(`[Firebase] 행 ${r.length}개`);
-        }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); });
+        }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); setFbLoaded(true); setFbMetaLoaded(true); });
 
         return () => { unsubMeta(); unsubRows(); };
     }, [user, currentTeam]);
@@ -4384,7 +4387,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
 
             {/* ── 빈 상태 / 테이블 ── */}
-            {activeHeaders.length === 0 ? ((!fbLoaded && dataSource === 'firebase') ? (
+            {activeHeaders.length === 0 ? (((!fbLoaded || !fbMetaLoaded) && dataSource === 'firebase') ? (
                 /* 첫 데이터 도착 전 — 업로드 안내가 먼저 번쩍이지 않게 '불러오는 중'만 (2026-08-11) */
                 <div className="flex-1 flex flex-col items-center justify-center">
                     <div className="text-center">
