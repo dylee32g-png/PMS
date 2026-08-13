@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef } from './projectListData';
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 
 const VERSION = 'v6.8.7';
@@ -431,6 +431,41 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 편집: % 떼고 숫자만. 데이터는 숫자로 저장 (2026-06-29 팀장님)
     const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전'].some(k=>s.includes(k)); };
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
+    // ── 월간 마감 스냅샷 (2026-08-13 팀장님 확정 b안: 담당자가 값 확인 후 버튼으로 '찰칵') ──
+    //   월간보고(웹) 전월/금월/증감의 근거. 팀 카드 '월간마감' 팀만 노출(기술1팀). 달마다 문서 1개, 재실행=덮어쓰기(확인창).
+    const handleMonthlyClose = async () => {
+        setSettingsOpen(false);
+        if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 월간 마감을 할 수 없습니다.\n확정 저장 후 진행하세요.'); return; }
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const mains = activeRows.filter(r => !isSubListRow(r));
+        if (!mains.length) { setAlertMsg('마감할 데이터가 없습니다.'); return; }
+        const pick = (r, key) => { const k = key.replace(/\s/g, ''); const h = activeHeaders.find(x => String(x).replace(/\s/g, '') === k); return h ? (r[h] ?? '') : ''; };
+        const rows = {};
+        mains.forEach(r => {
+            rows[r._pid || r._id] = {
+                수행번호: pick(r, '수행번호'), 공사명: pick(r, '공사명'),
+                PLC: pick(r, 'PLC'), 'ETOS T/S': pick(r, 'ETOS T/S'), HMI: pick(r, 'HMI'),
+                '자체 시운전': pick(r, '자체 시운전'), '통합 시운전': pick(r, '통합 시운전'),
+                총물량: pick(r, '총물량'), 누적: pick(r, '누적'), 공정률전체: pick(r, '전체'),
+                계약: pick(r, '계약'), 작업: pick(r, '작업'), 납품: pick(r, '납품'),
+            };
+        });
+        try {
+            const ref = snapshotDocRef(currentTeam, ym);
+            const prev = await getDoc(ref);
+            const msg = prev.exists()
+                ? `[월간 마감] ${ym} — 이미 마감본이 있습니다(${String(prev.data().savedAt || '').slice(0, 16)} 저장).\n지금 List 값 ${mains.length}건으로 덮어쓸까요?`
+                : `[월간 마감] ${ym}\n\n지금 List의 값 ${mains.length}건을 이 달의 확정값으로 저장합니다.\n(월간보고의 전월/금월/증감 계산 근거 — 엑셀의 '시트 복사'와 같은 역할)\n\n진행할까요?`;
+            if (!window.confirm(msg)) return;
+            await setDoc(ref, { ym, savedAt: new Date().toISOString(), savedBy: user?.email || '', count: mains.length, rows });
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(월간 마감)',
+                note: `월간 마감 스냅샷 저장: ${ym} · ${mains.length}건${prev.exists() ? ' (덮어쓰기)' : ''}` });
+            setAlertMsg(`월간 마감 완료!\n\n${ym} 확정값 ${mains.length}건이 저장되었습니다.`);
+            addLog(`[월간 마감] ${ym} ${mains.length}건 저장`);
+        } catch (e) { setAlertMsg(`월간 마감 실패: ${e.message}`); }
+    };
+
     // 시운전%·공정률 칸 = 막대+굵은 숫자 (2026-08-11 승인 시안 — 간부가 제일 먼저 보는 칸을 제일 크게. 100% 도달=초록)
     //   표시 전용: 셀 편집·저장·엑셀 생성은 원래 숫자 값 그대로. PLC·ETOS·HMI 등 세부 %는 숫자만 굵게.
     const pctCell = (h, val) => {
@@ -4276,6 +4311,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                                         <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
                                     </button>
+                                    {/* 월간 마감 — 팀 카드 '월간마감' 팀만 (기술1팀, 2026-08-13 b안). 담당자가 값 확인 후 이 달 확정값 저장 */}
+                                    {teamProfile?.월간마감 && (
+                                    <button onClick={handleMonthlyClose} disabled={!activeRows.length}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-xs font-bold text-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <Calendar size={14} className="text-emerald-600"/> 월간 마감 (이 달 값 확정)
+                                    </button>
+                                    )}
                                     {/* 엑셀 반영 (추가·수정) — 일반 사용자용 보존 병합 (2026-08-10 팀장님):
                                         엑셀 적응기 대응. 올리면 웹과 비교해 신규·갱신만 미리보기 → 반영. 삭제 없음, 하위·NAS 칸 보호 */}
                                     {dataSource === 'firebase' && (

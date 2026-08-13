@@ -16,6 +16,10 @@ export function extractYear(sheetName) {
 export const metaDocRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'projectListMeta', t);
 export const rowsColRef = (t) => collection(db, 'artifacts', appId, 'public', 'data', 'projectListRows_' + t);
 export const rowDocRef  = (t, id) => doc(db, 'artifacts', appId, 'public', 'data', 'projectListRows_' + t, id);
+// 월간 마감 스냅샷 (2026-08-13): 달마다 문서 1개 — 월간보고(웹) 전월/금월/증감의 근거 장부
+export const snapshotDocRef = (t, ym) => doc(db, 'artifacts', appId, 'public', 'data', 'projectListSnapshots_' + t, ym);
+// 월간보고 엑셀 원본 (2026-08-13): 연도당 문서 1개 — 업로드한 월간보고 엑셀(금월 시트) 전체를 웹 원본으로 보관
+export const monthlyReportDocRef = (t, year) => doc(db, 'artifacts', appId, 'public', 'data', 'monthlyReport_' + t, String(year));
 // 자동 반영기(NAS Docker 프로그램 pms-reader) 상태 문서 (2026-07-31)
 //   프로그램이 매 회차 끝에 한 건 써 넣는다 → 화면은 '마지막 확인 시각'만 읽어 보여준다. 웹에서 쓰지 않음(읽기 전용).
 export const readerStatusRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'pmsReaderStatus', t);

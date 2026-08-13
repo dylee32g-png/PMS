@@ -3,8 +3,8 @@
 //   규칙은 List 화면 KPI 카드(kpiData)와 동일: 올해(_year) 기준 · 하위/삭제 행 제외 ·
 //   공정률 = PLC·ETOS·HMI·통합시운전 4항목 평균(없으면 공정률/진척률 열 폴백) ·
 //   포인트 달성률 = Σ누적 ÷ Σ총점(하위 '포인트' 합>0이면 부모 총점 = 하위 합 — 2단계 규칙 동일)
-import { getDocs } from 'firebase/firestore';
-import { rowsColRef } from './projectListData';
+import { getDocs, getDoc } from 'firebase/firestore';
+import { rowsColRef, monthlyReportDocRef } from './projectListData';
 import { getTeamProfile } from '../teamProfiles';
 
 const norm = (h) => String(h).replace(/\s/g, '');
@@ -59,12 +59,59 @@ export function computeTeamStats(rows, team) {
     };
 }
 
+// ── 월간보고 자료 기준 지표 (2026-08-13 팀장님: 최종 보고 자료 = 월간보고 → 홈 카드도 그 달 진행 합산) ──
+//   기준월 = ★엑셀 기준월(D2) 최우선 — 엑셀에 8~12월 선입력/잔존 값이 있는 행들이 있어
+//   '값 있는 마지막 달'로 잡으면 12월로 튐(2026-08-13 실측). D2 없을 때만 값 있는 마지막 달(현재 월 이하로 제한).
+export function computeMonthlyStats(mrDoc) {
+    const rows = Array.isArray(mrDoc?.rows) ? mrDoc.rows : [];
+    if (!rows.length) return null;
+    const curM = new Date().getMonth() + 1;
+    let dm = Number(mrDoc.baseMonth);
+    if (!(dm >= 1 && dm <= 12)) {
+        dm = 0;
+        rows.forEach(r => {
+            for (let m = Math.min(12, curM); m >= 1; m--) {
+                const q = r.qty && r.qty[m], p = r.pct && r.pct[m];
+                if ((q !== null && q !== undefined) || (p !== null && p !== undefined)) { if (m > dm) dm = m; break; }
+            }
+        });
+        if (!dm) dm = curM;
+    }
+    let activeCnt = 0, monQ = 0, pctSum = 0, pctN = 0, accSum = 0, totSum = 0;
+    rows.forEach(r => {
+        const q = r.qty ? r.qty[dm] : null, p = r.pct ? r.pct[dm] : null;
+        if ((q !== null && q !== undefined) || (p !== null && p !== undefined)) activeCnt += 1;
+        if (q) monQ += q;
+        if (p !== null && p !== undefined) { pctSum += p; pctN += 1; }
+        (r.qty || []).forEach(v => { if (v) accSum += v; });
+        if (r.point) totSum += r.point;
+    });
+    return {
+        mode: 'monthly', month: dm, total: rows.length, activeCnt, monQ: Math.round(monQ),
+        avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN,
+        ptPct: totSum > 0 ? Math.round(accSum / totSum * 100) : null,
+        accSum: Math.round(accSum), totSum: Math.round(totSum),
+        progCnt: activeCnt,   // 기존 렌더 호환용
+    };
+}
+
 // 세션 캐시 — 홈 재방문 시 즉시 표시(0초), 뒤에서 최신값 받아 교체 (List 진입과 같은 방식)
 const _cache = {};
 export const cachedTeamStats = (team) => _cache[team] || null;
 
 export async function fetchTeamStats(team) {
     try {
+        // 월간마감 팀(기술1팀)은 월간보고 자료가 올라와 있으면 그것을 기준으로 (2026-08-13 — 보고 자료 우선)
+        const profile = getTeamProfile(team);
+        if (profile?.월간마감) {
+            try {
+                const mr = await getDoc(monthlyReportDocRef(team, new Date().getFullYear()));
+                if (mr.exists()) {
+                    const st = computeMonthlyStats(mr.data());
+                    if (st) { _cache[team] = st; return st; }
+                }
+            } catch (e) { /* 월간보고 자료 없으면 아래 List 기준으로 */ }
+        }
         const snap = await getDocs(rowsColRef(team));
         const rows = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
         const st = computeTeamStats(rows, team);

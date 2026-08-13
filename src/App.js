@@ -22,6 +22,7 @@ import {
 import LoginScreen from './components/LoginScreen';
 import UserManagementScreen from './components/UserManagementScreen';
 import ProjectListScreen from './components/ProjectListScreen';
+import Tech1MonthlyScreen from './components/Tech1MonthlyScreen';   // 기술1팀 월간보고 = 엑셀 양식 웹 재현 (2026-08-13)
 import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
 import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
 import { LIST_TEAMS } from './teamProfiles';
@@ -5755,21 +5756,25 @@ const TechTeamPMS = () => {
                                           );
                                           return (
                                               <div className="px-5 pb-3 pt-0.5 flex items-stretch gap-2 flex-wrap cursor-default select-none border-t border-[#f5f2ef]">
-                                                  {/* 진행중 — 큰 숫자 + 근거 */}
+                                                  {/* 진행중 — 큰 숫자 + 근거 (월간보고 모드 = 그 달 진행 합산, 2026-08-13 팀장님) */}
                                                   <div className="flex-1 min-w-[110px] pt-2">
-                                                      <div className="text-[11px] font-bold text-[#8f8b84]">진행중</div>
+                                                      <div className="text-[11px] font-bold text-[#8f8b84]">{st.mode === 'monthly' ? `${st.month}월 진행` : '진행중'}</div>
                                                       <div className="leading-none mt-1">
-                                                          <span className="text-[30px] font-extrabold text-[#37352f] tracking-tight">{st.progCnt}</span>
+                                                          <span className="text-[30px] font-extrabold text-[#37352f] tracking-tight">{st.mode === 'monthly' ? st.activeCnt : st.progCnt}</span>
                                                           <span className="text-[13px] font-bold text-[#a4a097]"> / {st.total}건</span>
                                                       </div>
-                                                      <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</div>
+                                                      <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">{st.mode === 'monthly'
+                                                          ? <>월간보고 자료 기준<br/>{st.month}월 실적 {st.monQ.toLocaleString()}pt</>
+                                                          : <>전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</>}</div>
                                                   </div>
                                                   {/* 공정률 도넛 */}
                                                   {st.avgPct !== null && (
                                                       <div className="flex-1 min-w-[110px] pt-2 flex flex-col items-center text-center">
                                                           <div className="text-[11px] font-bold text-[#8f8b84] mb-1.5">평균 공정률</div>
                                                           <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'}/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">값 있는 {st.pctN}건 평균<br/>(PLC·ETOS·HMI·통합)</div>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">{st.mode === 'monthly'
+                                                              ? <>{st.month}월 값 있는 {st.pctN}건 평균<br/>(전체 공정률)</>
+                                                              : <>값 있는 {st.pctN}건 평균<br/>(PLC·ETOS·HMI·통합)</>}</div>
                                                       </div>
                                                   )}
                                                   {/* 포인트 달성률 도넛 */}
@@ -5928,6 +5933,15 @@ const TechTeamPMS = () => {
                   onProgressSaved={handleProgressSaved}
                   onExitToPc={() => setCurrentMode(null)}
                   onSignOut={handleSignOut}
+              />
+          ) : currentMode === 'pms' && currentTeam === '기술1팀' ? (
+              /* 기술1팀 월간보고 (2026-08-13 팀장님 컨셉): List=뼈대·금월=실시간·전월=[월간 마감] 스냅샷.
+                 기술2·3팀 월간보고는 기존 화면 그대로(아래 분기). */
+              <Tech1MonthlyScreen
+                  currentTeam={currentTeam}
+                  user={user}
+                  onBack={() => setCurrentMode(null)}
+                  onGoToList={() => setCurrentMode('projectList')}
               />
           ) : currentMode === 'backlog' ? (
               <BacklogScreen teams={currentTeam ? [currentTeam] : ['기술1팀', '기술2팀', '기술3팀', 'Software팀']} onBack={() => setCurrentMode(backlogReturn)} />
