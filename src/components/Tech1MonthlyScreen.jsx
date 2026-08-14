@@ -244,6 +244,59 @@ function RowDetail({ rec, month, onClose }) {
                         </div>
                     )}
                 </div>
+                {/* 실적 그래프 (2026-08-13 팀장님: List 실적 그래프처럼 프로젝트 클릭 시 그래프) — 막대=월별 시운전 수량 · 선=전체 공정률 */}
+                {hasMatrix && (() => {
+                    const W = 900, H = 185, padL = 14, padR = 14, top = 26, base = 142;
+                    const slot = (W - padL - padR) / 13, barW = Math.min(40, slot * 0.6);
+                    const yQ = (v) => base - (v / maxQ) * (base - top);
+                    const yP = (v) => base - (v / 100) * (base - top);
+                    const pts = Array.from({ length: 13 }, (_, m) => {
+                        const v = rec._pct ? rec._pct[m] : null;
+                        return v === null || v === undefined ? null : `${padL + slot * m + slot / 2},${yP(Math.min(100, v))}`;
+                    }).filter(Boolean).join(' ');
+                    return (
+                        <div style={{ border: '1px solid #e5e3df', borderRadius: 10, padding: '8px 10px 0', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#73716b', marginBottom: 2 }}>
+                                <b style={{ fontSize: 12, color: '#37352f' }}>실적 그래프</b>
+                                <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#8ec3ec', borderRadius: 2, marginRight: 4 }}/>시운전 수량(그 달)</span>
+                                <span><span style={{ display: 'inline-block', width: 14, height: 3, background: '#16a34a', borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }}/>전체 공정률(%)</span>
+                                <span style={{ color: '#a4a097' }}>파란 진한 막대 = 기준월({month}월)</span>
+                            </div>
+                            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
+                                {Array.from({ length: 13 }, (_, m) => {
+                                    const v = rec._qty ? rec._qty[m] : null;
+                                    const x = padL + slot * m + (slot - barW) / 2;
+                                    const sel = m === month;
+                                    const h = v ? Math.max(2, base - yQ(v)) : 0;
+                                    return (
+                                        <g key={m}>
+                                            {sel && <rect x={padL + slot * m} y={top - 14} width={slot} height={base - top + 32} fill="rgba(30,122,200,0.07)" rx={5}/>}
+                                            {v !== null && v !== undefined && (
+                                                <>
+                                                    <rect x={x} y={base - h} width={barW} height={h} rx={3} fill={m === 0 ? '#cbc7c0' : sel ? '#1e7ac8' : '#8ec3ec'}/>
+                                                    <text x={x + barW / 2} y={base - h - 5} textAnchor="middle" fontSize="10" fontWeight="700" fill={sel ? '#0f5a99' : '#73716b'}>{v.toLocaleString()}</text>
+                                                </>
+                                            )}
+                                            <text x={padL + slot * m + slot / 2} y={base + 17} textAnchor="middle" fontSize="10.5" fontWeight={sel ? 800 : 600} fill={sel ? '#0f5a99' : '#8f8b84'}>{m === 0 ? '이월' : m + '월'}</text>
+                                        </g>
+                                    );
+                                })}
+                                {pts && <polyline points={pts} fill="none" stroke="#16a34a" strokeWidth="2" strokeLinejoin="round"/>}
+                                {Array.from({ length: 13 }, (_, m) => {
+                                    const v = rec._pct ? rec._pct[m] : null;
+                                    if (v === null || v === undefined) return null;
+                                    const cx = padL + slot * m + slot / 2, cy = yP(Math.min(100, v));
+                                    return (
+                                        <g key={'p' + m}>
+                                            <circle cx={cx} cy={cy} r="3" fill="#16a34a"/>
+                                            <text x={cx} y={cy - 6} textAnchor="middle" fontSize="9" fontWeight="700" fill="#15803d">{v}%</text>
+                                        </g>
+                                    );
+                                })}
+                            </svg>
+                        </div>
+                    );
+                })()}
                 {hasMatrix ? (
                     <div style={{ overflow: 'auto', border: '1px solid #e5e3df', borderRadius: 10 }}>
                         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
