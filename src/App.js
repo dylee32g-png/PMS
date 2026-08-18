@@ -5600,23 +5600,24 @@ const TechTeamPMS = () => {
                       </div>
                   </div>
 
-                  {/* pt-16→pt-6 (2026-08-11): 카드에 지표 대시보드가 들어가 키가 커짐 — FHD에서 스크롤 없이 한 화면 */}
-                  <div className="max-w-5xl w-full animate-in m-auto px-4 md:px-6 pt-6 pb-6">
-                      <div className="text-center mb-5">
-                          <div className="inline-flex items-center justify-center w-11 h-11 rounded-2xl mb-2.5 bg-white border border-[#e5e3df] shadow-[0_1px_3px_rgba(55,53,47,0.08)]">
-                              <LayoutGrid size={22} className="text-[#1e7ac8]" />
+                  {/* pt-16→pt-6 (2026-08-11) → 전체 압축 (2026-08-18): 기술3팀 카드 가동으로 4카드 전부 커져
+                      FHD 스크롤 재발 — 제목부·카드 여백·도넛·메뉴 행을 한 단계씩 줄여 무스크롤 복원 */}
+                  <div className="max-w-5xl w-full animate-in m-auto px-4 md:px-6 pt-3 pb-3">
+                      <div className="text-center mb-2.5">
+                          <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl mb-1.5 bg-white border border-[#e5e3df] shadow-[0_1px_3px_rgba(55,53,47,0.08)]">
+                              <LayoutGrid size={18} className="text-[#1e7ac8]" />
                           </div>
-                          <div className="text-[11px] font-bold text-[#1e7ac8] mb-1.5" style={{ letterSpacing: '0.18em' }}>NECONSYS · TECHTEAM PMS</div>
-                          <h1 className="text-2xl md:text-[32px] font-extrabold tracking-tight text-[#37352f] leading-tight">
+                          <div className="text-[11px] font-bold text-[#1e7ac8] mb-1" style={{ letterSpacing: '0.18em' }}>NECONSYS · TECHTEAM PMS</div>
+                          <h1 className="text-xl md:text-[24px] font-extrabold tracking-tight text-[#37352f] leading-tight">
                               통합 프로젝트 관리 플랫폼
                           </h1>
-                          <p className="text-[#8f8b84] text-[13px] mt-2">접속하실 부서를 선택해 주세요</p>
+                          <p className="text-[#8f8b84] text-[12px] mt-1">접속하실 부서를 선택해 주세요</p>
                       </div>
                       
                       {/* ── 공지사항 줄 (2026-08-11) — 최신 1건 한 줄, 클릭 = 전체 목록 팝업 ── */}
                       {NOTICES.length > 0 && (
                           <button onClick={openNotices}
-                              className="w-full mb-4 flex items-center gap-2.5 bg-white border border-[#e5e3df] rounded-xl px-4 py-2.5 hover:border-[#1e7ac8]/50 hover:shadow-[0_2px_8px_rgba(30,122,200,0.08)] transition-all text-left cursor-pointer">
+                              className="w-full mb-2.5 flex items-center gap-2.5 bg-white border border-[#e5e3df] rounded-xl px-4 py-2 hover:border-[#1e7ac8]/50 hover:shadow-[0_2px_8px_rgba(30,122,200,0.08)] transition-all text-left cursor-pointer">
                               <Megaphone size={15} className="text-[#1e7ac8] shrink-0"/>
                               <span className="text-[11px] font-extrabold text-[#1e7ac8] shrink-0 tracking-wide">공지</span>
                               {!noticeSeen && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" title="새 공지"/>}
@@ -5703,7 +5704,7 @@ const TechTeamPMS = () => {
                           </div>
                       )}
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3">
                           {[
                               // 팀 역할 재정의 (2026-08-10 팀장님): 담당 지역 기준 — 1팀=해외·국내 사이드 / 2팀=파주 전담 / 3팀=구미
                               // 팀별 파스텔 틴트 + 같은 계열 진한 아이콘 (2026-08-11 메인 개편 — Notion 태그 공식)
@@ -5731,8 +5732,8 @@ const TechTeamPMS = () => {
 
                                       {/* 상단 (헤더) 영역 */}
                                       {/* 제목 영역 = 라벨 (클릭 안 됨 — 들어가기는 아래 [열기] 행에서) */}
-                                      <div className="px-5 pt-5 pb-4 flex items-center gap-3.5 cursor-default select-none">
-                                          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: card.tint }}>
+                                      <div className="px-5 pt-3.5 pb-2.5 flex items-center gap-3.5 cursor-default select-none">
+                                          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: card.tint }}>
                                               {card.icon}
                                           </div>
                                           <div className="min-w-0 flex-1">
@@ -5747,42 +5748,42 @@ const TechTeamPMS = () => {
                                           const st = homeStats[card.id];
                                           if (!st || !st.total) return null;
                                           const Donut = ({ pct, color, dim }) => (
-                                              <div style={{ width: 68, height: 68, borderRadius: '50%', flex: 'none',
+                                              <div style={{ width: 56, height: 56, borderRadius: '50%', flex: 'none',
                                                   background: `conic-gradient(${color} ${Math.max(0, Math.min(100, pct)) * 3.6}deg, #edeae6 0)` , position: 'relative' }}>
-                                                  <div style={{ position: 'absolute', inset: 7, background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                      <span style={{ fontSize: pct >= 100 ? 15 : 16, fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 10, fontWeight: 700, color: '#a4a097' }}>%</span></span>
+                                                  <div style={{ position: 'absolute', inset: 6, background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                      <span style={{ fontSize: pct >= 100 ? 13 : 14, fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 9, fontWeight: 700, color: '#a4a097' }}>%</span></span>
                                                   </div>
                                               </div>
                                           );
                                           return (
-                                              <div className="px-5 pb-3 pt-0.5 flex items-stretch gap-2 flex-wrap cursor-default select-none border-t border-[#f5f2ef]">
+                                              <div className="px-5 pb-2 pt-0.5 flex items-stretch gap-2 flex-wrap cursor-default select-none border-t border-[#f5f2ef]">
                                                   {/* 진행중 — 큰 숫자 + 근거 (월간보고 모드 = 그 달 진행 합산, 2026-08-13 팀장님) */}
-                                                  <div className="flex-1 min-w-[110px] pt-2">
+                                                  <div className="flex-1 min-w-[110px] pt-1.5">
                                                       <div className="text-[11px] font-bold text-[#8f8b84]">{st.mode === 'monthly' ? `${st.month}월 진행` : '진행중'}</div>
-                                                      <div className="leading-none mt-1">
-                                                          <span className="text-[30px] font-extrabold text-[#37352f] tracking-tight">{st.mode === 'monthly' ? st.activeCnt : st.progCnt}</span>
-                                                          <span className="text-[13px] font-bold text-[#a4a097]"> / {st.total}건</span>
+                                                      <div className="leading-none mt-0.5">
+                                                          <span className="text-[25px] font-extrabold text-[#37352f] tracking-tight">{st.mode === 'monthly' ? st.activeCnt : st.progCnt}</span>
+                                                          <span className="text-[12.5px] font-bold text-[#a4a097]"> / {st.total}건</span>
                                                       </div>
-                                                      <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">{st.mode === 'monthly'
+                                                      <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.mode === 'monthly'
                                                           ? <>월간보고 자료 기준<br/>{st.month}월 실적 {st.monQ.toLocaleString()}pt</>
                                                           : <>전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</>}</div>
                                                   </div>
                                                   {/* 공정률 도넛 */}
                                                   {st.avgPct !== null && (
-                                                      <div className="flex-1 min-w-[110px] pt-2 flex flex-col items-center text-center">
-                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1.5">평균 공정률</div>
+                                                      <div className="flex-1 min-w-[110px] pt-1.5 flex flex-col items-center text-center">
+                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1">평균 공정률</div>
                                                           <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'}/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">{st.mode === 'monthly'
+                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.mode === 'monthly'
                                                               ? <>{st.month}월 값 있는 {st.pctN}건 평균<br/>(전체 공정률)</>
                                                               : <>값 있는 {st.pctN}건 평균<br/>(PLC·ETOS·HMI·통합)</>}</div>
                                                       </div>
                                                   )}
                                                   {/* 포인트 달성률 도넛 */}
                                                   {st.ptPct !== null && (
-                                                      <div className="flex-1 min-w-[110px] pt-2 flex flex-col items-center text-center">
-                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1.5">포인트 달성률</div>
+                                                      <div className="flex-1 min-w-[110px] pt-1.5 flex flex-col items-center text-center">
+                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1">포인트 달성률</div>
                                                           <Donut pct={st.ptPct} color="#059669" dim="#047857"/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</div>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</div>
                                                       </div>
                                                   )}
                                               </div>
@@ -5797,9 +5798,9 @@ const TechTeamPMS = () => {
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('projectList');
-                                              }} className="w-full flex items-center gap-3 px-5 py-3 border-l-[3px] border-l-transparent hover:border-l-[#047857] hover:bg-[#f0faf4] transition-all text-left group/btn cursor-pointer">
-                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bfe3c8] transition-colors shrink-0">
-                                                      <ListChecks size={15} className="text-[#73716b] group-hover/btn:text-[#047857] transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-5 py-2 border-l-[3px] border-l-transparent hover:border-l-[#047857] hover:bg-[#f0faf4] transition-all text-left group/btn cursor-pointer">
+                                                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bfe3c8] transition-colors shrink-0">
+                                                      <ListChecks size={14} className="text-[#73716b] group-hover/btn:text-[#047857] transition-colors" />
                                                   </div>
                                                   <div className="flex-1 min-w-0">
                                                       <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#047857] transition-colors">프로젝트 List 관리</div>
@@ -5817,9 +5818,9 @@ const TechTeamPMS = () => {
                                                   setActiveFilterStatuses(new Set(saved));
                                                   setActiveFilterFactories(new Set(defaults?.defaultActiveFactories || []));
                                                   setSearchTerm('');
-                                              }} className="w-full flex items-center gap-3 px-5 py-3 border-t border-[#f0edea] border-l-[3px] border-l-transparent hover:border-l-[#1e7ac8] hover:bg-[#f0f7fd] transition-all text-left group/btn cursor-pointer">
-                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bcd6f0] transition-colors shrink-0">
-                                                      <FileText size={15} className="text-[#73716b] group-hover/btn:text-[#1e7ac8] transition-colors" />
+                                              }} className="w-full flex items-center gap-3 px-5 py-2 border-t border-[#f0edea] border-l-[3px] border-l-transparent hover:border-l-[#1e7ac8] hover:bg-[#f0f7fd] transition-all text-left group/btn cursor-pointer">
+                                                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#bcd6f0] transition-colors shrink-0">
+                                                      <FileText size={14} className="text-[#73716b] group-hover/btn:text-[#1e7ac8] transition-colors" />
                                                   </div>
                                                   <div className="flex-1 min-w-0">
                                                       <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#1e7ac8] transition-colors">월간 업무 보고</div>
@@ -5834,8 +5835,8 @@ const TechTeamPMS = () => {
                                       {/* Software팀 — 프로젝트 관리 방식 협의 중이라 공사 표시 (2026-08-11 팀장님. 협의 완료 시 [열기] 행으로 복원 — App.js.bak-2026-08-11b) */}
                                       {!card.hasSubMenu && (
                                           <div className="border-t border-[#f0edea] mt-auto">
-                                              <div className="flex items-center gap-3 px-5 py-3 cursor-default select-none bg-[#fffaf0]">
-                                                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-[#fef3c7] shrink-0 text-[15px]">🚧</div>
+                                              <div className="flex items-center gap-3 px-5 py-2 cursor-default select-none bg-[#fffaf0]">
+                                                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#fef3c7] shrink-0 text-[14px]">🚧</div>
                                                   <div className="flex-1 min-w-0">
                                                       <div className="text-[#92400e] font-semibold text-[13.5px]">현재 프로젝트 관리 협의 중</div>
                                                       <div className="text-[#bfa065] text-xs mt-px">관리 방식이 정해지면 이 자리에 메뉴가 열립니다</div>
@@ -5850,7 +5851,7 @@ const TechTeamPMS = () => {
                       </div>
 
                       {/* ── 하단 메뉴 ── */}
-                      <div className="mt-4 flex flex-col gap-3">
+                      <div className="mt-2 flex flex-col gap-3">
                           {/* 주간보고 3종 — 2026-08-11 팀장님: 추후 논의 시까지 숨김 (삭제 아님 — 아래 false를 지우면 복원) */}
                           {false && (
                           <div className="grid grid-cols-3 gap-2.5">
@@ -5898,7 +5899,7 @@ const TechTeamPMS = () => {
                           </div>
                           )}
 
-                          <div className="flex justify-center items-center gap-2 pt-2">
+                          <div className="flex justify-center items-center gap-2 pt-0.5">
                               <button
                                   onClick={() => { setBacklogReturn(null); setCurrentMode('backlog'); }}
                                   className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-[#1e7ac8] hover:border-[#bcd6f0] hover:bg-[#f5f9fd] text-xs font-semibold transition-all rounded-lg"

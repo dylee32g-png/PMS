@@ -353,6 +353,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   넓은 열(Project 등) 뒤로 고정하면 겹치는 버그 → 첫 데이터 행의 실제 위치(offsetLeft)를 재서 쓴다.
     const tbodyRef = useRef(null);
     const [frzMeasured, setFrzMeasured] = useState({});
+    // 재실측 신호 (2026-08-18): 표는 sortedRows(칩·검색·정렬 반영)를 그리는데 아래 실측 의존성엔 전체(activeRows)만
+    //   있어, 필터로 행이 줄어 내용맞춤 열이 좁아져도 옛 오프셋이 남았음(기술3팀 발주처↔Project 틈 벌어짐).
+    //   sortedRows가 이 지점보다 뒤에 선언돼 직접 의존 불가 → 신호 값으로 연결.
+    const [frzTick, setFrzTick] = useState(0);
     useLayoutEffect(() => {
         if (!frozenUpTo) { setFrzMeasured(p => (Object.keys(p).length ? {} : p)); return; }
         // 데이터 행만 실측 (2026-08-11): '불러오는 중/데이터 없음'은 colSpan 한 칸짜리 행이라
@@ -366,11 +370,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         if (!tr) return;
         const tds = tr.children;
-        const base = tds.length ? tds[0].offsetLeft : 0;   // ★ 첫 칸 기준 정규화 — 표 앞 여백·기준 오차가 있어도 첫 칸=0 보장(멈춘 상태 잘림 원천 차단)
         const map = {};
-        for (let i = 0; i < mainVisibleHeaders.length && i < tds.length; i++) {
-            map[mainVisibleHeaders[i]] = tds[i].offsetLeft - base;
-            if (mainVisibleHeaders[i] === frozenUpTo) break;
+        const F = mainVisibleHeaders.indexOf(frozenUpTo);
+        if (F >= 0 && F + 1 < tds.length && F + 1 < mainVisibleHeaders.length) {
+            // ★측정 방식 교체 (2026-08-18 기술3팀 '진행중 칩' 깨짐의 진짜 원인):
+            //   고정(sticky) 셀의 offsetLeft는 가로 스크롤 중엔 '붙어 있는 위치'를 돌려줘서,
+            //   스크롤된 상태에서 재측정하면 옛 고정 위치가 그대로 다시 나옴(재측정 무효).
+            //   → 오염 없는 값만 사용: 첫 비고정 셀(자연 위치)에서 고정 셀들의 너비(offsetWidth,
+            //   스크롤·고정과 무관)를 거꾸로 빼며 자연 위치를 복원. 첫 칸=0 정규화는 동일.
+            let x = tds[F + 1].offsetLeft;
+            for (let i = F; i >= 0; i--) { x -= tds[i].offsetWidth; map[mainVisibleHeaders[i]] = x; }
+            const b = map[mainVisibleHeaders[0]];
+            Object.keys(map).forEach(k => { map[k] = Math.round(map[k] - b); });
+        } else {
+            // 폴백(마지막 열까지 고정 등 비고정 셀이 없을 때): 기존 방식 — 첫 칸 기준 정규화
+            const base = tds.length ? tds[0].offsetLeft : 0;
+            for (let i = 0; i < mainVisibleHeaders.length && i < tds.length; i++) {
+                map[mainVisibleHeaders[i]] = tds[i].offsetLeft - base;
+                if (mainVisibleHeaders[i] === frozenUpTo) break;
+            }
         }
         setFrzMeasured(p => {
             const keys = Object.keys(map);
@@ -378,8 +396,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const same = keys.length === Object.keys(p).length && keys.every(k => Math.abs((p[k] ?? -9999) - map[k]) <= 2);
             return same ? p : map;
         });
-    // ★ 의존성 명시 = 레이아웃이 바뀌는 경우에만 실측 (열구성·너비·배율·컴팩트·데이터). 이전의 '매 렌더 실측'은 무한루프 원인이라 금지.
-    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows]); // eslint-disable-line react-hooks/exhaustive-deps
+    // ★ 의존성 명시 = 레이아웃이 바뀌는 경우에만 실측 (열구성·너비·배율·컴팩트·데이터·표시행 신호). 이전의 '매 렌더 실측'은 무한루프 원인이라 금지.
+    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows, frzTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // (2026-06-27) 엑셀 전체 항목 표시 — 기본 자동 숨김 제거.
     //   담당자가 필요없는 항목은 상세팝업의 표시/숨김 토글로 끄면 메인표에서 빠짐(hiddenCols).
@@ -2576,6 +2594,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
         }));
     }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol, activeManagers, managerFilterCol]); // eslint-disable-line
+
+    // ★ 표시 행이 바뀌면(칩·검색·정렬·기준월) 내용맞춤 열 너비가 같이 변함 → 틀고정 오프셋 재실측 신호 (2026-08-18)
+    //   frzTick은 sortedRows에 영향을 주지 않으므로 무한루프 없음. ±2px 허용 오차가 2중 장치.
+    useEffect(() => { setFrzTick(t => t + 1); }, [sortedRows]);
 
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
