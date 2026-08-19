@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef } from './projectListData';
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 
 const VERSION = 'v6.8.7';
@@ -3930,11 +3930,21 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         const files = [];
                                         (st && st.files ? st.files : []).forEach(f => { if (f && f.rel && !seen[f.rel]) { seen[f.rel] = 1; files.push(f); } });
                                         Object.values(ex.lastApplied || {}).forEach(v => { if (v && v.rel && !seen[v.rel]) { seen[v.rel] = 1; files.push({ name: v.fileName, rel: v.rel, shared: !!v.shared }); } });
-                                        if (!files.length) return null;
+                                        // ★ 같은 파일 계열(이름에서 날짜 6자리만 다른 것)은 최신 날짜 1개만 표시 (2026-08-19 팀장님):
+                                        //   '마지막 자동 반영' 기록에 남은 옛 날짜 파일(값이 안 바뀌어 재기록 안 됨)이 새 파일과 나란히 떠서
+                                        //   직원이 헷갈림. 시스템은 원래 최신만 읽음(pickLatestExtFile) — 표시만 그 규칙에 맞춤.
+                                        const famKey = (f) => String(f.name || '').toLowerCase().replace(/\s+/g, '').replace(/\d{6}(?!.*\d{6})/, '');
+                                        const fam = {};
+                                        files.forEach(f => {
+                                            const k = famKey(f);
+                                            if (!fam[k] || extNameDate(f.name) > extNameDate(fam[k].name)) fam[k] = f;
+                                        });
+                                        const shown = files.filter(f => fam[famKey(f)] === f);
+                                        if (!shown.length) return null;
                                         return (
                                             <div style={{ marginTop: 9 }}>
                                                 <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>찾은 원본 파일 — [엑셀로 열기]=바로 편집·저장(NAS 원본) · [경로 복사]=Win+R/탐색기용</div>
-                                                {files.map((f, i) => (
+                                                {shown.map((f, i) => (
                                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 9px', marginBottom: 4, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
                                                         <FileSpreadsheet size={13} style={{ color: '#1e7ac8', flexShrink: 0 }}/>
                                                         <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.rel}>{f.name}</span>
