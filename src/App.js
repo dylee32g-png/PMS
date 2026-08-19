@@ -25,7 +25,7 @@ import ProjectListScreen from './components/ProjectListScreen';
 import Tech1MonthlyScreen from './components/Tech1MonthlyScreen';   // 기술1팀 월간보고 = 엑셀 양식 웹 재현 (2026-08-13)
 import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
 import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
-import { LIST_TEAMS } from './teamProfiles';
+import { LIST_TEAMS, getTeamProfile } from './teamProfiles';
 import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
 import WeeklyReportScreen from './components/WeeklyReportScreen';
@@ -411,6 +411,9 @@ const TechTeamPMS = () => {
   const openNotices = () => { setNoticeOpen(true); setNoticeSeen(true); try { localStorage.setItem('pms_notice_seen', NOTICES[0]?.date || ''); } catch (e) {} };
   
   const [currentMode, setCurrentMode] = useState(null); // ★ 'pms' (월간보고) 또는 'projectList' 또는 'estimate' 상태 추가
+  // ★ 월간보고 잠금 스위치 (2026-08-19 팀장님): 각 팀 프로젝트 List 완전 정리 후 재개 결정 — 그때까지 진입 차단.
+  //   true로 바꾸면 전부 복원(홈 카드 [열기]·List 헤더 [월간보고]·우클릭 '업무현황 이동'). 코드·데이터는 그대로.
+  const MONTHLY_REPORT_OPEN = false;
   const [backlogReturn, setBacklogReturn] = useState(null); // 백로그를 어디서 열었는지 기억 → 뒤로가기 복귀용 (2026-07-10)
   const [expandedTeam, setExpandedTeam] = useState(null); // ★ 아코디언 펼침 상태 관리용 (selectingTeamMode 대체)
 
@@ -1777,6 +1780,10 @@ const TechTeamPMS = () => {
       const lastVal = { plc:0, etos:0, hmi:0 };
       let selfAcc = 0, intAcc = 0;
       const procByMonth = {}, commByMonth = {};
+      // 수식 팀(기술1팀 2026, 팀 카드 '수식'): 자체 성분 = 그 달 실적÷총물량 (누적 아님) — 팝업 진척률·메인 금월 공정률과 통일 (2026-08-19 v2 표식)
+      const _fmCfgA = getTeamProfile(currentTeam)?.수식;
+      const fmMonthly = !!_fmCfgA && (!Array.isArray(_fmCfgA.연도) || _fmCfgA.연도.includes(String(p._year || '')));
+      const selfByMonth = {}, intByMonth = {};
       wkList.forEach(w => {
           ['plc','etos','hmi'].forEach(k => {
               const v = (weekly[k] || {})[w];
@@ -1790,6 +1797,8 @@ const TechTeamPMS = () => {
           });
           selfAcc += selfW; intAcc += intW;
           const mk = monthOf(w);
+          selfByMonth[mk] = (selfByMonth[mk] || 0) + selfW;
+          intByMonth[mk]  = (intByMonth[mk]  || 0) + intW;
           procByMonth[mk] = { plc: lastVal.plc, etos: lastVal.etos, hmi: lastVal.hmi };
           commByMonth[mk] = { self: selfAcc, int: intAcc };
       });
@@ -1799,8 +1808,8 @@ const TechTeamPMS = () => {
           const proc = procByMonth[mk] || { plc:0, etos:0, hmi:0 };
           const comm = commByMonth[mk] || { self:0, int:0 };
           const valOf = (k) => {
-              if (k === 'internalTest')   return totalPt > 0 ? Math.min(100, comm.self / totalPt * 100) : 0;
-              if (k === 'integratedTest') return totalPt > 0 ? Math.min(100, comm.int  / totalPt * 100) : 0;
+              if (k === 'internalTest')   return totalPt > 0 ? Math.min(100, (fmMonthly ? (selfByMonth[mk] || 0) : comm.self) / totalPt * 100) : 0;
+              if (k === 'integratedTest') return totalPt > 0 ? Math.min(100, (fmMonthly ? (intByMonth[mk]  || 0) : comm.int)  / totalPt * 100) : 0;
               return Math.min(100, proc[k] || 0);
           };
           result[mk] = Math.round(applied.reduce((s, k) => s + valOf(k), 0) / applied.length);
@@ -5809,7 +5818,19 @@ const TechTeamPMS = () => {
                                                   <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#047857] group-hover/btn:text-white group-hover/btn:border-[#047857] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
 
-                                              {/* 2. 월간 업무 보고 */}
+                                              {/* 2. 월간 업무 보고 — 잠금 시 '추후 업데이트 예정' 안내 행 (2026-08-19) */}
+                                              {!MONTHLY_REPORT_OPEN ? (
+                                                  <div className="w-full flex items-center gap-3 px-5 py-2 border-t border-[#f0edea] cursor-default select-none opacity-70">
+                                                      <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] shrink-0">
+                                                          <FileText size={14} className="text-[#b8b4ac]" />
+                                                      </div>
+                                                      <div className="flex-1 min-w-0">
+                                                          <div className="text-[#8f8b84] font-semibold text-[13.5px]">월간 업무 보고</div>
+                                                          <div className="text-[#b8b4ac] text-xs mt-px">추후 업데이트 예정입니다</div>
+                                                      </div>
+                                                      <span className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full border border-[#e5e3df] text-[#b8b4ac] bg-[#faf9f7]">준비 중</span>
+                                                  </div>
+                                              ) : (
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('pms');
@@ -5828,6 +5849,7 @@ const TechTeamPMS = () => {
                                                   </div>
                                                   <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#1e7ac8] group-hover/btn:text-white group-hover/btn:border-[#1e7ac8] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
+                                              )}
 
                                           </div>
                                       )}
@@ -5955,7 +5977,7 @@ const TechTeamPMS = () => {
                   onProgressOpened={() => setOpenProgressPid(null)}
                   onSwitchTeam={(t) => setCurrentTeam(t)}   /* 헤더 팀 탭 — projectList 화면 유지한 채 팀만 전환 (2026-08-11) */
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
-                  onGoToPms={(execNo) => {
+                  onGoToPms={!MONTHLY_REPORT_OPEN ? null : (execNo) => {   /* 잠금 시 null → List 헤더 [월간보고]·우클릭 '업무현황 이동' 자동 숨김 (2026-08-19) */
                       setCurrentMode('pms');
                       if (execNo) setHighlightExecNoInReport(String(execNo));
                       setHighlightExecNoInList(null);

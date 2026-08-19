@@ -53,7 +53,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [] }) => {
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [], sumAsPct = false }) => {   // sumAsPct: 시운전 합계를 %로 표기 (기술1팀 수식 팀, 2026-08-19)
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -463,7 +463,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     //   그래도 없으면 메인표 '포인트'(상세팝업서 입력한 만점) 폴백 — 진행실적이 만점 못 읽어 시운전%가 0이던 문제 해결 (2026-06-29)
     // 2단계(2026-07-20): 하위(공종)가 있으면 총점 = 하위 '포인트' 합 자동 (List 메인표·그래프와 동일 규칙). 합 0이면 기존 폴백 유지.
     const subPtSum = subRows.reduce((s, r) => s + (Number(r?.pt) || 0), 0);
-    const totalPt = subPtSum > 0 ? subPtSum : (Number(pmsData?.totalCommissioningPoints || pmsData?.point || row?.['포인트'] || row?.['총']) || 0);   // '총' 폴백 (2026-07-21)
+    const totalPt = subPtSum > 0 ? subPtSum : (Number(pmsData?.totalCommissioningPoints || pmsData?.point || row?.['포인트'] || row?.['총'] || row?.['총물량']) || 0);   // '총' 폴백 (2026-07-21) + '총물량'(기술1팀) 폴백 (2026-08-19)
 
     const computeApplyData = () => {
         if (!baseDate) return null;
@@ -670,6 +670,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         return r;
     }, [weeklyData, subRows]); // eslint-disable-line
 
+    // 그 달의 월합 (수식 팀 진척률용, 2026-08-19): 자체시운전 성분을 '그 달 실적÷총물량'으로 — 메인표 금월 공정률과 일치
+    const monthSumOf = (key, y, m) => Object.entries(weeklyData[key] || {}).reduce((s, [wk, v]) => {
+        const parts = String(wk).split('-').map(Number);
+        return (parts[0] === y && parts[1] === m) ? s + (Number(v) || 0) : s;
+    }, 0);
     const itemFinalPct = (key) => {
         // (가) 공정 항목: 기준월 최신값(누적 %) — 합계 칸과 동일 기준
         if ([...SIMPLE_ITEMS, ...SECONDARY_ITEMS].find(i => i.key === key)) {
@@ -692,6 +697,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 const { self = 0, int = 0 } = subCumByWeek[wKey] || {};
                 if (selfOn) wk += (totalPt > 0 ? Math.min(100, (self / totalPt) * 100) : 0);
                 if (intOn)  wk += (totalPt > 0 ? Math.min(100, (int  / totalPt) * 100) : 0);
+            } else if (sumAsPct) {
+                // 수식 팀 (2026-08-19): 자체시운전 성분 = 그 주가 속한 '달'의 실적 ÷ 총물량 (누적 아님 — 8월 25% 오해 원인 수리)
+                const [wy, wm] = String(wKey).split('-').map(Number);
+                wk = WEEKLY_ON.reduce((s, { key }) =>
+                    s + (totalPt > 0 ? Math.min(100, (monthSumOf(key, wy, wm) / totalPt) * 100) : 0), 0);
             } else {
                 wk = WEEKLY_ON.reduce((s, { key }) =>
                     s + (totalPt > 0 ? Math.min(100, ((cumByKey[key]?.[wKey] || 0) / totalPt) * 100) : 0), 0);
@@ -699,7 +709,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             r[wKey] = totalItemCnt > 0 ? Math.round((sim + wk) / totalItemCnt * 10) / 10 : 0;
         });
         return r;
-    }, [cumByKey, totalPt, subCumByWeek, progressItems]); // eslint-disable-line
+    }, [cumByKey, totalPt, subCumByWeek, progressItems, sumAsPct, weeklyData]); // eslint-disable-line
 
     const overallPct = useMemo(() => {
         const simPct = [...SIMPLE_ON, ...SECONDARY_ON].reduce((s, { key }) => s + itemFinalPct(key), 0);
@@ -711,13 +721,17 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 s + Object.values(weeklyData[`sub_${i}_intCommissioning`] || {}).reduce((a,v) => a+(Number(v)||0), 0), 0);
             if (selfOn) wkPct += (totalPt > 0 ? Math.min(100, (selfT / totalPt) * 100) : 0);
             if (intOn)  wkPct += (totalPt > 0 ? Math.min(100, (intT  / totalPt) * 100) : 0);
+        } else if (sumAsPct) {
+            const [ry, rm] = String(refWKey).split('-').map(Number);   // 기준월 실적 ÷ 총물량 — 메인표 금월 공정률과 동일 기준 (2026-08-19)
+            wkPct = WEEKLY_ON.reduce((s, { key }) =>
+                s + (totalPt > 0 ? Math.min(100, (monthSumOf(key, ry, rm) / totalPt) * 100) : 0), 0);
         } else {
             wkPct = WEEKLY_ON.reduce((s, { key }) => s + itemFinalPct(key), 0);
         }
         const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
         const totalItemCnt = SIMPLE_ON.length + SECONDARY_ON.length + cntCommish;
         return totalItemCnt > 0 ? Math.round((simPct + wkPct) / totalItemCnt * 10) / 10 : 0;
-    }, [weeklyData, totalPt, subRows, refWKey, progressItems]); // eslint-disable-line
+    }, [weeklyData, totalPt, subRows, refWKey, progressItems, sumAsPct]); // eslint-disable-line
 
     // ── 모바일 간편 입력 패널 (2026-07-20 팀장님 확정) ────────────────────────────────
     //   기본 = 한 주만 크게(오늘이 속한 주). [이전 주]/[다음 주]로 이동, 금주 아니면 [오늘로] 복귀 버튼.
@@ -840,7 +854,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:700, color:'#374151', background:bgLabel, position:'sticky', left:0, zIndex:1, height:38 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                         <div style={{ width:4, height:16, background:color, borderRadius:2, flexShrink:0 }}/>
-                        <span style={{ fontSize:12 }}>{label}</span>{lockedItems.includes(itemKey) && <span title="NAS 진척자료 자동 반영 — 키인 잠금" style={{ fontSize:10, color:'#0369a1', fontWeight:800, whiteSpace:'nowrap' }}>🔒 NAS</span>}
+                        <span style={{ fontSize:12 }}>{label}</span>{lockedItems.includes(itemKey) && <span title="자동 반영/자동 계산 항목 — 키인 잠금 (NAS 또는 메인표 수식)" style={{ fontSize:10, color:'#0369a1', fontWeight:800, whiteSpace:'nowrap' }}>🔒 자동</span>}
                     </div>
                 </td>
                 {DISP_WEEKS.map(({ key: wKey, year, month, week }) => {
@@ -872,7 +886,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color: total>0?color:'var(--line)', background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                     {total > 0 ? ((!useMax && totalPt > 0 && total > totalPt)
                         ? <span title={`총점 ${totalPt} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{ color:'#dc2626', background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:4, padding:'0 5px', fontWeight:800, whiteSpace:'nowrap' }}>⚠ {total}</span>
-                        : (useMax ? `${total}%` : total)) : (useMax ? '' : 0)}
+                        : (useMax ? `${total}%`
+                            : (sumAsPct && totalPt > 0 ? `${Math.min(100, Math.round(total / totalPt * 100))}%` : total)))   /* 수식 팀: 누적합÷총물량 % 표기 — 위 % 항목과 통일 (2026-08-19 팀장님) */
+                        : (useMax ? '' : (sumAsPct ? '' : 0))}
                 </td>
             </tr>
         );
