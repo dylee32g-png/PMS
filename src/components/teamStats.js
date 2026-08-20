@@ -24,7 +24,15 @@ export function computeTeamStats(rows, team) {
     const mains = rowsY.filter(r => !isSubRow(r) && String(statusCol ? (r[statusCol] || '') : '').trim() !== '삭제');
     const progCnt = statusCol ? mains.filter(r => String(r[statusCol] || '').trim() === '진행중').length : 0;
     const pctCols0 = keys.filter(k => ['PLC', 'ETOS', 'HMI', '통합시운전'].includes(norm(k)));
-    const useCols = pctCols0.length ? pctCols0 : keys.filter(k => norm(k).includes('공정률') || norm(k).includes('진척률'));
+    let useCols = pctCols0.length ? pctCols0 : keys.filter(k => norm(k).includes('공정률') || norm(k).includes('진척률'));
+    // 수식 팀 (2026-08-20 팀장님, 기술1팀): 공정률 = 팀 수식의 최종값인 '전체' 열 평균 —
+    //   공용 4항목 규칙은 'ETOS T/S' 열 이름을 못 읽고(공백·/ 차이) 자체 시운전도 빠져 평균이 틀어짐
+    const fmCfg2 = profile?.수식;
+    let pctBasis = 'PLC·ETOS·HMI·통합';
+    if (fmCfg2 && (!Array.isArray(fmCfg2.연도) || fmCfg2.연도.includes(year))) {
+        const allCol = keys.find(k => norm(k) === '전체');
+        if (allCol) { useCols = [allCol]; pctBasis = '전체 공정률'; }
+    }
     let pctSum = 0, pctN = 0;
     mains.forEach(r => {
         const vals = useCols.map(c => parseFloat(String(r[c] ?? '').replace(/%/g, ''))).filter(Number.isFinite);
@@ -41,7 +49,7 @@ export function computeTeamStats(rows, team) {
     });
     let accSum = 0, totSum = 0;
     mains.forEach(r => {
-        const own = Number(r['포인트'] ?? r['총']) || 0;
+        const own = Number(r['포인트'] ?? r['총'] ?? r['총물량']) || 0;   // '총물량' = 기술1팀 (List effTotalPt와 동일 폴백, 2026-08-20)
         totSum += (subSum[r._id] > 0 ? subSum[r._id] : own);
         if (accCol) { const v = Number(String(r[accCol] ?? '').replace(/,/g, '')); if (Number.isFinite(v)) accSum += v; }
     });
@@ -53,7 +61,7 @@ export function computeTeamStats(rows, team) {
     const delCnt = rowsY.filter(r => !isSubRow(r) && String(statusCol ? (r[statusCol] || '') : '').trim() === '삭제').length;
     return {
         total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt,
-        avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN,
+        avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN, pctBasis,
         ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
         statusCounts,
     };
@@ -101,9 +109,11 @@ export const cachedTeamStats = (team) => _cache[team] || null;
 
 export async function fetchTeamStats(team) {
     try {
-        // 월간마감 팀(기술1팀)은 월간보고 자료가 올라와 있으면 그것을 기준으로 (2026-08-13 — 보고 자료 우선)
+        // 월간보고 우선 분기(2026-08-13)는 잠금 — 홈 카드 = 프로젝트 List 기준으로 복귀 (2026-08-20 팀장님.
+        //   월간보고 3팀 잠금과 발맞춤 — 재가동 결정 나면 MONTHLY_STATS_OPEN=true로 복구)
+        const MONTHLY_STATS_OPEN = false;
         const profile = getTeamProfile(team);
-        if (profile?.월간마감) {
+        if (MONTHLY_STATS_OPEN && profile?.월간마감) {
             try {
                 const mr = await getDoc(monthlyReportDocRef(team, new Date().getFullYear()));
                 if (mr.exists()) {

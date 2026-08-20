@@ -152,6 +152,10 @@ tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 
 /* ── 열 그룹 경계선 (2026-08-19 기술1팀): 그룹(진행현황·진행%·시운전 수량…) 끝 열에 진한 세로선 —
       어디까지가 한 묶음인지 표시. 헤더 2층·본문 공통. 틀고정 파란 경계는 JSX에서 우선 처리 ── */
+/* ── 자동 칸 표시 (2026-08-20 팀장님) — 수식(기술1팀)·NAS(기술2팀)·하위합 자동 칸.
+   인라인 style은 위쪽 흰 배경 !important 규칙에 밀림(2026-06-26 교훈) → 반드시 CSS 클래스로 */
+.list-oneline td.cell-auto { background-color: #e9f1fb !important; }
+
 .list-oneline th.grp-sep { border-right: 1px solid #c3cad7 !important; }   /* 헤더 2줄만 — 본문(01,02…행)엔 선 없음 (2026-08-19 팀장님). 기본선보다 반 톤만 진하게 */
 
 /* =========================================================

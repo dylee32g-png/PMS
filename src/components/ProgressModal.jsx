@@ -555,6 +555,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         });
         if (selfPctCum !== null && accSelfPts > 0) mainTable['자체시운전'] = selfPctCum;
         if (intPctCum  !== null && accIntPts  > 0) mainTable['통합시운전'] = intPctCum;
+        // 수식 팀 (2026-08-20 팀장님): 메인표 '금월'(시운전 수량) = 기준월 전체 주 자체시운전 포인트 합 — 팝업이 입력 원장.
+        //   기준월에 키인이 하나라도 있을 때만 반영(없는 달을 0으로 덮지 않음). 누적·자체%·공정률은 메인표 수식이 이어서 재계산.
+        if (sumAsPct) {
+            const hasCur = Object.entries(weeklyData['commissioning'] || {}).some(([wk, v]) => {
+                const pt = String(wk).split('-').map(Number);
+                return pt[0] === y && pt[1] === m && v !== '' && v !== null && v !== undefined;
+            });
+            if (hasCur) mainTable['금월'] = selfPts;
+        }
         // 포인트 칸 = '만점'(상세팝업 입력, 고정)이라 진행실적이 덮지 않음. 실적(포인트실적)은 task ③(자체/통합/합 선택)에서 별도 처리.
 
         return {
@@ -887,8 +896,11 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     {total > 0 ? ((!useMax && totalPt > 0 && total > totalPt)
                         ? <span title={`총점 ${totalPt} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{ color:'#dc2626', background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:4, padding:'0 5px', fontWeight:800, whiteSpace:'nowrap' }}>⚠ {total}</span>
                         : (useMax ? `${total}%`
-                            : (sumAsPct && totalPt > 0 ? `${Math.min(100, Math.round(total / totalPt * 100))}%` : total)))   /* 수식 팀: 누적합÷총물량 % 표기 — 위 % 항목과 통일 (2026-08-19 팀장님) */
-                        : (useMax ? '' : (sumAsPct ? '' : 0))}
+                            : (sumAsPct ? (() => {   /* 수식 팀: 합계 = 기준월 전체 주 포인트 합 — 메인표 '금월'과 같은 값 (2026-08-20 팀장님) */
+                                const [ry, rm] = String(refWKey).split('-').map(Number);
+                                return monthSumOf(itemKey, ry, rm);
+                            })() : total)))
+                        : (useMax ? '' : 0)}
                 </td>
             </tr>
         );
