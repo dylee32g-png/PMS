@@ -279,7 +279,8 @@ export function parseExcelHeaders(raw, addLog, opts) {
     }
 
     // '관리자' 열 자동 보장 (2026-07-22 팀장님): 엑셀에 없으면 담당자 앞에 웹 전용 열로 삽입 (idx -1 = 값은 빈칸 시작)
-    if (!colDefs.some(cd => String(cd.name).replace(/\s+/g, '') === '관리자')) {
+    //   ★기술2·3팀 전용 — 팀 카드 파서옵션.관리자열=false면 삽입 안 함 (2026-08-21: 기술1팀 원본에 없는 열이 발주처 그룹에 생기던 문제)
+    if ((!opts || opts.관리자열 !== false) && !colDefs.some(cd => String(cd.name).replace(/\s+/g, '') === '관리자')) {
         const ai = colDefs.findIndex(cd => { const n = String(cd.name).replace(/\s+/g, ''); return n.includes('담당자') && !n.includes('업체') && !n.includes('발주처'); });
         if (ai >= 0) {
             colDefs.splice(ai, 0, { idx: -1, name: '관리자', groupLabel: colDefs[ai].groupLabel });

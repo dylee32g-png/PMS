@@ -106,10 +106,50 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const _teamCfg = currentTeam ? (teamSettings?.[currentTeam] || null) : null;
     const STATUS_OPTIONS = (_teamCfg?.listStatus?.length) ? _teamCfg.listStatus : (teamProfile?.상태?.기본목록 || DEFAULT_STATUS_OPTIONS);
     const ASSIGNEES      = (_teamCfg?.listManager?.length) ? _teamCfg.listManager : (teamProfile?.담당자목록 || ASSIGNEE_LIST);   // 팀 카드 담당자 명단 (2026-08-11 — 기술1팀 칩이 기술2팀 명단으로 뜨던 문제)
-    const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ...STATUS_CHIP_COLORS, ..._teamCfg.listStatusColors } : STATUS_CHIP_COLORS;
+    // 팀 카드 '상태색'이 있으면 그 목록만 색을 입히고 나머지는 전부 회색(기본) — 기술1팀 (2026-08-21 팀장님: 완료=빨강·진행=초록·그 외 회색)
+    const _baseColors    = teamProfile?.상태색 ? teamProfile.상태색 : STATUS_CHIP_COLORS;
+    const STATUS_COLORS  = _teamCfg?.listStatusColors ? { ..._baseColors, ..._teamCfg.listStatusColors } : _baseColors;
     // 단어(카테고리) 칸 드롭다운 대상 — 팀 카드 '드롭다운열'의 열 이름(공백 무시)과 일치하면 그 사전 목록 키를 돌려줌 (2026-08-19 팀장님)
     const wordDropCols = teamProfile?.드롭다운열 || {};
-    const wordDropKey = (h) => { const k = String(h).replace(/\s/g, ''); return Object.keys(wordDropCols).find(c => String(c).replace(/\s/g, '') === k) || null; };
+    const wordDropKey = (h) => { const k = String(h).replace(/\s/g, ''); return Object.keys(wordDropCols).find(c => String(c).replace(/\s/g, '') === k || aliasCol(c) === h) || null; };   // 옛 연도 열 이름은 별칭으로 (2026-08-21)
+    // 담당자식(다중 선택) 드롭다운 열 — 팀 카드 '담당자식열' (2026-08-21 팀장님: 기술1팀 담당·수행 = 명단 5명+직접 입력+여러 명)
+    const asgColCfg = teamProfile?.담당자식열 || null;
+    const isCardAsgCol = (h) => !!asgColCfg && (asgColCfg.열 || []).some(c => String(c).replace(/\s/g, '') === String(h).replace(/\s/g, '') || aliasCol(c) === h);
+    // ── 연도별 1:1 헤더 별칭 (2026-08-21 팀장님): 옛 연도 표는 그 해 엑셀 열 이름 그대로라, 화면 기능(칩·카드·드롭다운)이 찾는
+    //    표준 이름(계약·작업·수행·공사명…)을 팀 카드 '열번역'(옛 이름→표준 이름)으로 역추적. 올해는 정확 일치만.
+    //    ★헤더에 열을 추가하지 않는 '읽기 전용 찾기' — 표·데이터는 엑셀 그대로 유지.
+    const _curY4 = String(new Date().getFullYear());
+    const _xlatNorm = {}; Object.entries(teamProfile?.파서옵션?.열번역 || {}).forEach(([k, v]) => { _xlatNorm[String(k).replace(/\s+/g, '')] = String(v).replace(/\s+/g, ''); });
+    const aliasCol = (name) => {
+        const key = String(name ?? '').replace(/\s+/g, '');
+        const hs = activeHeaders || [];   // 아래에서 정의되지만 호출은 렌더 중이라 안전
+        const legacy = !!selectedYear && String(selectedYear) !== _curY4;
+        const exact = hs.find(h => String(h).replace(/\s+/g, '') === key);
+        if (exact && (!legacy || !_xlatNorm[key] || _xlatNorm[key] === key)) return exact;   // 옛 연도의 동명이인 열('계약'=O/X)은 번역이 다른 이름이면 건너뜀
+        if (legacy) { const via = hs.find(h => _xlatNorm[String(h).replace(/\s+/g, '')] === key); if (via) return via; }
+        return exact || null;
+    };
+    // 상태 칩으로 그릴 칸 — 공용 키워드(진행현황·현황·진행) + 팀 카드가 상태로 지정한 열의 연도별 별칭(2015 '상태'·2017~ '작업 현황'·'견적'·2026 '계약'·'작업')
+    //   (2026-08-21 팀장님: 2015년만 글자로 보이던 문제 — 연도마다 같은 모양으로). 클릭 동작(드롭다운)은 기존 판별 그대로.
+    // 빈칸 회색 열 (2026-08-21 팀장님: 엑셀처럼 수량·진척 칸은 비어 있으면 진한 회색, 값이 들어오면 원래 색) — 팀 카드 '빈칸회색열' 키워드
+    const _grayKws = (teamProfile?.빈칸회색열 || []).map(k => String(k).replace(/\s+/g, '').toLowerCase());
+    const isGrayEmptyCol = (h) => teamProfile?.빈칸회색 === true || (_grayKws.length > 0 && _grayKws.some(k => String(h).replace(/\s+/g, '').toLowerCase().includes(k)));   // 카드 빈칸회색:true = 모든 열 (2026-08-21 팀장님 '전부 빈칸')
+    const isStatusCell = (h) => isStatusCol(h) || [teamProfile?.상태?.칩기준열, teamProfile?.당해카드?.상태열, teamProfile?.보고카드?.작업열, teamProfile?.보고카드?.상태열].filter(Boolean).some(nm => aliasCol(nm) === h);
+    // 자동 2단계 보조줄(계약·작업 추정)은 상태 1칸 팀(기술2·3팀)용 — 카드에 계약/작업이 따로 있는 팀(기술1팀)은 추정이 틀려 숨김
+    const showLegacySub = !(teamProfile?.상태?.계약현황);
+    // ── 수행번호 (2026-08-21 팀장님, 기술1팀): 형식 YY-NNN 고정(26-01→26-001) · 빈칸 [+] = 그 해 최대번호+1 자동 부여 · 회수 ✕
+    const execCfg = teamProfile?.수행번호 || null;
+    const execNoNorm = (v) => { const s = String(v ?? '').trim(); const m = s.match(/^(\d{2})\s*-\s*(\d{1,3})([A-Za-z가-힣]*)$/); return m ? `${m[1]}-${m[2].padStart(3, '0')}${m[3]}` : s; };
+    const isExecNoCol = (h) => !!execCfg && !!teamProfile?.열?.번호 && aliasCol(teamProfile.열.번호) === h;
+    const execMaxOf = (year, h) => { const yy = String(year || new Date().getFullYear()).slice(-2); let max = 0; (activeRows || []).forEach(r => { if (String(r._year || '') !== String(year || '')) return; const m = String(r[h] || '').trim().match(/^(\d{2})-(\d{3})/); if (m && m[1] === yy) max = Math.max(max, Number(m[2])); }); return { yy, max }; };
+    const assignExecNo = (row, h) => { const { yy, max } = execMaxOf(row._year, h); const next = `${yy}-${String(max + 1).padStart(3, '0')}`; commitCellWith(row._id, h, next); };
+    const revokeExecNo = (row, h) => {
+        const cur = String(row[h] || '').trim(); const { max } = execMaxOf(row._year, h);
+        const m = cur.match(/^\d{2}-(\d{3})/); const n = m ? Number(m[1]) : 0;
+        const gapMsg = (n && n < max) ? `\n\n⚠ 마지막 번호가 아닙니다 (현재 최대 ${String(max).padStart(3, '0')}). 지우면 ${cur} 자리가 비게 됩니다.` : '';
+        if (!window.confirm(`[수행번호 회수]\n${cur} 을(를) 비웁니다. (작업 백로그에 기록됨)${gapMsg}\n\n계속할까요?`)) return;
+        commitCellWith(row._id, h, '');
+    };
     // ── NAS 진척자료 자동 반영 상태 (2026-07-22) ──────────────────────────────
     const [extModalRowId, setExtModalRowId] = useState(null);   // NAS 연결 모달(행 _id)
     const [extStatus, setExtStatus] = useState({});             // { rowId: {state,msg,fileName,value,checkedAt} }
@@ -118,6 +158,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [userMerge, setUserMerge] = useState(null);           // 일반 사용자 [엑셀 반영] 미리보기 (2026-08-10)
     const userFileRef = useRef(null);                           // [엑셀 반영] 전용 파일 선택 (관리자 업로드와 별개)
     const histFileRef = useRef(null);                           // [과거 연도 추가 적재] 파일 선택 (2026-08-20)
+    const restoreFileRef = useRef(null);                        // [백업 복원] 파일 선택 (2026-08-20 1층 백업 체계)
+    const yearFileRef = useRef(null);                           // [연도별 1:1 적재·검증] 파일 선택 (2026-08-21)
+    const [yearLoad, setYearLoad] = useState(null);             // 연도별 1:1 적재 모달 { fileName, sheets[], sel, report }
+    const [fbByYear, setFbByYear] = useState({});               // 연도별 헤더 벌 meta.byYear[연도] = {headers, colGroups} (2026-08-21 기술1팀 1:1)
     // ── 메인 PC 자동 반영 (2026-07-27) ────────────────────────────────────
     // (2026-08-07) '이 PC가 메인 PC인가' → '지금 보고 있는 팀이 이 PC의 메인 팀 목록에 있는가'로 바뀜.
     //   팀 순환을 넣으면서, 사람이 목록에 없는 팀으로 들어갔을 때 그 팀까지 무인 반영되는 일을 막는다.
@@ -262,15 +306,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         //   팀 전환·재진입 시 세션 메모리 캐시로 즉시 채우고(0초), 서버 최신값 도착 시 자동 교체.
         const memR = _memRowsCache[currentTeam], memM = _memMetaCache[currentTeam];
         setFbRows(memR || []); setFbLoaded(!!memR);
-        setFbHeaders(memM?.headers || []); setFbColGroups(memM?.colGroups || []);
+        setFbHeaders(memM?.headers || []); setFbColGroups(memM?.colGroups || []); setFbByYear(memM?.byYear || {});
         setFbMetaLoaded(!!memM);
         addLog(`[Firebase] ${currentTeam} 구독 시작${memR ? ` (캐시 ${memR.length}행 선표시)` : ''}`);
 
         const unsubMeta = onSnapshot(metaDocRef(currentTeam), snap => {
             const d = snap.exists() ? snap.data() : {};
-            _memMetaCache[currentTeam] = { headers: d.headers || [], colGroups: d.colGroups || [] };
+            _memMetaCache[currentTeam] = { headers: d.headers || [], colGroups: d.colGroups || [], byYear: d.byYear || {} };
             setFbHeaders(d.headers || []);
             setFbColGroups(d.colGroups || []);
+            setFbByYear(d.byYear || {});
             setFbMetaLoaded(true);
             addLog(`[Firebase] 헤더 ${(d.headers||[]).length}개`);
         }, err => { addLog(`[Firebase 오류] ${err.message}`); setIsLoading(false); setFbLoaded(true); setFbMetaLoaded(true); });
@@ -293,8 +338,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // pending: 방금 업로드, 아직 저장 안 함
     // local  : IndexedDB에 임시 저장된 것
     // firebase: 확정 저장된 것
-    const activeHeaders   = pendingData?.headers   || localData?.headers   || fbHeaders;
-    const activeColGroups = pendingData?.colGroups  || localData?.colGroups  || fbColGroups;
+    // 연도별 1:1 헤더 벌 (2026-08-21 팀장님): 그 연도 전용 헤더(meta.byYear)가 있으면 그것, 없으면 팀 공통 헤더 (기술2·3팀 = 종전 그대로)
+    const _yearMeta       = (!pendingData && !localData && selectedYear && fbByYear && fbByYear[selectedYear]) ? fbByYear[selectedYear] : null;
+    const _rawHeaders     = pendingData?.headers   || localData?.headers   || (_yearMeta ? (_yearMeta.headers || fbHeaders) : fbHeaders);
+    const _rawColGroups   = pendingData?.colGroups  || localData?.colGroups  || (_yearMeta ? (_yearMeta.colGroups || fbColGroups) : fbColGroups);
+    // '관리자' 열 표시 제외 (2026-08-21 팀장님): 옛 파서가 자동 삽입해 둔 열 — 카드 파서옵션.관리자열=false 팀(기술1팀)만.
+    //   클라우드 메타·행 값은 안 건드리는 표시 필터 → 카드 값을 되돌리면 즉시 복구.
+    const _mgrOff         = teamProfile?.파서옵션?.관리자열 === false;
+    // ★useMemo 필수 — 매 렌더 새 배열이면 activeHeaders를 지켜보는 useEffect(틀고정 실측 등)가 무한 반복 (2026-08-21 실기기)
+    const activeHeaders   = useMemo(() => {
+        if (!_mgrOff) return _rawHeaders;
+        return (_rawHeaders || []).filter(h => String(h ?? '').replace(/\s+/g, '') !== '관리자');
+    }, [_rawHeaders, _mgrOff]);
+    const activeColGroups = useMemo(() => {
+        if (!_mgrOff) return _rawColGroups;
+        return (_rawColGroups || []).map(g => ({ ...g, cols: (g.cols || []).filter(c => String(c ?? '').replace(/\s+/g, '') !== '관리자') })).filter(g => (g.cols || []).length > 0);
+    }, [_rawColGroups, _mgrOff]);
     const activeRows      = pendingData?.rows       || localData?.rows       || fbRows;
     const dataSource      = pendingData ? 'pending' : localData ? 'local' : 'firebase';
 
@@ -362,6 +421,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   있어, 필터로 행이 줄어 내용맞춤 열이 좁아져도 옛 오프셋이 남았음(기술3팀 발주처↔Project 틈 벌어짐).
     //   sortedRows가 이 지점보다 뒤에 선언돼 직접 의존 불가 → 신호 값으로 연결.
     const [frzTick, setFrzTick] = useState(0);
+    const [fitWidths, setFitWidths] = useState({});   // 기본 화면 맞춤 폭 (2026-08-21) — 수동 폭(colWidths)보다 낮은 우선순위
+    const [fitTick, setFitTick] = useState(0);        // 창 크기 변경 신호
     useLayoutEffect(() => {
         if (!frozenUpTo) { setFrzMeasured(p => (Object.keys(p).length ? {} : p)); return; }
         // 데이터 행만 실측 (2026-08-11): '불러오는 중/데이터 없음'은 colSpan 한 칸짜리 행이라
@@ -402,7 +463,42 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             return same ? p : map;
         });
     // ★ 의존성 명시 = 레이아웃이 바뀌는 경우에만 실측 (열구성·너비·배율·컴팩트·데이터·표시행 신호). 이전의 '매 렌더 실측'은 무한루프 원인이라 금지.
-    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows, frzTick]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows, frzTick, fitWidths]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── 기본 화면 맞춤 (2026-08-21 팀장님): 손대지 않은 기본 상태에서 카드 '기본맞춤.까지열'(기술1팀 2026 = 발주처 담당자)까지
+    //    화면 100% 폭에 들어오게 비례 축소. 글자는 잘려도 됨(한 줄·말줄임 col-clip). 손잡이로 고친 열(colWidths)은 그대로, 나머지만 축소.
+    //    ★무한루프 방지: (연도·열구성·배율·컴팩트·창폭·행수·수동폭) 키가 바뀔 때만 — 1패스: 맞춤 비워 자연 폭으로 그림 → 2패스: 실측·계산 → 이후 같은 키면 무시.
+    const fitKeyRef = useRef('');
+    useEffect(() => { const onR = () => setFitTick(t => t + 1); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR); }, []);
+    useLayoutEffect(() => {
+        const cfg = teamProfile?.기본맞춤;
+        const on = !!cfg && (!Array.isArray(cfg.연도) || cfg.연도.includes(String(selectedYear || '')));
+        if (!on) { if (Object.keys(fitWidths).length) setFitWidths({}); fitKeyRef.current = ''; return; }
+        const target = aliasCol(cfg.까지열);
+        const tbl = tbodyRef.current ? tbodyRef.current.closest('table') : null;
+        const wrap = tbl ? tbl.parentElement : null;
+        if (!target || !wrap) return;
+        const z = (tableScale || 100) / 100;
+        const W = Math.floor(wrap.getBoundingClientRect().width / z) - 2;
+        if (W <= 0) return;
+        // 키에 수동 폭(colWidths)은 넣지 않음 — 손잡이 드래그 중 매 픽셀마다 재맞춤·깜빡임 방지. 수동 폭은 계산 때 '고정'으로만 취급.
+        const key = [selectedYear, mainVisibleHeaders.join('|'), tableScale, compactMode, W, activeRows.length].join('#');
+        if (fitKeyRef.current === key) return;
+        if (Object.keys(fitWidths).length) { setFitWidths({}); return; }   // 1패스: 맞춤 해제 → 자연 폭으로 다시 그린 뒤 재진입
+        const nat = {};
+        tbl.querySelectorAll('thead th[data-col]').forEach(th => { nat[th.getAttribute('data-col')] = th.getBoundingClientRect().width / z; });
+        const idx = mainVisibleHeaders.indexOf(target);
+        fitKeyRef.current = key;
+        if (idx < 0) return;
+        const cols = mainVisibleHeaders.slice(0, idx + 1);
+        let fixed = 0, flex = 0;
+        cols.forEach(h => { const w = nat[h] || getW(h) || 40; if (colWidths[h]) fixed += w; else flex += w; });
+        if (fixed + flex <= W || flex <= 0) return;   // 이미 다 들어옴 — 건드리지 않음
+        const scale = Math.max(0, W - fixed) / flex;
+        const next = {};
+        cols.forEach(h => { if (colWidths[h]) return; const w = nat[h] || getW(h) || 40; next[h] = Math.max(28, Math.floor(w * scale)); });
+        setFitWidths(next);
+    }, [selectedYear, activeHeaders, hiddenCols, tableScale, compactMode, colWidths, fitTick, activeRows, fitWidths]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // (2026-06-27) 엑셀 전체 항목 표시 — 기본 자동 숨김 제거.
     //   담당자가 필요없는 항목은 상세팝업의 표시/숨김 토글로 끄면 메인표에서 빠짐(hiddenCols).
@@ -438,22 +534,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // 날짜 표시 통일 — 비표준('6/8','5-21' 등)도 기준월 연도를 붙여 YYYY-MM-DD로 표준화.
     //   표시·클릭편집·미변경판정에 공용. 데이터는 사용자가 수정 저장할 때만 표준값으로 바뀜 (2026-06-29)
-    const displayDate = (val) => {
+    const displayDate = (val, rowYear) => {
         const s = String(val ?? '').trim();
         if (!s) return '';
         const std = toDateInputVal(s);                   // YYYY-MM-DD / YYYY.M.D / YYMMDD → 표준
         if (std) return std;
         const md = s.match(/^(\d{1,2})[./-](\d{1,2})$/); // 'M/D','M-D','M.D' (연도 없음)
         if (md) {
-            const yr = (baseDate && /\d{4}/.test(baseDate)) ? baseDate.match(/\d{4}/)[0] : String(new Date().getFullYear());
+            // 연도 없는 날짜의 연도 = ①그 행의 연도(_year) ②기준 날짜 ③올해 — 과거 연도 행이 전부 올해(26)로 보이던 문제 수리 (2026-08-21 팀장님)
+            const yr = /^\d{4}$/.test(String(rowYear || '')) ? String(rowYear)
+                : (baseDate && /\d{4}/.test(baseDate)) ? baseDate.match(/\d{4}/)[0] : String(new Date().getFullYear());
             return `${yr}-${md[1].padStart(2,'0')}-${md[2].padStart(2,'0')}`;
         }
         return s;
     };
     // 날짜 '표시' 형식 = YY/MM/DD (2026-08-19 팀장님 협의: 엑셀에 어떤 표기든 이 형식으로 통일해 표현).
     //   ★표시만 — 데이터 저장·달력 편집·비교판정은 기존 표준(YYYY-MM-DD) 그대로. 날짜로 해석 안 되는 값('?' 등)은 원본 표시.
-    const fmtDate = (val) => {
-        const std = displayDate(val);
+    const fmtDate = (val, rowYear) => {
+        const std = displayDate(val, rowYear);
         const m = String(std).match(/^(\d{4})-(\d{2})-(\d{2})$/);
         return m ? `${m[1].slice(2)}/${m[2]}/${m[3]}` : std;
     };
@@ -601,6 +699,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     const getW = h => {
         if (colWidths[h]) return colWidths[h];
+        if (fitWidths[h]) return fitWidths[h];   // 기본 화면 맞춤 (2026-08-21)
         // 공사진행 % / O체크 칸들 — 그룹 멤버십 누락과 무관하게 60 통일 (헤더 기준).
         //   도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI·자체/통합시운전·포인트 (2026-06-29 팀장님: 연관 칸 한 번에 통일)
         const _hsw = String(h).replace(/\s/g, '');
@@ -692,7 +791,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
         // 팀 카드 파서옵션 (2026-08-11 2단계) — 없으면 전부 기존 동작
         const po = teamProfile?.파서옵션 || {};
-        const poHdr = Number.isInteger(po.헤더시작행) ? { startRow: po.헤더시작행, layers: po.헤더층 } : undefined;
+        // 관리자열 게이트 (2026-08-21 팀장님): '관리자' 자동 삽입은 카드가 끈 팀(기술1팀) 제외 — parseExcelHeaders가 읽음
+        const poHdr = { ...(Number.isInteger(po.헤더시작행) ? { startRow: po.헤더시작행, layers: po.헤더층 } : {}), 관리자열: po.관리자열 !== false };
         // 최신 연도 시트 1개만 읽기 (2026 등) — 2026-06-27 팀장님: 과거 연도·SM대응 제외
         const _years   = wb.SheetNames.map(n => extractYear(n)).filter(y => /^\d{4}$/.test(y));
         const _latestY = _years.sort((a, b) => b.localeCompare(a))[0];
@@ -1091,6 +1191,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (year === curY) { skipped.push(`${sheetName}(올해 — 제외)`); continue; }
                 if (haveYears.has(year)) { skipped.push(`${sheetName}(웹에 이미 있음)`); continue; }
                 const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+                // ★진짜 날짜 셀은 연도까지 살리기 (2026-08-21 팀장님): 옛 시트가 'm/d' 서식이면 글자로는 "6/21"만 남아
+                //   연도가 사라짐 → 셀 원본(Date)에서 YYYY-MM-DD로 직접 복원 (시트 연도와 다른 해의 날짜도 정확).
+                const rawD = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
+                for (let ri = 0; ri < rawD.length; ri++) {
+                    const rrow = rawD[ri]; if (!rrow) continue;
+                    for (let ci2 = 0; ci2 < rrow.length; ci2++) {
+                        const dv = rrow[ci2];
+                        if (dv instanceof Date && !isNaN(dv)) {
+                            if (!raw[ri]) raw[ri] = [];
+                            raw[ri][ci2] = `${dv.getFullYear()}-${String(dv.getMonth() + 1).padStart(2, '0')}-${String(dv.getDate()).padStart(2, '0')}`;
+                        }
+                    }
+                }
                 const yCfg = (hCfg.연도별 || {})[year];
                 let colDefs, dataStart;
                 if (yCfg && Number.isInteger(yCfg.헤더행)) {   // 특례 = 헤더 1줄 직접 (2013·2014)
@@ -1142,6 +1255,261 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (err) {
             setAlertMsg(`과거 연도 적재 오류: ${err.message}`);
         } finally { setIsLoading(false); }
+    };
+
+    // ── 수행번호 3자리 정리 (2026-08-21 팀장님): 전 연도, 수행번호 열(옛 이름 NO.·프로젝트 NO.·프로젝트 코드 포함) YY-N(N)→YY-NNN
+    const handleExecNoPad = async () => {
+        if (!isAdmin || !execCfg || !teamProfile?.열?.번호) return;
+        const N2 = (v) => String(v ?? '').replace(/\s+/g, '');
+        const base = N2(teamProfile.열.번호);
+        const cands = new Set([base, ...Object.entries(teamProfile?.파서옵션?.열번역 || {}).filter(([, v]) => N2(v) === base).map(([k]) => N2(k))]);
+        const ups = [];
+        fbRows.forEach(r => {
+            const patch = {};
+            Object.keys(r).forEach(k => { if (!cands.has(N2(k))) return; const v = String(r[k] ?? ''); const nv = execNoNorm(v); if (nv !== v) patch[k] = nv; });
+            if (Object.keys(patch).length) ups.push({ id: r._id, patch });
+        });
+        if (!ups.length) { setAlertMsg('정리할 수행번호가 없습니다 — 전부 YY-NNN 형식입니다.'); return; }
+        const sample = ups.slice(0, 3).map(u => Object.entries(u.patch).map(([k, v]) => `${v}`).join(',')).join(' · ');
+        if (!window.confirm(`[수행번호 3자리 정리]\n대상 ${ups.length}건 (예: ${sample})\nYY-NNN 형식으로 통일합니다. 진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let batch = writeBatch(db), cnt = 0;
+            for (const u of ups) { batch.set(rowDocRef(currentTeam, u.id), stampSave(u.patch), { merge: true }); if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; } }
+            if (cnt > 0) await batch.commit();
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(수행번호 3자리 정리)', note: `수행번호 YY-NNN 통일 ${ups.length}건` });
+            setAlertMsg(`수행번호 ${ups.length}건을 YY-NNN 형식으로 정리했습니다.`);
+        } catch (err) { setAlertMsg(`정리 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+
+    // ── 연도별 1:1 적재·검증 (2026-08-21 팀장님, 기술1팀) ───────────────────────────────
+    //   원칙: 엑셀 시트 1장 = 웹 연도 1개. 열 이름·순서·값을 그 시트 그대로(번역·비고 덧붙임·관리자 열 없음) 저장하고
+    //   연도별 헤더 벌(meta.byYear[연도])로 표시. 연도마다 [적재] → [대조 검증](웹 저장본 ↔ 엑셀 전수 비교) 순서.
+    const parseSheetExact = (XLSX, wb, sheetName, seq = 0) => {
+        const po = teamProfile?.파서옵션 || {};
+        const year = extractYear(sheetName);
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+        const opts = { ...(Number.isInteger(po.헤더시작행) ? { startRow: po.헤더시작행, layers: po.헤더층 } : {}), 관리자열: false };
+        const { colDefs, colGroups, dataStart } = parseExcelHeaders(raw, () => {}, opts);
+        const n = (v) => String(v ?? '').replace(/\s+/g, '');
+        // 필수열(카드 '순번'·'공사명') — 옛 시트는 열번역으로 역추적('프로젝트명'→'공사명'). 이름은 안 바꾸고 찾기만.
+        const xl = {}; Object.entries(po.열번역 || {}).forEach(([k, v]) => { xl[n(k)] = n(v); });
+        const reqCols = (po.필수열 ? [].concat(po.필수열) : []).map(rq => {
+            const cd = colDefs.find(c => n(c.name) === n(rq)) || colDefs.find(c => xl[n(c.name)] === n(rq));
+            return cd ? cd.name : null;
+        }).filter(Boolean);
+        const noCol = (colDefs.find(c => n(c.name) === '번호') || {}).name;
+        // 수행번호 열(카드 열.번호, 옛 시트는 열번역 역추적) — YY-NNN 3자리 통일 (2026-08-21 팀장님)
+        const execNm = teamProfile?.수행번호 && teamProfile?.열?.번호 ? n(teamProfile.열.번호) : null;
+        const execCol = execNm ? ((colDefs.find(c => n(c.name) === execNm) || colDefs.find(c => xl[n(c.name)] === execNm) || {}).name || null) : null;
+        const ts = Date.now() + seq;   // 같은 해 탭 2개를 같은 밀리초에 읽어도 _id·순서가 안 겹치게
+        const rows = raw.slice(dataStart).map((rr, idx) => {
+            const o = { _id: `row_${year}_${ts}_${String(idx).padStart(5, '0')}`, _pid: generatePid(), _year: year, _srcSheet: sheetName };   // _srcSheet = 어느 탭에서 왔는지(내부, 대조용)
+            colDefs.forEach(({ idx: ci, name }) => { o[name] = String(rr[ci] ?? '').trim(); });
+            if (po.번호패딩 !== false && noCol && o[noCol]) o[noCol] = padProjectNo(o[noCol]);
+            if (execCol && o[execCol]) o[execCol] = execNoNorm(o[execCol]);
+            if (reqCols.length && reqCols.some(c => !o[c])) return null;
+            return colDefs.every(({ name }) => !o[name]) ? null : o;
+        }).filter(Boolean);
+        return { year, headers: colDefs.map(c => c.name), colGroups, rows, reqCols };
+    };
+    const handleYearFilePick = async (e) => {
+        const file = e.target?.files?.[0];
+        if (yearFileRef.current) yearFileRef.current.value = '';
+        if (!file || !isAdmin) return;
+        setIsLoading(true);
+        try {
+            const XLSX = await loadXLSX();
+            const wb = XLSX.read(await file.arrayBuffer());
+            const sheets = wb.SheetNames.filter(sn => /^\d{4}$/.test(extractYear(sn))).map((sn, si) => {
+                try { return { name: sn, ...parseSheetExact(XLSX, wb, sn, si) }; }
+                catch (err) { return { name: sn, year: extractYear(sn), headers: [], colGroups: [], rows: [], error: err.message }; }
+            });
+            // 적재 단위 = 연도: 같은 해 탭(2017(C)+(P), 2018~21 (C)+(기타))은 합치고 열은 '엑셀에 있는 것'의 합집합(열 최다 탭 순서 기준).
+            //   최신 연도는 카드 '한시트만'(2026+2026 (2) = 같은 12건 중복) → 열 최다 탭 1개만.
+            const po2 = teamProfile?.파서옵션 || {};
+            const byY = {}; sheets.forEach(sh => { (byY[sh.year] = byY[sh.year] || []).push(sh); });
+            const latestY = Object.keys(byY).sort().pop();
+            const entries = Object.keys(byY).sort((a, b) => b.localeCompare(a)).map(y => {
+                let shs = byY[y]; let note = '';
+                if (po2.한시트만 && y === latestY && shs.length > 1) {
+                    const best = shs.reduce((m, s) => (s.headers.length > m.headers.length ? s : m), shs[0]);
+                    note = `한시트만: "${best.name}" 사용 (${shs.filter(s => s !== best).map(s => s.name).join(', ')} 제외 — 같은 건 중복)`;
+                    shs = [best];
+                }
+                const ordered = [...shs].sort((a, b) => b.headers.length - a.headers.length);   // 열 최다 탭의 순서를 기준 틀로
+                const headers = []; const colGroups = [];
+                ordered.forEach(s => {
+                    (s.colGroups || []).forEach(g => {
+                        const fresh = (g.cols || []).filter(c => !headers.includes(c));
+                        if (!fresh.length) return;
+                        fresh.forEach(c => headers.push(c));
+                        const same = colGroups.find(x => x.label === g.label && g.label);
+                        if (same) same.cols.push(...fresh); else colGroups.push({ label: g.label, cols: [...fresh] });
+                    });
+                    s.headers.forEach(h => { if (!headers.includes(h)) { headers.push(h); colGroups.push({ label: '', cols: [h] }); } });
+                });
+                const rows = shs.flatMap(s => s.rows);   // 탭 순서 = 엑셀 순서, 행 순서 그대로
+                const errors = shs.filter(s => s.error).map(s => `${s.name}: ${s.error}`);
+                return { year: y, name: shs.map(s => s.name).join(' + '), sheets: shs.map(s => s.name), headers, colGroups, rows, note, error: errors.join(' / ') || null };
+            });
+            setYearLoad({ fileName: file.name, sheets: entries, sel: null, report: null });
+        } catch (err) { setAlertMsg(`파일 읽기 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+    // 웹 저장본 ↔ 엑셀 시트 전수 대조: ① 열 이름·순서 ② 행 수 ③ 모든 셀 값
+    const yearCompare = (sh) => {
+        const webH = (fbByYear && fbByYear[sh.year] && fbByYear[sh.year].headers) || [];
+        const webRows = fbRows.filter(r => String(r._year || '') === String(sh.year)).sort((a, b) => String(a._id).localeCompare(String(b._id)));
+        const lines = [];
+        const hdrOk = JSON.stringify(webH) === JSON.stringify(sh.headers);
+        lines.push(`① 열: ${hdrOk ? `일치 (${sh.headers.length}개, 순서 동일)` : `불일치 — 웹 ${webH.length}개 / 엑셀 ${sh.headers.length}개`}`);
+        if (!hdrOk) {
+            const onlyWeb = webH.filter(h => !sh.headers.includes(h)), onlyXl = sh.headers.filter(h => !webH.includes(h));
+            if (onlyWeb.length) lines.push(`   웹에만: ${onlyWeb.join(', ')}`);
+            if (onlyXl.length) lines.push(`   엑셀에만: ${onlyXl.join(', ')}`);
+            if (!onlyWeb.length && !onlyXl.length) lines.push('   (같은 열이지만 순서가 다름)');
+        }
+        lines.push(`② 행: ${webRows.length === sh.rows.length ? `일치 (${sh.rows.length}건)` : `불일치 — 웹 ${webRows.length}건 / 엑셀 ${sh.rows.length}건`}`);
+        let cells = 0, bad = 0; const diffs = [];
+        const n2 = Math.min(webRows.length, sh.rows.length);
+        for (let i = 0; i < n2; i++) {
+            sh.headers.forEach(h => {
+                cells++;
+                const a = String(webRows[i][h] ?? '').trim(), b = String(sh.rows[i][h] ?? '').trim();
+                if (a !== b) { bad++; if (diffs.length < 15) diffs.push(`   행${i + 1} [${h}] 웹 "${a}" ≠ 엑셀 "${b}"`); }
+            });
+        }
+        lines.push(`③ 값: ${bad === 0 ? `전부 일치 (${cells.toLocaleString()}칸)` : `불일치 ${bad}칸 / ${cells.toLocaleString()}칸`}`);
+        lines.push(...diffs);
+        if (bad > diffs.length) lines.push(`   … 외 ${bad - diffs.length}칸`);
+        const ok = hdrOk && webRows.length === sh.rows.length && bad === 0;
+        return { ok, text: `${ok ? '✅ 100% 일치' : '⚠ 불일치 있음'} — ${sh.year}년 (탭: ${sh.name})${sh.note ? `\n   ※ ${sh.note}` : ''}\n` + lines.join('\n') };
+    };
+    const handleYearLoad = async (sh) => {
+        if (!isAdmin || !sh) return;
+        const curRows = fbRows.filter(r => String(r._year || '') === String(sh.year));
+        if (!window.confirm(`[${sh.year}년 1:1 적재]\n탭: ${sh.name} → 열 ${sh.headers.length}개 · 행 ${sh.rows.length}건${sh.note ? `\n※ ${sh.note}` : ''}\n\n웹의 ${sh.year}년 기존 ${curRows.length}건은 지우고 이 탭 그대로 넣습니다 (다른 연도 무접촉).\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let batch = writeBatch(db), cnt = 0;
+            const bump = async () => { if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; } };
+            for (const r of curRows) { batch.delete(rowDocRef(currentTeam, r._id)); await bump(); }
+            for (const r of sh.rows) { const { _id, ...rest } = r; batch.set(rowDocRef(currentTeam, _id), stampSave(rest)); await bump(); }
+            if (cnt > 0) await batch.commit();
+            const byYear = { ...(fbByYear || {}), [sh.year]: { headers: sh.headers, colGroups: sh.colGroups } };
+            const isCur = String(sh.year) === String(new Date().getFullYear());
+            // 메타 문서 통째 기록(merge 아님 — 지운 연도 키가 남지 않게). 올해면 팀 공통 헤더도 같이 갱신(홈 카드·다른 화면 호환)
+            await setDoc(metaDocRef(currentTeam), { headers: (isCur || !(fbHeaders || []).length) ? sh.headers : fbHeaders, colGroups: (isCur || !(fbHeaders || []).length) ? sh.colGroups : fbColGroups, byYear, updatedAt: new Date().toISOString() });
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: `(${sh.year}년 1:1 적재)`,
+                note: `연도별 1:1 적재: ${sh.year}년 시트 "${sh.name}" 열 ${sh.headers.length}·행 ${sh.rows.length} (기존 ${curRows.length}건 교체) — ${yearLoad?.fileName || ''}` });
+            setSelectedYear(String(sh.year));
+            setYearLoad(prev => prev ? { ...prev, sel: sh.name, report: `✔ ${sh.year}년 적재 완료 — 행 ${sh.rows.length}건 · 열 ${sh.headers.length}개\n잠시 후 [대조 검증]을 눌러 웹 저장본과 엑셀을 전수 비교하세요.` } : prev);
+        } catch (err) { setAlertMsg(`적재 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+    const handleYearDelete = async (year) => {
+        if (!isAdmin) return;
+        const cur = fbRows.filter(r => String(r._year || '') === String(year));
+        if (!window.confirm(`[${year}년 웹에서 지우기]\n${cur.length}건 + 그 해 헤더 벌을 지웁니다 (다른 연도 무접촉). 진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let batch = writeBatch(db), cnt = 0;
+            for (const r of cur) { batch.delete(rowDocRef(currentTeam, r._id)); if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; } }
+            if (cnt > 0) await batch.commit();
+            const byYear = { ...(fbByYear || {}) }; delete byYear[year];
+            await setDoc(metaDocRef(currentTeam), { headers: fbHeaders || [], colGroups: fbColGroups || [], byYear, updatedAt: new Date().toISOString() });
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.DELETE, projectName: `(${year}년 연도 삭제)`, note: `연도별 삭제: ${year}년 ${cur.length}건` });
+            setYearLoad(prev => prev ? { ...prev, report: `🗑 ${year}년 ${cur.length}건 삭제 완료` } : prev);
+        } catch (err) { setAlertMsg(`삭제 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+
+    // ── 1층 백업 체계 (2026-08-20 팀장님) — 웹이 원본(어미)이 되는 단계 대비 ─────────────
+    //   [전체 백업] = 행·표구조 + 주차장부·백로그·월간마감본·월간보고·팀설정까지 팀 전체를 JSON 1개로.
+    //   [백업 복원] = 관리자 전용, 그 시점으로 되돌림 — 행·장부·마감본·월간보고는 교체, 팀설정은 병합,
+    //   백로그(감사 기록)는 append-only 원칙이라 지우지도 되돌리지도 않음. 복원 직전 현재 상태 자동 백업(안전망).
+    const collDump = async (name) => {   // 컬렉션 통째 → { 문서id: 값 }
+        const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', name));
+        const out = {}; snap.docs.forEach(d => { out[d.id] = d.data(); });
+        return out;
+    };
+    const buildFullBackup = async () => {
+        const [ledger, audit, snaps, monthly] = await Promise.all([
+            collDump(`progressRecords_${currentTeam}`),
+            collDump(`auditLog_${currentTeam}`),
+            collDump(`projectListSnapshots_${currentTeam}`),
+            collDump(`monthlyReport_${currentTeam}`),
+        ]);
+        const tsDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'));
+        return {
+            format: 'PMS-FULL-1', team: currentTeam, savedAt: new Date().toISOString(),
+            meta: { headers: fbHeaders, colGroups: fbColGroups, byYear: fbByYear || {} },   // 팀 공통 헤더 + 연도별 헤더 벌 (2026-08-21)
+            rows: fbRows, progressRecords: ledger, auditLog: audit,
+            snapshots: snaps, monthlyReport: monthly,
+            teamSettings: tsDoc.exists() ? (tsDoc.data()[currentTeam] || null) : null,
+        };
+    };
+    const downloadFullBackup = async (payload, prefix) => {
+        await loadFileSaver();
+        const _bs = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+        window.saveAs(new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' }), `${prefix}_${currentTeam}_${_bs}.json`);
+    };
+    const handleFullBackup = async () => {
+        if (!isAdmin) { setAlertMsg('전체 백업은 관리자만 할 수 있습니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 백업할 수 있습니다.'); return; }
+        setIsLoading(true);
+        try {
+            const payload = await buildFullBackup();
+            await downloadFullBackup(payload, 'PMS전체백업');
+            setAlertMsg(`전체 백업 완료!\n\n프로젝트 행 ${payload.rows.length}건 · 진행실적 장부 ${Object.keys(payload.progressRecords).length}건\n백로그 ${Object.keys(payload.auditLog).length}건 · 월간마감본 ${Object.keys(payload.snapshots).length}건 · 월간보고 ${Object.keys(payload.monthlyReport).length}건 · 팀설정 ${payload.teamSettings ? '포함' : '없음'}\n\n★ 내려받은 파일을 NAS 백업 폴더에 옮겨 두세요 (주 1회 권장)`);
+        } catch (err) { setAlertMsg(`전체 백업 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+    const handleRestorePick = async (e) => {
+        const file = e.target?.files?.[0];
+        if (restoreFileRef.current) restoreFileRef.current.value = '';
+        if (!file) return;
+        if (!isAdmin) { setAlertMsg('백업 복원은 관리자만 할 수 있습니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 복원할 수 있습니다.'); return; }
+        setIsLoading(true);
+        try {
+            const bk = JSON.parse(await file.text());
+            if (bk.format !== 'PMS-FULL-1') { setAlertMsg('전체 백업 파일이 아닙니다.\n[전체 백업]으로 만든 PMS전체백업_*.json만 복원할 수 있습니다.\n(옛 ProjectList백업 파일은 행·표구조만 담겨 있어 이 기능 대상이 아닙니다)'); return; }
+            if (bk.team !== currentTeam) { setAlertMsg(`팀이 다릅니다.\n백업 파일 = ${bk.team} / 현재 화면 = ${currentTeam}`); return; }
+            const bkRows = Array.isArray(bk.rows) ? bk.rows : [];
+            const bkLedger = bk.progressRecords || {}, bkSnaps = bk.snapshots || {}, bkMonthly = bk.monthlyReport || {};
+            if (!window.confirm(`[백업 복원] ${bk.team}\n백업 시점: ${String(bk.savedAt).slice(0, 16).replace('T', ' ')}\n\n지금 클라우드 데이터를 이 시점으로 되돌립니다:\n· 프로젝트 행 ${fbRows.length}건 → ${bkRows.length}건 (교체)\n· 진행실적 장부 → ${Object.keys(bkLedger).length}건 (교체)\n· 표 구조·마감본 ${Object.keys(bkSnaps).length}건·월간보고 ${Object.keys(bkMonthly).length}건·팀설정 → 백업 값으로\n· 백로그(감사 기록)는 지우지 않고 그대로 둡니다\n\n복원 직전, 현재 상태의 전체 백업이 자동 다운로드됩니다(안전망).\n진행할까요?`)) return;
+            // 0) 안전망 — 현재 상태 먼저 통째 백업
+            await downloadFullBackup(await buildFullBackup(), 'PMS복원직전백업');
+            let batch = writeBatch(db), cnt = 0;
+            const bump = async (n) => { cnt += n; if (cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; } };
+            // 1) 프로젝트 행 = 교체 (지금 행 전부 삭제 → 백업 행 기록. 값·도장·이력까지 백업 원문 그대로)
+            for (const r of fbRows) { batch.delete(rowDocRef(currentTeam, r._id)); await bump(1); }
+            for (const r of bkRows) { const { _id, ...rest } = r; batch.set(rowDocRef(currentTeam, _id), rest); await bump(1); }
+            // 2) 표 구조(메타)
+            batch.set(metaDocRef(currentTeam), { headers: bk.meta?.headers || [], colGroups: bk.meta?.colGroups || [], byYear: bk.meta?.byYear || {}, updatedAt: new Date().toISOString() }); await bump(1);
+            // 3) 진행실적 장부 = 교체
+            const curLed = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`));
+            for (const d of curLed.docs) { if (!bkLedger[d.id]) { batch.delete(d.ref); await bump(1); } }
+            for (const [id, v] of Object.entries(bkLedger)) { batch.set(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, id), v); await bump(1); }
+            // 4) 월간 마감본 = 교체
+            const curSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `projectListSnapshots_${currentTeam}`));
+            for (const d of curSnap.docs) { if (!bkSnaps[d.id]) { batch.delete(d.ref); await bump(1); } }
+            for (const [id, v] of Object.entries(bkSnaps)) { batch.set(doc(db, 'artifacts', appId, 'public', 'data', `projectListSnapshots_${currentTeam}`, id), v); await bump(1); }
+            // 5) 월간보고 = 교체
+            const curMon = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', `monthlyReport_${currentTeam}`));
+            for (const d of curMon.docs) { if (!bkMonthly[d.id]) { batch.delete(d.ref); await bump(1); } }
+            for (const [id, v] of Object.entries(bkMonthly)) { batch.set(doc(db, 'artifacts', appId, 'public', 'data', `monthlyReport_${currentTeam}`, id), v); await bump(1); }
+            // 6) 팀설정 = 병합 (이 팀 조각만 — 다른 팀 설정 안 건드림)
+            if (bk.teamSettings) { batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), { [currentTeam]: bk.teamSettings }, { merge: true }); await bump(1); }
+            if (cnt > 0) await batch.commit();
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(백업 복원)',
+                note: `백업 복원: ${String(bk.savedAt).slice(0, 16)} 시점으로 — 행 ${bkRows.length}건 · 장부 ${Object.keys(bkLedger).length}건 — ${file.name}` });
+            setAlertMsg(`백업 복원 완료!\n\n${String(bk.savedAt).slice(0, 16).replace('T', ' ')} 시점으로 되돌렸습니다.\n행 ${bkRows.length}건 · 장부 ${Object.keys(bkLedger).length}건 · 마감본 ${Object.keys(bkSnaps).length}건\n(복원 직전 상태도 백업 파일로 내려받아졌으니, 잘못 복원했다면 그 파일로 다시 복원하면 됩니다)`);
+        } catch (err) { setAlertMsg(`백업 복원 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
     };
 
     // ── 로컬 데이터 삭제 ─────────────────────────────────────────────────
@@ -1247,13 +1615,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const srcRow = activeRows.find(r => r._id === editingCell.id);
         // 날짜 칸: 입력값이 원본(정규화)과 같으면 = 사용자가 안 바꾼 것 → 저장 스킵.
         //   비표준 날짜('6/8','5/21' 등)는 toDateInputVal이 ''라, 클릭만 해도 빈칸으로 덮어써지던 버그 방지 (2026-06-29)
-        if (isDateCol(editingCell.key) && String(editingCell.value ?? '') === String(displayDate(srcRow?.[editingCell.key] ?? ''))) {
+        if (isDateCol(editingCell.key) && String(editingCell.value ?? '') === String(displayDate(srcRow?.[editingCell.key] ?? '', srcRow?._year))) {
             setEditingCell({ id: null, key: null, value: '' });
             return;
         }
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
         // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
-        const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20)
+        const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecNoCol(editingCell.key) ? execNoNorm(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN (2026-08-21)
         // ★ 수식 재계산 (2026-08-19, 기술1팀): 트리거 칸(PLC·ETOS·HMI·총물량·금월)을 고치면 자동 칸 함께 갱신
         //   (2026-08-20 팀장님: 팝업 자체시운전 = 메인표와 별개 운영 — 금월 키인을 주차장부로 밀어넣던 자동은 폐지, 사람이 팝업에서 직접 키인)
         if (srcRow && fmActive(srcRow) && fmTrigSet.has(fmNorm(editingCell.key))) {
@@ -2630,12 +2998,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const statusFilterCol = useMemo(() => {
         const base = teamProfile?.상태?.칩기준열;
         if (base) {
-            const key = String(base).replace(/\s/g, '');
-            const hit = activeHeaders.find(h => String(h).replace(/\s/g, '') === key);
+            const hit = aliasCol(base);   // 연도별 별칭 — 옛 연도 '견적'→계약, '수행 담당'→수행 (2026-08-21)
             if (hit) return hit;
         }
         return activeHeaders.find(h => ['진행현황', '현황', '진행'].some(k => h.includes(k)));
-    }, [activeHeaders, teamProfile]);
+    }, [activeHeaders, teamProfile, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const statusChipData = useMemo(() => {
         if (!statusFilterCol) return [];
@@ -2695,11 +3062,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             newCnt: mains.filter(r => String(r._regDate || '').startsWith(ymKey)).length,
             // '—' 카드 사유 구분용 (2026-08-11): 항목 자체가 없음 vs 열은 있는데 아직 값 없음
             pctColCnt: useCols.length, hasAccCol: !!accCol, hasDoneCol: !!doneCol,
+            // ── 당해(현재 연도) 카드 (2026-08-21 팀장님, 기술1팀): 전체=순번 있는 행 수 · 항목 = 작업 칸 값 건수 ──
+            ...(() => {
+                const cc = teamProfile?.당해카드;
+                if (!cc) return {};
+                const colOf = (nm) => aliasCol(nm);   // 연도별 별칭 (2026-08-21)
+                const noCol = colOf(cc.건수기준열 || '순번'), stCol = colOf(cc.상태열);
+                const ccTotal = noCol ? mains.filter(r => String(r[noCol] ?? '').trim() !== '').length : mains.length;
+                const ccItems = (cc.항목 || []).map(it => {
+                    const vals = [].concat(it.값).map(v => String(v).trim());
+                    return { 라벨: it.라벨, cnt: stCol ? mains.filter(r => vals.includes(String(r[stCol] || '').trim())).length : null };
+                });
+                const nm2 = (h) => String(h).replace(/\s*\(\d+\)\s*$/, '');   // dispHeader는 아래에서 정의돼(TDZ) 여기선 직접
+                return { ccOn: true, ccTotal, ccItems, ccBasis: noCol ? `${nm2(noCol)} 기준` : '행 수 기준', ccStName: stCol ? nm2(stCol) : '' };
+            })(),
             // ── 보고 카드 (2026-08-19 팀장님, 기술1팀 — 연도별 임원 보고 양식) ──
             ...(() => {
                 const rc = teamProfile?.보고카드;
                 if (!rc) return {};
-                const colOf = (nm) => activeHeaders.find(h => norm(h) === norm(nm)) || null;
+                const colOf = (nm) => aliasCol(nm);   // 연도별 별칭 (2026-08-21)
                 const stCol = colOf(rc.상태열), wkCol = colOf(rc.작업열), ptCol = colOf(rc.포인트열), acCol = colOf(rc.누적열);
                 const byStatus = {};
                 if (stCol) mains.forEach(r => { const v = String(r[stCol] || '').trim() || '미기재'; byStatus[v] = (byStatus[v] || 0) + 1; });   // 빈칸도 '미기재'로 정직하게 (2026-08-20)
@@ -2719,7 +3100,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     rcPtSum: Math.round(rcPtSum), rcAccSum: Math.round(rcAccSum), rcPtN };
             })(),
         };
-    }, [monthFilteredRows, activeHeaders, statusFilterCol]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [monthFilteredRows, activeHeaders, statusFilterCol, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     // '이름, 이름' 다중 담당자 지원 (2026-07-28 팀장님) — 쉼표 형식 + 옛 형식 모두 사람별로 나눠 취급
     const splitAssignees = (v) => splitAssigneeCell(v);
@@ -2733,12 +3114,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const assigneeFilterCol = useMemo(() => {
         const base = teamProfile?.열?.담당자필터열;
         if (base) {
-            const key = String(base).replace(/\s/g, '');
-            const hit = activeHeaders.find(h => String(h).replace(/\s/g, '') === key);
+            const hit = aliasCol(base);   // 연도별 별칭 — 옛 연도 '견적'→계약, '수행 담당'→수행 (2026-08-21)
             if (hit) return hit;
         }
         return activeHeaders.find(h => h.includes('담당자') && !h.includes('업체'));
-    }, [activeHeaders, teamProfile]);
+    }, [activeHeaders, teamProfile, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     const assigneeCountMap = useMemo(() => {
         if (!assigneeFilterCol) return {};
@@ -2766,10 +3146,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 agg[key].labelCnt[raw] = (agg[key].labelCnt[raw] || 0) + 1;
             });
         });
+        // 명단(직책) 순서 우선 — 담당자 칩과 동일 기준 (2026-08-20 팀장님: 최영환 담당(DD)이 김준혁 팀장보다 앞). 명단 밖 이름은 뒤에 건수순.
+        const mgrRank = (k) => { const i = ASSIGNEES.findIndex(nm => extractName(normalizeAssignee(nm)) === k); return i === -1 ? 999 : i; };
         return Object.values(agg)
             .map(a => ({ key: a.key, count: a.count, label: Object.entries(a.labelCnt).sort((x, y) => y[1] - x[1])[0][0] }))
-            .sort((a, b) => b.count - a.count);
-    }, [monthFilteredRows, managerFilterCol]);
+            .sort((a, b) => { const ra = mgrRank(a.key), rb = mgrRank(b.key); return ra !== rb ? ra - rb : b.count - a.count; });
+    }, [monthFilteredRows, managerFilterCol, ASSIGNEES]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── 필터 고유값 + 카운트 맵 (연도 필터 적용 후 기준) ─────────────────
     const uniqueVals = useMemo(() => {
@@ -3149,8 +3531,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 style={forceColor ? { color: isSortKey ? '#1e7ac8' : forceColor } : undefined}
                 className={`w-full ${small ? 'whitespace-normal break-words leading-tight' : 'truncate leading-none'} text-left font-bold hover:text-cyan-400 transition-colors py-0
                     ${szCls} ${colorCls}`}>
-                {dispHeader(h)}
-                {fmHdrAuto(h) && <span title="자동 계산 칸 — 진행실적 팝업·수식이 채웁니다 (셀 키인 잠금)" style={{ marginLeft: 3, fontSize: 8, fontWeight: 800, color: '#1e7ac8', background: '#e3effa', border: '1px solid #b7d4ee', borderRadius: 4, padding: '0 3px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>자동</span>}
+                {/* 자동 계산 칸 = 이름 자체에 파란 테두리 ('자동' 꼬리표 제거 — 2026-08-21 팀장님: 배치 틀어짐) */}
+                {fmHdrAuto(h)
+                    ? <span title="자동 계산 칸 — 진행실적 팝업·수식이 채웁니다 (셀 키인 잠금)" style={{ color: '#1e7ac8', border: '1px solid #7fb3e3', background: '#eaf3fc', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}>{dispHeader(h)}</span>
+                    : dispHeader(h)}
                 {isSortKey && (sortConfig.dir==='asc'
                     ? <ChevronUp size={iconSz} className="inline ml-0.5"/>
                     : <ChevronDown size={iconSz} className="inline ml-0.5"/>)}
@@ -3325,25 +3709,41 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         style={{ ...(assigneeDropdown.up ? { bottom: assigneeDropdown.upBottom + 2 } : { top: assigneeDropdown.top + 2 }), left: assigneeDropdown.left, minWidth: Math.max(assigneeDropdown.width, 180),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'300px', overflowY:'auto' }}>
                         <div style={{ padding:'5px 12px', fontSize:'10.5px', fontWeight:700, color:'#94a3b8', borderBottom:'1px solid #eef2f7', backgroundColor:'#f8fafc' }}>클릭 = 추가/해제 (여러 명 가능) · 바깥 클릭 = 완료</div>
-                        {ASSIGNEES.map(name => {
+                        {(() => {
+                            // 카드 담당자식열(기술1팀 담당·수행) = 이름만 표기·'/' 연결 / 기존 담당자·관리자 칸 = 직책 표기·공백 연결 (2026-08-21)
+                            const cardMode = isCardAsgCol(assigneeDropdown.col);
+                            const disp = (name) => (cardMode && asgColCfg?.이름만) ? extractName(name) : toExcelAssignee(name);
+                            const sep = cardMode ? (asgColCfg?.구분자 || ' ') : ' ';
                             const curRaw = activeRows.find(r=>r._id===assigneeDropdown.rowId)?.[assigneeDropdown.col]||'';
                             const parts = splitAssigneeCell(curRaw);
-                            const isCur = parts.some(p => extractName(normalizeAssignee(p)) === extractName(name));
-                            return (
-                                <button key={name}
-                                    onClick={() => {
-                                        const next = isCur ? parts.filter(p => extractName(normalizeAssignee(p)) !== extractName(name)) : [...parts, toExcelAssignee(name)];
-                                        commitCellWith(assigneeDropdown.rowId, assigneeDropdown.col, next.join(' '));   // 기존 엑셀 표기: 쉼표 없이 띄어쓰기 (2026-07-28 팀장님)
-                                    }}
-                                    style={{ display:'flex', alignItems:'center', gap:'8px', width:'100%', padding:'6px 12px',
-                                             backgroundColor: isCur ? '#374151' : 'transparent', border:'none', cursor:'pointer' }}
-                                    onMouseEnter={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='rgba(107,114,128,0.1)'; }}
-                                    onMouseLeave={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='transparent'; }}>
-                                    <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{toExcelAssignee(name)}</span>
-                                    {isCur && <Check size={11} style={{ marginLeft:'auto', color:'#fff' }}/>}
-                                </button>
-                            );
-                        })}
+                            return (<>
+                                {ASSIGNEES.map(name => {
+                                    const isCur = parts.some(p => extractName(normalizeAssignee(p)) === extractName(name));
+                                    return (
+                                        <button key={name}
+                                            onClick={() => {
+                                                const next = isCur ? parts.filter(p => extractName(normalizeAssignee(p)) !== extractName(name)) : [...parts, disp(name)];
+                                                commitCellWith(assigneeDropdown.rowId, assigneeDropdown.col, next.join(sep));   // 표기: 기술2팀 공백(2026-07-28) · 카드팀 구분자(2026-08-21)
+                                            }}
+                                            style={{ display:'flex', alignItems:'center', gap:'8px', width:'100%', padding:'6px 12px',
+                                                     backgroundColor: isCur ? '#374151' : 'transparent', border:'none', cursor:'pointer' }}
+                                            onMouseEnter={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='rgba(107,114,128,0.1)'; }}
+                                            onMouseLeave={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='transparent'; }}>
+                                            <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{disp(name)}</span>
+                                            {isCur && <Check size={11} style={{ marginLeft:'auto', color:'#fff' }}/>}
+                                        </button>
+                                    );
+                                })}
+                                <div style={{ borderTop:'1px solid #e2e8f0', display:'flex' }}>
+                                    <button onClick={() => { setEditingCell({ id: assigneeDropdown.rowId, key: assigneeDropdown.col, value: String(curRaw ?? '') }); setAssigneeDropdown(null); }}
+                                        style={{ flex:1, padding:'6px 10px', background:'#f8fafc', border:'none', cursor:'pointer', fontSize:'11px', fontWeight:700, color:'#1358a0' }}>✎ 직접 입력</button>
+                                    {!!String(curRaw).trim() && (
+                                    <button onClick={() => { commitCellWith(assigneeDropdown.rowId, assigneeDropdown.col, ''); setAssigneeDropdown(null); }}
+                                        style={{ flex:1, padding:'6px 10px', background:'#f8fafc', border:'none', borderLeft:'1px solid #e2e8f0', cursor:'pointer', fontSize:'11px', fontWeight:700, color:'#94a3b8' }}>빈칸으로</button>
+                                    )}
+                                </div>
+                            </>);
+                        })()}
                     </div>
                 </>
             )}
@@ -3355,7 +3755,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
                         style={{ ...(clientDropdown.up ? { bottom: clientDropdown.upBottom + 2 } : { top: clientDropdown.top + 2 }), left: clientDropdown.left, minWidth: Math.max(clientDropdown.width, 140),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
-                        {[...new Set(activeRows.map(r => String(r[clientDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {
+                        {[...new Set(yearFilteredRows.map(r => String(r[clientDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {   // 기준연도 행만 (2026-08-21: 옛 연도 값 딸려오던 문제)
                             const curRaw = String(activeRows.find(r=>r._id===clientDropdown.rowId)?.[clientDropdown.col]||'').trim();
                             const isCur = curRaw === name;
                             return (
@@ -3374,6 +3774,51 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </>
             )}
 
+            {/* 연도별 1:1 적재·검증 모달 (2026-08-21 팀장님, 기술1팀) */}
+            {yearLoad && (
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center" style={{ backgroundColor:'rgba(15,23,42,0.45)' }} onClick={() => setYearLoad(null)}>
+                    <div onClick={e => e.stopPropagation()} style={{ width:'min(860px, 94vw)', maxHeight:'88vh', overflow:'auto', background:'#fff', borderRadius:'12px', border:'1px solid #dfe5ee', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', padding:'16px 18px' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px' }}>
+                            <LayoutList size={16} color="#4f46e5"/>
+                            <div style={{ fontSize:'14px', fontWeight:800, color:'#1e293b' }}>연도별 1:1 적재·검증</div>
+                            <div style={{ fontSize:'11px', color:'#64748b' }}>{yearLoad.fileName}</div>
+                            <button onClick={() => setYearLoad(null)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#94a3b8' }}><X size={16}/></button>
+                        </div>
+                        <div style={{ fontSize:'11px', color:'#64748b', marginBottom:'10px' }}>시트 1장 = 웹 연도 1개. 열 이름·순서·값을 시트 그대로 넣습니다(번역·추가 열 없음). 연도마다 <b>[적재] → [대조 검증]</b> 순서로 한 해씩 진행하세요.</div>
+                        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+                            <thead><tr style={{ background:'#f1f5f9', color:'#475569' }}>
+                                <th style={{ padding:'6px 8px', textAlign:'left' }}>연도 (탭)</th><th>연도</th><th>열</th><th>엑셀 행</th><th>웹 현재</th><th>헤더 벌</th><th></th>
+                            </tr></thead>
+                            <tbody>
+                            {yearLoad.sheets.map(sh => {
+                                const webCnt = fbRows.filter(r => String(r._year || '') === String(sh.year)).length;
+                                const hasMeta = !!(fbByYear && fbByYear[sh.year]);
+                                const sel = yearLoad.sel === sh.name;
+                                return (
+                                    <tr key={sh.year} onClick={() => setYearLoad(p => ({ ...p, sel: sh.name, report: null }))}
+                                        style={{ cursor:'pointer', background: sel ? 'rgba(79,70,229,0.08)' : 'transparent', borderBottom:'1px solid #eef2f7' }}>
+                                        <td style={{ padding:'6px 8px', fontWeight: sel ? 800 : 500 }}>{sh.name}{sh.note ? <div style={{ fontSize:'10px', color:'#64748b', fontWeight:400 }}>{sh.note}</div> : null}{sh.error ? <span style={{ color:'#dc2626', marginLeft:6 }}>오류: {sh.error}</span> : null}</td>
+                                        <td style={{ textAlign:'center' }}>{sh.year}</td>
+                                        <td style={{ textAlign:'center' }}>{sh.headers.length}</td>
+                                        <td style={{ textAlign:'center' }}>{sh.rows.length}</td>
+                                        <td style={{ textAlign:'center', color: webCnt ? '#1e293b' : '#94a3b8' }}>{webCnt}</td>
+                                        <td style={{ textAlign:'center' }}>{hasMeta ? <span style={{ color:'#059669', fontWeight:700 }}>1:1</span> : <span style={{ color:'#94a3b8' }}>—</span>}</td>
+                                        <td style={{ textAlign:'right', whiteSpace:'nowrap', padding:'4px 6px' }}>
+                                            <button disabled={!sh.rows.length} onClick={e => { e.stopPropagation(); handleYearLoad(sh); }} style={{ fontSize:'11px', fontWeight:700, padding:'3px 8px', borderRadius:'6px', border:'1px solid #4f46e5', background:'#4f46e5', color:'#fff', cursor:'pointer', marginRight:'4px', opacity: sh.rows.length ? 1 : 0.4 }}>적재</button>
+                                            <button onClick={e => { e.stopPropagation(); const rep = yearCompare(sh); setYearLoad(p => ({ ...p, sel: sh.name, report: rep.text })); }} style={{ fontSize:'11px', fontWeight:700, padding:'3px 8px', borderRadius:'6px', border:'1px solid #059669', background:'#fff', color:'#059669', cursor:'pointer', marginRight:'4px' }}>대조 검증</button>
+                                            <button disabled={!webCnt} onClick={e => { e.stopPropagation(); handleYearDelete(sh.year); }} style={{ fontSize:'11px', fontWeight:700, padding:'3px 8px', borderRadius:'6px', border:'1px solid #e5e7eb', background:'#fff', color:'#dc2626', cursor:'pointer', opacity: webCnt ? 1 : 0.4 }}>지우기</button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                            </tbody>
+                        </table>
+                        {yearLoad.report && (
+                            <pre style={{ marginTop:'10px', padding:'10px 12px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:'8px', fontSize:'11.5px', lineHeight:1.5, whiteSpace:'pre-wrap', color:'#1e293b', maxHeight:'260px', overflow:'auto', fontFamily:'inherit' }}>{yearLoad.report}</pre>
+                        )}
+                    </div>
+                </div>
+            )}
             {/* 단어(카테고리) 칸 공용 드롭다운 — 사전 목록(팀 카드) + 열에 실제 쓰인 단어, 맨 아래 직접 입력·빈칸 (2026-08-19 팀장님) */}
             {wordDropdown && (
                 <>
@@ -3382,7 +3827,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         style={{ ...(wordDropdown.up ? { bottom: wordDropdown.upBottom + 2 } : { top: wordDropdown.top + 2 }), left: wordDropdown.left, minWidth: Math.max(wordDropdown.width, 110),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'280px', overflowY:'auto' }}>
                         {(() => {
-                            const used = [...new Set(activeRows.map(r => String(r[wordDropdown.col]||'').trim()).filter(Boolean))];
+                            const used = [...new Set(yearFilteredRows.map(r => String(r[wordDropdown.col]||'').trim()).filter(Boolean))];   // 기준연도 행만 (2026-08-21 팀장님: 2017년 'LGD'·2020년 '생산' 등 옛 값이 2026 드롭다운에 딸려오던 문제)
                             const preset = wordDropdown.preset || [];
                             const opts = [...preset, ...used.filter(v => !preset.includes(v)).sort()];   // 사전 순서 우선, 나머지는 가나다
                             const curRaw = String(activeRows.find(r=>r._id===wordDropdown.rowId)?.[wordDropdown.col]||'').trim();
@@ -3424,7 +3869,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <div className="fixed z-[351] shadow-2xl overflow-hidden"
                         style={{ ...(vendorDropdown.up ? { bottom: vendorDropdown.upBottom + 2 } : { top: vendorDropdown.top + 2 }), left: vendorDropdown.left, minWidth: Math.max(vendorDropdown.width, 140),
                                  backgroundColor:'#fff', border:'1.5px solid #c4ccd8', maxHeight:'260px', overflowY:'auto' }}>
-                        {[...new Set(activeRows.map(r => String(r[vendorDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {
+                        {[...new Set(yearFilteredRows.map(r => String(r[vendorDropdown.col]||'').trim()).filter(Boolean))].sort().map(name => {   // 기준연도 행만 (2026-08-21)
                             const curRaw = String(activeRows.find(r=>r._id===vendorDropdown.rowId)?.[vendorDropdown.col]||'').trim();
                             const isCur = curRaw === name;
                             return (
@@ -4459,6 +4904,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={userFileRef} onChange={handleUserExcelPick} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={histFileRef} onChange={handleHistoryImportPick} accept=".xlsx,.xls" className="hidden"/>
+            <input type="file" ref={yearFileRef} onChange={handleYearFilePick} accept=".xlsx,.xls" className="hidden"/>
+            <input type="file" ref={restoreFileRef} onChange={handleRestorePick} accept=".json" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
             <header className="flex flex-row flex-wrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
@@ -4692,6 +5139,31 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <Clock size={14} className="text-violet-600"/> 과거 연도 추가 적재 <span className="text-[10px] text-[#999] font-normal">올해 무접촉</span>
                                     </button>
                                     )}
+                                    {/* 수행번호 3자리 정리 (2026-08-21 팀장님, 기술1팀): 26-01 → 26-001, 전 연도 한 번에 */}
+                                    {isAdmin && execCfg && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); handleExecNoPad(); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Hash size={14} className="text-indigo-600"/> 수행번호 3자리 정리 <span className="text-[10px] text-[#999] font-normal">26-01 → 26-001</span>
+                                    </button>
+                                    )}
+                                    {/* 연도별 1:1 적재·검증 (2026-08-21 팀장님, 기술1팀): 시트 1장 = 연도 1개, 열·값 엑셀 그대로 — 연도마다 적재→대조 */}
+                                    {isAdmin && teamProfile?.연도별적재 && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); if (yearFileRef.current) { yearFileRef.current.value = ''; yearFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <LayoutList size={14} className="text-indigo-600"/> 연도별 1:1 적재·검증 <span className="text-[10px] text-[#999] font-normal">시트 1장씩</span>
+                                    </button>
+                                    )}
+                                    {/* 1층 백업 체계 (2026-08-20 팀장님): 전체 백업 + 복원 — 웹이 원본이 되는 단계 대비 */}
+                                    {isAdmin && dataSource === 'firebase' && (<>
+                                    <button onClick={() => { setSettingsOpen(false); handleFullBackup(); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">행+장부+설정 통째</span>
+                                    </button>
+                                    <button onClick={() => { setSettingsOpen(false); if (restoreFileRef.current) { restoreFileRef.current.value = ''; restoreFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-red-500"/> 백업 복원 <span className="text-[10px] text-[#999] font-normal">그 시점으로 되돌림</span>
+                                    </button>
+                                    </>)}
                                     {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
                                     {isAdmin && (<>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
@@ -4817,7 +5289,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-base shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all">
                             <Upload size={20}/> 엑셀 파일 업로드
                         </button>
-                        <p className="text-slate-700 text-xs mt-5">지원 형식: .xlsx · .xls</p>
+                        {teamProfile?.연도별적재 && (
+                        <button onClick={() => { if (yearFileRef.current) { yearFileRef.current.value = ''; yearFileRef.current.click(); } }}
+                            className="inline-flex items-center gap-3 px-8 py-4 ml-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-base shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all">
+                            <LayoutList size={20}/> 연도별 1:1 적재·검증
+                        </button>
+                        )}
+                        <p className="text-slate-700 text-xs mt-5">지원 형식: .xlsx · .xls{teamProfile?.연도별적재 ? ' · 이 팀은 [연도별 1:1 적재]로 한 해씩 넣고 대조 검증하세요' : ''}</p>
                         </>) : (
                         <p className="text-slate-500 text-sm">엑셀 업로드는 관리자만 할 수 있습니다. 관리자에게 요청하세요.</p>
                         )}
@@ -4827,7 +5305,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <div className="flex-1 bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden flex flex-col min-h-0">
                     {/* ── KPI 요약 카드 (D안 2026-08-11 — 표시 전용. 간부가 물어볼 숫자를 표 위에 상시) ── */}
                     {/* ── 보고 카드 (2026-08-19 팀장님, 팀 카드 '보고카드' 팀 = 기술1팀): 지난 연도만 — 당해(진행중)는 기존 카드 ── */}
-                    {kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()) && kpiData.total > 0 && (
+                    {/* 지난 연도 보고 카드 — 당해카드 팀(기술1팀)은 지난 연도도 같은 4장(전체·준비·진행중·완료)으로 (2026-08-21 팀장님) */}
+                    {kpiData.rcOn && !kpiData.ccOn && selectedYear && selectedYear < String(new Date().getFullYear()) && kpiData.total > 0 && (
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: '#edf1f7', flexShrink: 0 }}>
                             {/* 1. 총 프로젝트 */}
                             <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
@@ -4879,8 +5358,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </div>
                         </div>
                     )}
-                    {!(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear())) && kpiData.total > 0 && (
+                    {(kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && kpiData.total > 0 && (
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: '#edf1f7', flexShrink: 0 }}>
+                            {kpiData.ccOn ? (<>
+                                {/* 당해 카드 (2026-08-21 팀장님, 기술1팀): 전체(순번 기준) + 작업 칸 항목별 건수 — 8월 완료 카드는 아래 공용 그대로 */}
+                                <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                    <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>전체 프로젝트</div>
+                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.ccTotal}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
+                                    <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{kpiData.ccBasis}</div>
+                                </div>
+                                {(kpiData.ccItems || []).map(it => (
+                                    <div key={it.라벨} style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
+                                        <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>{it.라벨}</div>
+                                        {it.cnt !== null ? (
+                                            <div style={{ fontSize: '20px', fontWeight: 800, color: it.라벨 === '완료' ? '#059669' : it.라벨 === '진행중' ? '#1e7ac8' : '#37352f', lineHeight: 1.2 }}>{it.cnt}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
+                                        ) : (
+                                            <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
+                                        )}
+                                        <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{it.cnt !== null ? `${kpiData.ccStName} 칸 기준` : '이 팀 표엔 작업 현황 항목 없음'}</div>
+                                    </div>
+                                ))}
+                            </>) : (<>
                             <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
                                 <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>프로젝트</div>
                                 <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.total}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
@@ -4909,6 +5407,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         : (!kpiData.hasAccCol ? '이 팀 표엔 누적 항목 없음' : '아직 총점(포인트) 값 없음')}
                                 </div>
                             </div>
+                            </>)}
+                            {/* 'N월 완료'는 올해만 — 지난 연도엔 의미 없음 */}
+                            {!(selectedYear && selectedYear < String(new Date().getFullYear())) && (
                             <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
                                 <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>{kpiData.month}월 완료</div>
                                 {kpiData.doneCnt !== null ? (
@@ -4920,6 +5421,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {kpiData.doneCnt !== null ? `공사완료 날짜 기준 · 신규 등록 ${kpiData.newCnt}건` : '이 팀 표엔 공사완료 날짜 항목 없음'}
                                 </div>
                             </div>
+                            )}
                         </div>
                     )}
                     {/* ── 진행현황 + 담당자 칩 필터 바 (한 행) ── */}
@@ -5092,9 +5594,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         {mainVisibleGroups.map((g,gi) => {
                                             if (!g.label) return null;
                                             return g.cols.map((h,ci) => (
-                                                <th key={`sub-${gi}-${ci}`}
-                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}${grpSep(h)}`}
-                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
+                                                <th key={`sub-${gi}-${ci}`} data-col={h}
+                                                    className={`${thSub} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}${grpSep(h)} ${(colWidths[h]||fitWidths[h])?'col-clip':''}`}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h)
                                                         ? <ComboFilter h={h} small/>
@@ -5185,8 +5687,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${cellSz}
                                                         ${isHl?'bg-amber-100 text-amber-900':''}
                                                         ${autoTip && !isHl ? 'cell-auto' : ''}
-                                                        ${isFrz(h)?'z-10':''}`}
-                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
+                                                        ${(!isHl && !autoTip && isGrayEmptyCol(h) && !String(val ?? '').trim() && !isNaItemCell(row, h) && !nasX) ? 'cell-empty' : ''}
+                                                        ${isFrz(h)?'z-10':''}
+                                                        ${(colWidths[h]||fitWidths[h])?'col-clip':''}`}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
                                                     title={autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
                                                     onClick={e=>{
                                                         e.stopPropagation();
@@ -5207,7 +5711,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setStatusDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 120), ...dropAnchor(rect, e.clientY) });
-                                                        } else if (isAssigneeCol(h) || isManagerCol(h)) {   // 관리자 = 담당자와 같은 드롭다운 (2026-07-22)
+                                                        } else if (isAssigneeCol(h) || isManagerCol(h) || isCardAsgCol(h)) {   // 관리자 = 담당자와 같은 드롭다운 (2026-07-22) · 카드 담당자식열 (2026-08-21)
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setAssigneeDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 160), ...dropAnchor(rect, e.clientY) });
@@ -5225,7 +5729,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setWordDropdown({ rowId: row._id, col: h, preset: wordDropCols[wordDropKey(h)] || [], left: rect.left, width: Math.max(rect.width, 110), ...dropAnchor(rect, e.clientY) });
                                                         } else if (isDateCol(h)) {
-                                                            setEditingCell({id:row._id,key:h,value:displayDate(val)});
+                                                            setEditingCell({id:row._id,key:h,value:displayDate(val, row._year)});
                                                         } else if (isPointCol(h)) {
                                                             // 포인트 칸 = 엑셀 값 자체 편집 (2026-07-21). 하위(공종) 있으면 Σ 자동합이라 잠금 유지 (2026-07-20 2단계)
                                                             if (getSubPt(row._id)) { setAlertMsg('하위(공종)가 있는 프로젝트는 포인트가 하위 합계로 자동 계산됩니다.\n하위 행에서 수정하세요.'); return; }
@@ -5234,9 +5738,15 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             setEditingCell({id:row._id,key:h,value: isPctCol(h) ? String(val||'').replace(/%/g,'') : (val||'')});
                                                         }
                                                     }}>
-                                                    {isNaItemCell(row, h) ? (<span title="이 프로젝트엔 해당 없는 항목 (상세설정에서 적용/미적용)" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>)
+                                                    {isExecNoCol(h) && !isSubListRow(row) ? (
+                                                        val ? (<span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>{val}
+                                                            <button className="exec-del" title="수행번호 회수(비우기)" onClick={e => { e.stopPropagation(); revokeExecNo(row, h); }}
+                                                                style={{ border:'none', background:'transparent', color:'#94a3b8', fontSize:'10px', lineHeight:1, padding:'0 2px', cursor:'pointer' }}>✕</button></span>)
+                                                        : (<button title={`다음 수행번호 자동 부여 (${execMaxOf(row._year, h).yy}-${String(execMaxOf(row._year, h).max + 1).padStart(3, '0')})`} onClick={e => { e.stopPropagation(); assignExecNo(row, h); }}
+                                                            style={{ border:'1px dashed #94a3b8', background:'#fff', color:'#1e7ac8', fontSize:'11px', fontWeight:800, lineHeight:1, padding:'1px 6px', borderRadius:'4px', cursor:'pointer' }}>+</button>)
+                                                    ) : isNaItemCell(row, h) ? (<span title="이 프로젝트엔 해당 없는 항목 (상세설정에서 적용/미적용)" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>)
                                                     : nasX ? (<span title="NAS 진척자료(엑셀)에 없는 항목 — 이 프로젝트는 대상 아님" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>)
-                                                    : isStatusCol(h) && val ? (() => {
+                                                    : isStatusCell(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;
                                                         const c = STATUS_COLORS[nv] || { bg:'rgba(100,116,139,0.08)', text:'#475569', border:'rgba(100,116,139,0.3)' };
@@ -5244,12 +5754,12 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                         return (
                                                             <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2 }}>
                                                                 <span style={{ display:'inline-flex', padding:'1px 8px', fontSize:'11px', fontWeight:700, backgroundColor:c.bg, color:c.text, border:`1px solid ${c.border}`, borderRadius:'5px', whiteSpace:'nowrap' }}>{disp}</span>
-                                                                {(_m.contractStatus || _m.workStatus) ? (
+                                                                {showLegacySub && (_m.contractStatus || _m.workStatus) ? (
                                                                     <span style={{ fontSize:11, whiteSpace:'nowrap', lineHeight:1.2 }} title="자동 2단계 — 계약현황 · 작업현황"><span style={{ color:'#fbbf24' }}>{_m.contractStatus || '–'}</span><span style={{ color:'#64748b' }}> · </span><span style={{ color:'#60a5fa' }}>{_m.workStatus || '–'}</span></span>
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? fmtDate(val) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
+                                                    })() : isDateCol(h) && val ? fmtDate(val, row._year) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
                                                         // 포인트 칸 = 엑셀 값만 표시 ('실적/총점' 복합표시 폐지, 2026-07-21 팀장님). 하위 있으면 Σ 자동합 (2026-07-20 2단계).
                                                         const _sp = getSubPt(row._id);
                                                         const _auto = !!(_sp && _sp.sum > 0);
@@ -5269,7 +5779,8 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                 const projName = row['공사명'] || row['프로젝트명'] || row['Project'] || '';
                                                 return (
                                                     <div className="flex items-center justify-center gap-0.5 opacity-40 group-hover:opacity-100">
-                                                        {hasLink ? (
+                                                        {/* 주간보고 연결·열기·해제 — 현재 미사용, 숨김 (2026-08-20 팀장님, 3팀 공통. false 지우면 복구) */}
+                                                        {false && (hasLink ? (
                                                             <>
                                                                 <button
                                                                     onClick={e => { e.stopPropagation(); isActivePanelRow ? setWeeklyPanel?.(null) : onOpenWeeklyPanel?.(wKey); }}
@@ -5297,27 +5808,41 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 title="주간보고 연결 (엑셀 첨부)">
                                                                 <Link size={13}/>
                                                             </button>
-                                                        )}
-                                                        {/* 규칙 칩 버튼 — RULE_UI_ENABLED 로 켠다 (2026-07-31). 규칙이 있으면 파란 칩, 관리자는 규칙이 없어도 회색 아이콘으로 보임 */}
-                                                        {RULE_UI_ENABLED && (extRulesRawOf(row).length > 0 || isAdmin) && !isSubListRow(row) && (() => {
+                                                        ))}
+                                                        {/* 규칙 칩 버튼 — RULE_UI_ENABLED 로 켠다 (2026-07-31). 규칙 있음=색 칩 / 없음=미첨부 표시(× 겹침, 2026-08-20 팀장님 — 전 사용자에게 보임) */}
+                                                        {RULE_UI_ENABLED && !isSubListRow(row) && (() => {
+                                                            const hasRule = extRulesRawOf(row).length > 0;
+                                                            if (!hasRule) return (
+                                                                <button onClick={e => { e.stopPropagation(); if (isAdmin) setExtModalRowId(row._id); else setAlertMsg(`이 프로젝트는 NAS 진척자료(엑셀)가 첨부되지 않았습니다.
+자동 반영 없이 직접 키인으로 관리합니다.
+(첨부 등록은 관리자가 합니다)`); }}
+                                                                    className="p-1.5 rounded transition-colors hover:bg-slate-100"
+                                                                    title={isAdmin ? 'NAS 진척자료 미첨부 — 클릭하여 규칙 등록' : 'NAS 진척자료 미첨부 — 자동 반영 없음 (직접 키인 관리)'}>
+                                                                    <span style={{ position: 'relative', display: 'inline-flex' }}>
+                                                                        <HardDrive size={13} color="#cbd5e1"/>
+                                                                        <X size={9} strokeWidth={4} color="#94a3b8" style={{ position: 'absolute', right: -4, top: -4, background: '#fff', borderRadius: '50%' }}/>
+                                                                    </span>
+                                                                </button>
+                                                            );
                                                             const st = extStatus[row._id];
-                                                            const fill = !extRulesRawOf(row).length ? null : (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#7c3aed' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
+                                                            const fill = (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#7c3aed' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
                                                             return (
                                                             <button onClick={e => { e.stopPropagation(); setExtModalRowId(row._id); }}
                                                                 className="p-1.5 hover:bg-sky-500/20 rounded transition-colors"
-                                                                style={fill ? { background: fill } : undefined}
-                                                                title={!fill ? '진척자료 자동 반영 규칙 등록' : (NAS_SYNC_ENABLED
+                                                                style={{ background: fill }}
+                                                                title={NAS_SYNC_ENABLED
                                                                     ? 'NAS 자동: ' + (!st || st.state === 'nofolder' ? '파일 연계 등록됨 — 클릭하여 열기·상태 확인' : (st.msg || st.state))
-                                                                    : '자동 반영 규칙 등록됨 — 클릭하여 확인·수정')}>
-                                                                <HardDrive size={13} color={fill ? '#fff' : '#94a3b8'}/>
+                                                                    : '자동 반영 규칙 등록됨 — 클릭하여 확인·수정'}>
+                                                                <HardDrive size={13} color="#fff"/>
                                                             </button>
                                                             );
                                                         })()}
-                                                        <button onClick={e => { e.stopPropagation(); confirmSaveRow(row); }}
+                                                        {/* 행 저장 — 현재 미사용, 숨김 (2026-08-20 팀장님. 셀 편집이 즉시 저장이라 중복 기능) */}
+                                                        {false && (<button onClick={e => { e.stopPropagation(); confirmSaveRow(row); }}
                                                             className="p-1.5 hover:bg-emerald-500/20 rounded text-slate-500 hover:text-emerald-400 transition-colors"
                                                             title="저장">
                                                             <Save size={13}/>
-                                                        </button>
+                                                        </button>)}
                                                     </div>
                                                 );
                                             })()}

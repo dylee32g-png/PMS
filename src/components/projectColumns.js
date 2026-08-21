@@ -101,7 +101,7 @@ export const toExcelAssignee = (v) => {
 export const ASSIGNEE_TITLES = ['책임', '팀장', '담당', '사원', '대리', '과장', '차장', '부장', '이사', '수석', '선임', '프로'];
 export const splitAssigneeCell = (v) => {
     const people = [];
-    String(v || '').split(',').forEach(part => {
+    String(v || '').split(/[,/·]/).forEach(part => {   // 쉼표 + '/'·'·' 전부 사람 구분 (2026-08-21 기술1팀 '염경록/심광호' 표기)
         const local = [];
         part.trim().split(/\s+/).filter(Boolean).forEach(t => {
             if (local.length && ASSIGNEE_TITLES.includes(t)) local[local.length - 1] += ' ' + t;

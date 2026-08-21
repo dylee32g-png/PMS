@@ -5719,8 +5719,8 @@ const TechTeamPMS = () => {
                           {[
                               // 팀 역할 재정의 (2026-08-10 팀장님): 담당 지역 기준 — 1팀=해외·국내 사이드 / 2팀=파주 전담 / 3팀=구미
                               // 팀별 파스텔 틴트 + 같은 계열 진한 아이콘 (2026-08-11 메인 개편 — Notion 태그 공식)
-                              { id: '기술1팀', title: '기술1팀', desc: '해외(중국·베트남) 및 국내 사이드 업무 (파주 외)', icon: <Globe size={22} style={{ color: '#0f5a99' }} />, tint: '#dcecfa', hasSubMenu: true },
-                              { id: '기술2팀', title: '기술2팀', desc: '파주 전담 업무 (파주 LGD 중심)', icon: <Factory size={22} style={{ color: '#1e7ac8' }} />, tint: '#e3effa', hasSubMenu: true },
+                              { id: '기술1팀', title: '기술1팀', desc: '해외(중국 외) 및 국내 파주외 지역 업무', icon: <Globe size={22} style={{ color: '#0f5a99' }} />, tint: '#dcecfa', hasSubMenu: true },
+                              { id: '기술2팀', title: '기술2팀', desc: '파주 및 베트남 업무 (파주 LGD 중심)', icon: <Factory size={22} style={{ color: '#1e7ac8' }} />, tint: '#e3effa', hasSubMenu: true },
                               { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin size={22} style={{ color: '#116329' }} />, tint: '#d9f3e1', hasSubMenu: true },
                               { id: 'Software팀', title: 'Software팀', desc: '사내 포털·MES DB 개발 · 현재 웹(PMS) 개발 중', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5' }
                           ].map(card => {
@@ -5758,17 +5758,39 @@ const TechTeamPMS = () => {
                                       {(() => {
                                           const st = homeStats[card.id];
                                           if (!st || !st.total) return null;
-                                          const Donut = ({ pct, color, dim }) => (
-                                              <div style={{ width: 56, height: 56, borderRadius: '50%', flex: 'none',
-                                                  background: `conic-gradient(${color} ${Math.max(0, Math.min(100, pct)) * 3.6}deg, #edeae6 0)` , position: 'relative' }}>
+                                          const Donut = ({ pct, color, dim, size = 56 }) => (
+                                              <div style={{ width: size, height: size, borderRadius: '50%', flex: 'none',
+                                                  background: pct === null ? '#edeae6' : `conic-gradient(${color} ${Math.max(0, Math.min(100, pct)) * 3.6}deg, #edeae6 0)` , position: 'relative' }}>
                                                   <div style={{ position: 'absolute', inset: 6, background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                      <span style={{ fontSize: pct >= 100 ? 13 : 14, fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 9, fontWeight: 700, color: '#a4a097' }}>%</span></span>
+                                                      {pct === null
+                                                          ? <span style={{ fontSize: 16, fontWeight: 800, color: '#c0c8d4' }}>—</span>   /* 값 없음 — 0%로 오해 방지 (2026-08-21) */
+                                                          : <span style={{ fontSize: size < 56 ? 11 : (pct >= 100 ? 13 : 14), fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 9, fontWeight: 700, color: '#a4a097' }}>%</span></span>}
                                                   </div>
                                               </div>
                                           );
                                           return (
-                                              <div className="px-5 pb-2 pt-0.5 flex items-stretch gap-2 flex-wrap cursor-default select-none border-t border-[#f5f2ef]">
-                                                  {/* 진행중 — 큰 숫자 + 근거 (월간보고 모드 = 그 달 진행 합산, 2026-08-13 팀장님) */}
+                                              <div className={`px-5 pb-2 pt-0.5 flex items-stretch ${st.cc ? 'gap-1 flex-nowrap' : 'gap-2 flex-wrap'} cursor-default select-none border-t border-[#f5f2ef]`}>   {/* 당해 카드 팀 = 6항목 한 줄 (2026-08-21) */}
+                                                  {/* 당해 카드 팀(기술1팀, 2026-08-21 팀장님): 전체 프로젝트 + 준비·진행중·완료 — List 상단 카드와 동일 규칙 */}
+                                                  {st.cc ? (<>
+                                                      <div className="flex-1 min-w-0 pt-1.5">
+                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] whitespace-nowrap">전체 프로젝트</div>
+                                                          <div className="leading-none mt-0.5">
+                                                              <span className="text-[21px] font-extrabold text-[#37352f] tracking-tight">{st.cc.total}</span>
+                                                              <span className="text-[12.5px] font-bold text-[#a4a097]">건</span>
+                                                          </div>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug whitespace-nowrap">{st.cc.basis}</div>
+                                                      </div>
+                                                      {st.cc.items.map(it => (
+                                                          <div key={it.라벨} className="flex-1 min-w-0 pt-1.5">
+                                                              <div className="text-[10.5px] font-bold text-[#8f8b84] whitespace-nowrap">{it.라벨}</div>
+                                                              <div className="leading-none mt-0.5">
+                                                                  <span className="text-[21px] font-extrabold tracking-tight" style={{ color: it.라벨 === '완료' ? '#059669' : it.라벨 === '진행중' ? '#1e7ac8' : '#37352f' }}>{it.cnt === null ? '—' : it.cnt}</span>
+                                                                  <span className="text-[12.5px] font-bold text-[#a4a097]">건</span>
+                                                              </div>
+                                                              <div className="text-[10px] text-[#a4a097] mt-1 leading-snug whitespace-nowrap">작업 칸</div>
+                                                          </div>
+                                                      ))}
+                                                  </>) : (
                                                   <div className="flex-1 min-w-[110px] pt-1.5">
                                                       <div className="text-[11px] font-bold text-[#8f8b84]">{st.mode === 'monthly' ? `${st.month}월 진행` : '진행중'}</div>
                                                       <div className="leading-none mt-0.5">
@@ -5779,22 +5801,23 @@ const TechTeamPMS = () => {
                                                           ? <>월간보고 자료 기준<br/>{st.month}월 실적 {st.monQ.toLocaleString()}pt</>
                                                           : <>전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</>}</div>
                                                   </div>
-                                                  {/* 공정률 도넛 */}
-                                                  {st.avgPct !== null && (
-                                                      <div className="flex-1 min-w-[110px] pt-1.5 flex flex-col items-center text-center">
-                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1">평균 공정률</div>
-                                                          <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'}/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.mode === 'monthly'
+                                                  )}
+                                                  {/* 공정률 도넛 — 당해 카드 팀은 값 없어도 '—'로 항상 표시 */}
+                                                  {(st.avgPct !== null || st.cc) && (
+                                                      <div className={`flex-1 ${st.cc ? 'min-w-0' : 'min-w-[110px]'} pt-1.5 flex flex-col items-center text-center`}>
+                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] mb-1 whitespace-nowrap">평균 공정률</div>
+                                                          <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'} size={st.cc ? 46 : 56}/>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.avgPct === null ? <>아직 입력된<br/>공정률 없음</> : st.mode === 'monthly'
                                                               ? <>{st.month}월 값 있는 {st.pctN}건 평균<br/>(전체 공정률)</>
                                                               : <>값 있는 {st.pctN}건 평균<br/>({st.pctBasis || 'PLC·ETOS·HMI·통합'})</>}</div>
                                                       </div>
                                                   )}
-                                                  {/* 포인트 달성률 도넛 */}
-                                                  {st.ptPct !== null && (
-                                                      <div className="flex-1 min-w-[110px] pt-1.5 flex flex-col items-center text-center">
-                                                          <div className="text-[11px] font-bold text-[#8f8b84] mb-1">포인트 달성률</div>
-                                                          <Donut pct={st.ptPct} color="#059669" dim="#047857"/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</div>
+                                                  {/* 포인트 달성률 도넛 — 당해 카드 팀은 값 없어도 '—' */}
+                                                  {(st.ptPct !== null || st.cc) && (
+                                                      <div className={`flex-1 ${st.cc ? 'min-w-0' : 'min-w-[110px]'} pt-1.5 flex flex-col items-center text-center`}>
+                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] mb-1 whitespace-nowrap">포인트 달성률</div>
+                                                          <Donut pct={st.ptPct} color="#059669" dim="#047857" size={st.cc ? 46 : 56}/>
+                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.ptPct === null ? <>아직 누적·총점<br/>값 없음</> : <>누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</>}</div>
                                                       </div>
                                                   )}
                                               </div>

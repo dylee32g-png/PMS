@@ -155,6 +155,8 @@ tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 /* ── 자동 칸 표시 (2026-08-20 팀장님) — 수식(기술1팀)·NAS(기술2팀)·하위합 자동 칸.
    인라인 style은 위쪽 흰 배경 !important 규칙에 밀림(2026-06-26 교훈) → 반드시 CSS 클래스로 */
 .list-oneline td.cell-auto { background-color: #e9f1fb !important; }
+/* 빈칸 회색 (2026-08-21 팀장님): 비어 있는 칸은 엑셀처럼 진한 회색 — 값이 들어오면 클래스가 빠져 원래 색. 자동 칸(cell-auto)은 제외해 하늘색 유지 */
+.list-oneline td.cell-empty { background-color: #a7aeb9 !important; color: #4b5563 !important; }
 
 .list-oneline th.grp-sep { border-right: 1px solid #c3cad7 !important; }   /* 헤더 2줄만 — 본문(01,02…행)엔 선 없음 (2026-08-19 팀장님). 기본선보다 반 톤만 진하게 */
 
@@ -420,6 +422,13 @@ tbody td:first-child {
 /*    상태칸(칩+보조줄)은 flex 세로배치라 영향 없음. */
 .list-oneline th,
 .list-oneline td { white-space: nowrap !important; max-width: none !important; }
+/* 사용자가 손잡이로 '직접' 줄인 열만 그 폭에서 잘라 보임(한 줄 유지·말줄임, 마우스 올리면 전체).
+   기본(손대지 않은 열)은 위 규칙대로 내용맞춤 한 줄 펼침 그대로 — 2026-08-21 팀장님: 더 안 줄여지던 문제 */
+.list-oneline th.col-clip,
+.list-oneline td.col-clip { max-width: var(--cw) !important; overflow: hidden !important; text-overflow: ellipsis; }
+/* 수행번호 회수 ✕ — 행에 마우스 올릴 때만 (2026-08-21) */
+.list-oneline td .exec-del { opacity: 0; transition: opacity .12s; }
+.list-oneline tr:hover td .exec-del { opacity: 1; }
 
 /* ── 숫자 입력칸 스피너(증감 화살표) 숨김 (2026-07-20 실측 수정) ─────────────────
    크롬이 type=number 칸 오른쪽에 스피너 공간 ~16px을 항상 예약 → 44px 주차 칸에서

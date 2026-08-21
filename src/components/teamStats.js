@@ -59,8 +59,21 @@ export function computeTeamStats(rows, team) {
     // 근거 표기용 (2026-08-11 팀장님: 130건이 어디서 나왔는지 카드에 작게 병기)
     const subCnt = rowsY.filter(r => isSubRow(r)).length;
     const delCnt = rowsY.filter(r => !isSubRow(r) && String(statusCol ? (r[statusCol] || '') : '').trim() === '삭제').length;
+    // 당해 카드 (2026-08-21 팀장님, 기술1팀): 전체 = '순번' 있는 행 · 항목 = '작업' 칸 값 건수 — List 상단 카드와 동일 규칙
+    const cc = profile?.당해카드 || null;
+    let ccStats = null;
+    if (cc) {
+        const noCol = keys.find(k => norm(k) === norm(cc.건수기준열 || '순번'));
+        const stCol2 = keys.find(k => norm(k) === norm(cc.상태열));
+        const ccTotal = noCol ? mains.filter(r => String(r[noCol] ?? '').trim() !== '').length : mains.length;
+        const items = (cc.항목 || []).map(it => {
+            const vals = [].concat(it.값).map(v => String(v).trim());
+            return { 라벨: it.라벨, cnt: stCol2 ? mains.filter(r => vals.includes(String(r[stCol2] || '').trim())).length : null };
+        });
+        ccStats = { total: ccTotal, items, basis: noCol ? `${noCol} 기준` : '행 수 기준' };
+    }
     return {
-        total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt,
+        total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt, cc: ccStats,
         avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN, pctBasis,
         ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
         statusCounts,
