@@ -756,11 +756,13 @@ const TechTeamPMS = () => {
   //    화면 하나는 한 팀만 보므로, 팀이 둘 이상 지정돼 있으면 15분마다 다음 팀 화면으로 옮겨간다.
   //    화면이 바뀌면 그 팀 검사가 저절로 돌기 때문에, 팀마다 창을 따로 띄울 필요가 없다(창 1개로 커버).
   //    표시가 없는 일반 PC는 아무 영향 없음. 사람이 [뒤로]로 나오면 다시 끌고 오지 않는다(딱 1회).
-  const MAINPC_ROTATE_MS = 15 * 60 * 1000;
   const mainPcTeams = () => { try {
       if (localStorage.getItem('pms_ext_mainpc') !== '1') return [];
       return (localStorage.getItem('pms_ext_mainpc_team') || '').split(',').map(s => s.trim()).filter(Boolean);
   } catch (e) { return []; } };
+  //   (2026-08-24 팀장님: 기술1·2·3팀 3팀 순환) 회전 간격 = 30분 ÷ 팀 수 — 팀이 몇 개든 "팀당 30분 주기" 유지.
+  //   2팀=15분(종전 동일) · 3팀=10분 · 최소 5분 바닥. 간격은 순환 시작 시점의 팀 수 기준.
+  const MAINPC_ROTATE_MS = Math.max(5 * 60 * 1000, Math.floor(30 * 60 * 1000 / Math.max(2, mainPcTeams().length)));
 
   const didMainPcRouteRef = useRef(false);
   useEffect(() => {

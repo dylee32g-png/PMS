@@ -12,7 +12,9 @@ export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '�
 export const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
 export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료'].some(k => s.includes(k)); };
 export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
-export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h);
+export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h)
+    && !String(h).replace(/\s/g, '').includes('진행율')    // '진행율 %'(기술2팀 260822 수치 칸)가 '진행' 키워드에 걸려 상태 칩으로 그려지던 문제 (2026-08-24)
+    && !String(h).replace(/\s/g, '').includes('내용');     // '진행 내용'(기술2팀 2013·2014 = 프로젝트명 칸)도 동일 오인 (2026-08-24)
 export const isAssigneeCol  = (h) => h.includes('담당자') && !h.includes('업체') && !h.includes('발주처'); // ③ '발주처 담당자'는 내부 작업자 아님 → 담당자 드롭다운 제외
 export const isManagerCol   = (h) => String(h ?? '').replace(/\s+/g, '') === '관리자'; // 관리자 열 — 담당자와 같은 드롭다운 형식 (2026-07-22 팀장님)
 export const isClientCol    = (h) => h.includes('발주처') && !h.includes('담당'); // ③ 회사 '발주처'만 드롭다운; '발주처 담당자' 제외

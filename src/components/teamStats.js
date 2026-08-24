@@ -23,12 +23,13 @@ export function computeTeamStats(rows, team) {
     const statusCol = (cardStatus && keys.find(k => norm(k) === norm(cardStatus))) || keys.find(k => norm(k).includes('진행현황'));
     const mains = rowsY.filter(r => !isSubRow(r) && String(statusCol ? (r[statusCol] || '') : '').trim() !== '삭제');
     const progCnt = statusCol ? mains.filter(r => String(r[statusCol] || '').trim() === '진행중').length : 0;
-    const pctCols0 = keys.filter(k => ['PLC', 'ETOS', 'HMI', '통합시운전'].includes(norm(k)));
+    const intNm = norm(profile?.시운전?.통합열 || '통합시운전');   // 팀별 통합 열 (2026-08-24: 기술2팀 '진행율 %' · 기술3팀 '통합시운전')
+    const pctCols0 = keys.filter(k => ['PLC', 'ETOS', 'HMI', intNm].includes(norm(k)));
     let useCols = pctCols0.length ? pctCols0 : keys.filter(k => norm(k).includes('공정률') || norm(k).includes('진척률'));
     // 수식 팀 (2026-08-20 팀장님, 기술1팀): 공정률 = 팀 수식의 최종값인 '전체' 열 평균 —
     //   공용 4항목 규칙은 'ETOS T/S' 열 이름을 못 읽고(공백·/ 차이) 자체 시운전도 빠져 평균이 틀어짐
     const fmCfg2 = profile?.수식;
-    let pctBasis = 'PLC·ETOS·HMI·통합';
+    let pctBasis = pctCols0.length ? pctCols0.map(k => norm(k)).join('·') : 'PLC·ETOS·HMI·통합';   // 실제 찾은 열로 표기 (2026-08-24: 기술2팀 새 엑셀엔 통합 열 없음)
     if (fmCfg2 && (!Array.isArray(fmCfg2.연도) || fmCfg2.연도.includes(year))) {
         const allCol = keys.find(k => norm(k) === '전체');
         if (allCol) { useCols = [allCol]; pctBasis = '전체 공정률'; }
@@ -38,7 +39,9 @@ export function computeTeamStats(rows, team) {
         const vals = useCols.map(c => parseFloat(String(r[c] ?? '').replace(/%/g, ''))).filter(Number.isFinite);
         if (vals.length) { pctSum += vals.reduce((a, b) => a + b, 0) / vals.length; pctN += 1; }
     });
-    const accCol = keys.find(k => norm(k) === '누적');
+    const accCol = keys.find(k => norm(k) === '누적')
+        || (profile?.시운전?.누적열 && keys.find(k => norm(k) === norm(profile.시운전.누적열)))   // 팀 카드 누적열 (2026-08-24: 기술2팀 260822 = 'Point')
+        || null;
     // 하위 포인트 합 (표 순서 기준 직전 메인이 부모 — ProjectListScreen subPtByParent와 동일 방식)
     const subSum = {};
     let lastMain = null;
@@ -65,12 +68,15 @@ export function computeTeamStats(rows, team) {
     if (cc) {
         const noCol = keys.find(k => norm(k) === norm(cc.건수기준열 || '순번'));
         const stCol2 = keys.find(k => norm(k) === norm(cc.상태열));
-        const ccTotal = noCol ? mains.filter(r => String(r[noCol] ?? '').trim() !== '').length : mains.length;
         const items = (cc.항목 || []).map(it => {
             const vals = [].concat(it.값).map(v => String(v).trim());
             return { 라벨: it.라벨, cnt: stCol2 ? mains.filter(r => vals.includes(String(r[stCol2] || '').trim())).length : null };
         });
-        ccStats = { total: ccTotal, items, basis: noCol ? `${noCol} 기준` : '행 수 기준' };
+        // 전체 산정 (2026-08-24 팀장님 확정): '항목합' 팀(기술2·3팀) = 진행중·추진중·완료만 합산, 그 외(삭제·2018이전 등) 미포함 — List 상단 카드와 동일 규칙
+        const ccTotal = cc.전체 === '항목합'
+            ? items.reduce((s, it) => s + (it.cnt || 0), 0)
+            : (noCol ? mains.filter(r => String(r[noCol] ?? '').trim() !== '').length : mains.length);
+        ccStats = { total: ccTotal, items, basis: cc.전체 === '항목합' ? (cc.항목 || []).map(it => it.라벨).join('·') + ' 합' : (noCol ? `${noCol} 기준` : '행 수 기준') };
     }
     return {
         total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt, cc: ccStats,

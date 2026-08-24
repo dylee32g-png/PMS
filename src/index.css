@@ -160,6 +160,11 @@ tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 
 .list-oneline th.grp-sep { border-right: 1px solid #c3cad7 !important; }   /* 헤더 2줄만 — 본문(01,02…행)엔 선 없음 (2026-08-19 팀장님). 기본선보다 반 톤만 진하게 */
 
+/* ── 헤더 배경 완전 통일 (2026-08-24 팀장님: 3층 헤더의 공사진행·Total·진행현황·시운전 라벨 칸이 다른 헤더 칸과 달라 보임) ──
+   최고 우선순위로 모든 헤더 칸을 같은 색으로 강제 — 라벨·세부·그룹·틀고정 구분 없이 동일 */
+.list-oneline thead tr th, .list-oneline thead tr td { background-color: var(--head-bg) !important; }
+.list-oneline thead tr th.mid-head { border-bottom: 1px solid var(--line) !important; }
+
 /* =========================================================
    입력창 / 폼 요소 (Excel 셀 스타일)
    ========================================================= */

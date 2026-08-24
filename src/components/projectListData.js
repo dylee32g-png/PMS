@@ -235,6 +235,10 @@ export function parseExcelHeaders(raw, addLog, opts) {
         // 팀 카드 지정: 그룹행+세부행 2층 고정 (기술1팀 — 그룹행이 세부행보다 칸수가 적어 자동감지 조건(neA>neB)에 안 걸림)
         groupArr = rowA; colArr = rowB; dataStart = startRow + 2;
         addLog(`2행 헤더(카드 지정): 그룹[${startRow}], 컬럼[${startRow + 1}], 데이터=[${startRow + 2}~]`);
+    } else if (opts && opts.layers === 1) {
+        // 팀 카드 지정: 1층 고정 (기술2팀 2013·2014 — 첫 데이터 행이 헤더보다 칸이 많아 자동감지가 오인)
+        groupArr = []; colArr = rowA; dataStart = startRow + 1;
+        addLog(`1행 헤더(카드 지정): 컬럼[${startRow}], 데이터=[${startRow + 1}~]`);
     } else if (threeLayer) {
         // 그룹=rowA(맨 위), 컬럼명=세부(rowC) 우선·없으면 중간(rowB)
         groupArr = rowA;
@@ -250,15 +254,25 @@ export function parseExcelHeaders(raw, addLog, opts) {
     }
 
     const maxLen = Math.max(groupArr.length, colArr.length);
+    // 3층 중간행 라벨 (2026-08-24, 기술2팀 260822 — Total·진행현황·시운전): 세부행(rowC)에서 이름을 얻은 열만
+    //   중간행(rowB) 라벨을 기억해 둠 → 표 헤더가 엑셀과 같은 3층으로 그려짐. 2층·1층 시트는 빈값(동작 불변).
+    const midArr = [];
+    if (threeLayer && !(opts && (opts.layers === 1 || opts.layers === 2))) {   // ★카드가 1·2층 고정한 시트는 제외 (2013·2014 — 데이터 행을 라벨로 오인 방지)
+        let curMid = '';
+        for (let i = 0; i < maxLen; i++) {
+            if (String(rowB[i] || '').trim()) curMid = String(rowB[i] || '').trim().replace(/\s+/g, ' ');
+            midArr[i] = String(rowC[i] || '').trim() ? curMid : '';
+        }
+    }
     const colDefs = [];
     let curGroup = null;
     for (let i = 0; i < maxLen; i++) {
         const gv = String(groupArr[i] || '').trim();
         const cv = String(colArr[i]   || '').trim();
         if (!gv && !cv) continue;
-        if      (gv && !cv) { curGroup = null; colDefs.push({ idx: i, name: gv, groupLabel: null }); }
-        else if (gv &&  cv) { curGroup = gv;   colDefs.push({ idx: i, name: cv, groupLabel: gv });   }
-        else if (!gv && cv) {                  colDefs.push({ idx: i, name: cv, groupLabel: curGroup }); }
+        if      (gv && !cv) { curGroup = null; colDefs.push({ idx: i, name: gv, groupLabel: null, mid: null }); }
+        else if (gv &&  cv) { curGroup = gv;   colDefs.push({ idx: i, name: cv, groupLabel: gv, mid: midArr[i] || null });   }
+        else if (!gv && cv) {                  colDefs.push({ idx: i, name: cv, groupLabel: curGroup, mid: midArr[i] || null }); }
     }
 
     // 헤더 이름 정규화 — 엑셀 셀의 줄바꿈·중복 공백을 단일 공백으로 (예: "공사[줄바꿈]계약" → "공사 계약")
