@@ -8,7 +8,7 @@ echo  ============================================================
 echo    PMS 메인PC 파수꾼 - 해제
 echo  ============================================================
 echo.
-echo    지우는 것 : 자동 확인 등록 2개, 바탕화면 바로가기
+echo    지우는 것 : 자동 확인 등록 3개, 바탕화면 바로가기
 echo    남기는 것 : 전용 크롬 프로필 (로그인/폴더 허가증이 들어 있음)
 echo                C:\PMS 폴더, 전원 설정
 echo.
@@ -24,6 +24,7 @@ if errorlevel 1 (
 
 schtasks /Delete /TN "PMS_MainPC_Guard_5min"  /F >nul 2>&1
 schtasks /Delete /TN "PMS_MainPC_Guard_Logon" /F >nul 2>&1
+schtasks /Delete /TN "PMS_MainPC_Restart_Daily" /F >nul 2>&1
 echo   - 자동 확인 등록 해제 완료
 del "%USERPROFILE%\Desktop\PMS 메인PC.lnk" >nul 2>&1
 echo   - 바탕화면 바로가기 삭제

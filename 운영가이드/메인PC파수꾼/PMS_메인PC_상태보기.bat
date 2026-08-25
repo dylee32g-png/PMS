@@ -25,6 +25,8 @@ schtasks /Query /TN "PMS_MainPC_Guard_5min"  >nul 2>&1
 if errorlevel 1 (echo       [X] 5분 감시 = 등록 안 됨) else (echo       [O] 5분마다 확인)
 schtasks /Query /TN "PMS_MainPC_Guard_Logon" >nul 2>&1
 if errorlevel 1 (echo       [X] 로그온 감시 = 등록 안 됨) else (echo       [O] 로그온할 때 확인)
+schtasks /Query /TN "PMS_MainPC_Restart_Daily" >nul 2>&1
+if errorlevel 1 (echo       [X] 새벽 재시작 = 등록 안 됨 - 설치.bat 다시 실행 필요) else (echo       [O] 매일 새벽 5:30 재시작)
 echo.
 
 echo   [3] 전원 설정 - 절전 대기 시간

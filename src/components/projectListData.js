@@ -88,11 +88,13 @@ export const padProjectNo = (v) => { const s = String(v ?? '').trim(); return /^
 // ── 프로젝트별 진행항목 적용/미적용 → ProgressModal progressItems 변환 (2026-07-21 팀장님) ──
 //   기본 미적용: 헤더(없으면 행의 키)에 열이 없는 항목은 기본 off — _naOn(켬 예외)·_naItems(끔 목록) 반영.
 //   ProjectListScreen과 동일 규칙. 모바일(MobileInputScreen)에서 재사용.
-export function naProgressItemsOf(row, headers) {
+export function naProgressItemsOf(row, headers, intColName) {
     const ALL = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
     const norm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
     const hs = (headers && headers.length ? headers : Object.keys(row || {})).filter(h => !String(h).startsWith('_'));
-    const defs = ALL.filter(name => !hs.some(h => norm(h).includes(norm(name))));
+    let defs = ALL.filter(name => !hs.some(h => norm(h).includes(norm(name))));
+    // 팀 통합열 별칭 (2026-08-25 팀장님: 기술2·3팀 통합시운전 기본 ON) — 통합열('진행율 %')이 표에 있으면 통합시운전은 '열 있음' 취급
+    if (intColName && hs.some(h => norm(h) === norm(intColName))) defs = defs.filter(n => n !== '통합시운전');
     const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
     const on = Array.isArray(row && row._naOn) ? row._naOn : [];
     const na = [...new Set([...ex, ...defs.filter(n => !on.includes(n))])];

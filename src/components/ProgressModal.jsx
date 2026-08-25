@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { X, Minus, BarChart2, BarChart3, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, appId } from '../firebase';
+import { getTeamProfile } from '../teamProfiles';   // 팝업 [자체/통합] 기본 선택 팀 연동 (2026-08-25)
 
 const SIMPLE_ITEMS = [
     { key: 'drawing',  label: '도면입수',     color: '#3b82f6' },
@@ -106,7 +107,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const [pmsData,    setPmsData]    = useState(null);
     const [reloading,  setReloading]  = useState(false);
     const [wSummary,   setWSummary]   = useState(null);
-    const [pointSource, setPointSource] = useState((row && row['포인트소스'] === 'int') ? 'int' : 'self'); // ③ 메인표 포인트 실적 출처: self(자체) 또는 int(통합) — 합 없음, 둘 중 택1 (2026-06-29)
+    // ③ 메인표 포인트 실적 출처: self(자체) 또는 int(통합) — 합 없음, 둘 중 택1 (2026-06-29)
+    //   팀 카드 기본소스='통합'(기술2·3팀)이면 행 저장값과 무관하게 무조건 통합이 기본 (2026-08-25 팀장님 재확정)
+    //   그 외 팀 = 행 저장값 우선 → 자체 (종전 동작)
+    const [pointSource, setPointSource] = useState(
+        getTeamProfile(team)?.시운전?.기본소스 === '통합' ? 'int'
+        : (row && row['포인트소스'] === 'int') ? 'int' : 'self');
 
     const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split('T')[0]; };
     const [wDates,    setWDates]    = useState({ d1: daysAgo(14), d2: daysAgo(7), d3: new Date().toISOString().split('T')[0] });

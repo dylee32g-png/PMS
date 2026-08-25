@@ -7840,14 +7840,19 @@ const TechTeamPMS = () => {
                                       {l:'누적 실적', v:totalAcc.toLocaleString(), u:'pt', c:'#2563eb', d:'등록된 시운전 포인트 합'},
                                       {l:'잔여', v:Math.max(totalPoints-totalAcc,0).toLocaleString(), u:'pt', c:'#d97706', d:'총점 − 누적 실적'},
                                       {l:'총점', v:totalPoints.toLocaleString(), u:'pt', c:'#475569', d:'목표 (= 100%)'},
-                                      {l:'공정률 (금월)', v:lastProgress, u:'%', c:'#059669', d:'공정 항목 평균 진척'},
+                                      {l:'공정률 (금월)', v:lastProgress, u:'%', c:'#059669', d:(() => {
+                                          // 계산에 실제 들어간 항목을 그대로 표기 (2026-08-25 팀장님: 사람들이 알 수 있게) — 미적용 항목은 빠짐
+                                          const _m = { plc:'PLC', etos:'ETOS', hmi:'HMI', internalTest:'자체', integratedTest:'통합시운전' };
+                                          const _ks = getAppliedKeys(graphProject || {});
+                                          return _ks.length ? _ks.map(k => _m[k]).join('+') + ' 평균' : '공정 항목 평균 진척';
+                                      })()},
                                   ].map((s0,i) => (
                                       <div key={s0.l} style={{flex:1,minWidth:0,padding:'2px 18px',borderLeft: i===0 ? 'none' : '1px solid #eef2f7'}}>
                                           <div style={{fontSize:10.5,fontWeight:700,color:'#8a97a6',display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}>
                                               <span style={{width:6,height:6,borderRadius:'50%',background:s0.c,flexShrink:0}}/>{s0.l}
                                           </div>
                                           <div style={{fontSize:21,fontWeight:800,color:s0.c,lineHeight:1.3,fontVariantNumeric:'tabular-nums',whiteSpace:'nowrap'}}>{s0.v}<span style={{fontSize:11,fontWeight:700,color:'#94a3b8',marginLeft:3}}>{s0.u}</span></div>
-                                          <div style={{fontSize:9.5,color:'#a5b1bf',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s0.d}</div>
+                                          <div title={s0.d} style={{fontSize:9.5,color:'#a5b1bf',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s0.d}</div>
                                       </div>
                                   ))}
                               </div>

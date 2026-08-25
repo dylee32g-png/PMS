@@ -16,6 +16,7 @@ import { extractName, normalizeStatus } from './projectColumns';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import ProgressModal from './ProgressModal';
 import { naProgressItemsOf, extLockedItemKeysAllOf } from './projectListData';
+import { getTeamProfile } from '../teamProfiles';   // 통합열 별칭 — 기술2·3팀 통합시운전 기본 ON (2026-08-25)
 
 const TEAMS = ['기술1팀', '기술2팀', '기술3팀', 'Software팀'];
 
@@ -260,7 +261,7 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                     row={progress.row}
                     team={progress.team}
                     subRows={progress.subs}
-                    progressItems={naProgressItemsOf(progress.row)}   /* 기본 미적용·프로젝트별 적용 반영 (2026-07-21) */
+                    progressItems={naProgressItemsOf(progress.row, null, getTeamProfile(progress.team)?.시운전?.통합열)}   /* 기본 미적용·프로젝트별 적용 반영 (2026-07-21) · 통합열 별칭 (2026-08-25) */
                     lockedItems={extLockedItemKeysAllOf(progress.row)}   /* NAS 자동 항목 키인 잠금 — 공종표 부모 항목 포함 (2026-07-22) */
                     mobileMode={true}
                     mobileNav={mobileNav}

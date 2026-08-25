@@ -597,7 +597,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const paRecalc = (row) => {
         if (!paActive(row)) return {};
         const rc = paCol(paCfg.결과열); if (!rc) return {};
-        const den = fmNum(row[paCol(paCfg.분모열)]);
+        // 분모: 저장값 → 없으면 유효 총점(하위 Σ 포함) — 건설 공사는 포인트 저장값이 빈칸(총점=하위 합)이라
+        // 팝업 저장 때 den 0 → NAS가 넣어준 %를 지우던 버그 (2026-08-25, 010 실측. NAS 식 누적÷Σ총점과 통일)
+        const den = fmNum(row[paCol(paCfg.분모열)]) || effTotalPt(row);
         const numS = String(row[paCol(paCfg.분자열)] ?? '').trim();
         return { [rc]: (den > 0 && numS !== '') ? String(Math.round(fmNum(numS) / den * 1000) / 10) : '' };
     };
@@ -702,7 +704,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   전 프로젝트 기본 off — 상세팝업에서 켠 항목(_naOn)만 예외. 기본값 방식이라 기존 행·신규 행·엑셀 재업로드 전부 자동 적용.
     const PROG_NA_ALL = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
     const _naNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
-    const defaultNaItems = PROG_NA_ALL.filter(name => !(activeHeaders || []).some(h => !String(h).startsWith('_') && _naNorm(h).includes(_naNorm(name))));
+    const defaultNaItems = PROG_NA_ALL.filter(name => !(activeHeaders || []).some(h => !String(h).startsWith('_') && _naNorm(h).includes(_naNorm(name))))
+        // 팀 통합열 별칭 (2026-08-25 팀장님: 기술2·3팀 통합시운전 기본 ON) — 통합열('진행율 %')이 표에 있으면 통합시운전은 '열 있음' 취급
+        .filter(name => !(name === '통합시운전' && teamProfile?.시운전?.통합열 && (activeHeaders || []).some(h => _naNorm(h) === _naNorm(teamProfile.시운전.통합열))));
     const naItemsOf = (row) => {
         const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
         const on = Array.isArray(row && row._naOn) ? row._naOn : [];
@@ -1730,6 +1734,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             // ★순차 await 필수 (2026-08-19 버그): 두 기록이 같은 장부 문서를 '읽고 통째로 다시 쓰기'라
             //   동시에 나가면 나중 쓰기가 먼저 쓰기를 덮음(ETOS 키인이 자체시운전 기록에 지워지던 원인)
             await syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
+            {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 저장 전체 중단 (2026-08-25)
+                const accR = await syncAccPointToLedger(srcRow, editingCell.key, editingCell.value);
+                if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum)); setEditingCell({ id: null, key: null, value: '' }); return; }
+            }
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
                 return { ...r, ...patch, _changeHistory: pushChangeHist(r, entry) };
@@ -1761,6 +1769,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ★ 역방향 동기화(공정률 7개 → 진행실적 주차장부)는 '저장이 확정된 뒤'에만 —
         //   충돌 확인창에서 [취소]를 눌렀는데 주차장부만 바뀌는 일을 막는다 (2026-07-14)
         // ★순차 await 필수 (2026-08-19 버그): 같은 장부 문서 동시 쓰기 = 나중 것이 먼저 것을 덮음 (ETOS 소실 원인)
+        {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 메인표 저장까지 전체 중단 (2026-08-25)
+            const accR = await syncAccPointToLedger(row, editingCell.key, editingCell.value);
+            if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum)); setEditingCell({ id: null, key: null, value: '' }); return; }
+        }
         await syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
         const { _id, ...rest } = row;
         try {
@@ -1870,6 +1882,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const patch = {};
         Object.entries(mainTable).forEach(([h, v]) => { if (v !== null && v !== undefined) patch[h] = String(v); });
         Object.keys(patch).forEach(h => { if (isExtLockedCell(srcRow, h)) delete patch[h]; });   // NAS 자동 칸은 파일이 주인 — 적용하기로 덮지 않음 (2026-07-22)
+        // 팀 누적열 재배선 (2026-08-25 팀장님): 팝업 실적은 웹 전용 '포인트실적'에만 쓰였는데
+        //   기술2·3팀 260822 양식은 실적 칸이 'Point' 열 → 그 칸에도 쓰고 진행율%(Point÷총점)도 자동 재계산
+        //   (팝업 합계 185 ≠ 메인표 Point 140 어긋남의 원인. '포인트실적'은 호환용으로 그대로 유지)
+        {
+            const _accNmP = teamProfile?.시운전?.누적열;
+            if (!fmActive(srcRow) && _accNmP && patch['포인트실적'] !== undefined) {
+                const _accColP = (activeHeaders || []).find(h => String(h).replace(/\s/g, '') === String(_accNmP).replace(/\s/g, ''));
+                if (_accColP && !isExtLockedCell(srcRow, _accColP)) {
+                    patch[_accColP] = patch['포인트실적'];
+                    Object.assign(patch, paRecalc({ ...srcRow, ...patch }));
+                }
+            }
+        }
         // 수식 팀 (2026-08-20 팀장님): ① 메인표에 없는 열(포인트실적 등)·자동 칸(자체 시운전 등)은 버림 — 팝업 자체시운전은 별개 운영
         //   ② 'ETOS'는 기술1팀 열 이름 'ETOS T/S'로 짝 ③ 트리거(%)가 바뀌니 공정률 자동 칸 재계산
         if (fmActive(srcRow)) {
@@ -1946,6 +1971,45 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
         } catch (e) { console.warn('[reverseSync] progressRecords 반영 실패:', e); }
     };
+
+    // ── Point(누적 실적) 키인 → 통합시운전 주차장부 동기화 (2026-08-25 팀장님 확정: 증분 배치) ──
+    //   장부는 '주마다 그 주에 딴 점수'(합산)인데 메인표 Point는 '지금까지 총합'(누적)이라 그대로 넣으면 이중 계산.
+    //   → 이번 주 값 = 새 누적 − (다른 주차 합). 장부 합계 = 키인값 일치 · 과거 이력 보존 · 같은 주 재키인 멱등.
+    //   새 누적 < 다른 주차 합 = 실적 감소 → { ok:false } 반환 → 호출부가 저장 전체를 중단하고 경고 (실수 방지).
+    //   메인 행 전용 — 하위(sub) 체제 장부(NAS 원장)는 건드리지 않음 (NAS 칸은 어차피 키인 잠금).
+    const isAccPointCol = (h) => !!teamProfile?.시운전?.누적열
+        && String(h).replace(/\s/g, '') === String(teamProfile.시운전.누적열).replace(/\s/g, '');
+    const syncAccPointToLedger = async (row, header, value) => {
+        if (!row || isSubListRow(row) || !isAccPointCol(header)) return { ok: true };
+        const s = String(value ?? '').replace(/[,%]/g, '').trim();
+        if (s === '') return { ok: true };                                  // 빈칸 = 장부 안 건드림 (공정률 동기화와 동일)
+        const num = Number(s);
+        if (!Number.isFinite(num) || num < 0) return { ok: true };
+        const docKey = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || row.id || '');
+        if (!docKey) return { ok: true };
+        const now = new Date();
+        const cy = now.getFullYear(), cm = now.getMonth() + 1, cw = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
+        const curWKey = `${cy}-${cm}-${cw}`;
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, docKey);
+        try {
+            const snap = await getDoc(ref);
+            const data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') };
+            const weekly = { ...(data.weekly || {}) };
+            // 하위(sub_i) 체제 장부 = NAS가 원장 → 메인 키인 동기화 금지 (잠금과 별개의 이중 안전장치)
+            if (Object.keys(weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k))) return { ok: true };
+            const iw = { ...(weekly.intCommissioning || {}) };
+            const otherSum = Object.entries(iw).reduce((s2, [wk, v]) => (wk === curWKey ? s2 : s2 + (Number(v) || 0)), 0);
+            if (num < otherSum) return { ok: false, sum: otherSum };        // 감소 → 저장 중단 (호출부에서 경고)
+            const delta = Math.round((num - otherSum) * 1000) / 1000;
+            if (Number(iw[curWKey] ?? NaN) === delta) return { ok: true };  // 변화 없음 → 쓰기 생략
+            iw[curWKey] = delta;
+            weekly.intCommissioning = iw;
+            await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+            if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });   // 그래프·팝업 즉시 반영
+        } catch (e) { console.warn('[accSync] Point→장부 반영 실패:', e); }
+        return { ok: true };
+    };
+    const accSyncBlockMsg = (num, sum) => `Point(실적) ${num}점은 저장할 수 없습니다.\n\n진행실적 장부에 이미 ${sum}점이 기록돼 있어\n그보다 작은 값을 넣으면 주간 기록이 어긋납니다.\n\n실적을 줄이려면 진행실적 팝업에서\n해당 주차 값을 직접 고쳐주세요.`;
 
     // ─── NAS 진척자료 자동 반영 (2026-07-22) ─────────────────────────────────
     //   개념: 원본은 NAS 폴더의 최신 진척 엑셀(복사본 안 올림). 이 PC에 '폴더 읽기 허가증'을 한 번 받아두면
@@ -3197,17 +3261,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (accCol) { const v = Number(String(r[accCol] ?? '').replace(/,/g, '')); if (Number.isFinite(v)) accSum += v; }
         });
         accSum = Math.round(accSum); totSum = Math.round(totSum);
-        const doneCol = activeHeaders.find(h => norm(h).includes('공사완료'));
-        const now = new Date();
-        const ymKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         return {
-            total: mains.length, subCnt, progCnt, month: now.getMonth() + 1,
+            total: mains.length, subCnt, progCnt,
             avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN,
             ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
-            doneCnt: doneCol ? mains.filter(r => String(r[doneCol] || '').startsWith(ymKey)).length : null,
-            newCnt: mains.filter(r => String(r._regDate || '').startsWith(ymKey)).length,
             // '—' 카드 사유 구분용 (2026-08-11): 항목 자체가 없음 vs 열은 있는데 아직 값 없음
-            pctColCnt: useCols.length, hasAccCol: !!accCol, hasDoneCol: !!doneCol,
+            pctColCnt: useCols.length, hasAccCol: !!accCol,
             // ── 당해(현재 연도) 카드 (2026-08-21 팀장님, 기술1팀): 전체=순번 있는 행 수 · 항목 = 작업 칸 값 건수 ──
             ...(() => {
                 const cc = teamProfile?.당해카드;
@@ -5523,7 +5582,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     {(kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && kpiData.total > 0 && (
                         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: '#edf1f7', flexShrink: 0 }}>
                             {kpiData.ccOn ? (<>
-                                {/* 당해 카드 (2026-08-21 팀장님, 기술1팀): 전체(순번 기준) + 작업 칸 항목별 건수 — 8월 완료 카드는 아래 공용 그대로 */}
+                                {/* 당해 카드 (2026-08-21 팀장님, 기술1팀): 전체(순번 기준) + 작업 칸 항목별 건수 */}
                                 <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
                                     <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>전체 프로젝트</div>
                                     <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.ccTotal}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
@@ -5570,20 +5629,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 </div>
                             </div>
                             </>)}
-                            {/* 'N월 완료'는 올해만 — 지난 연도엔 의미 없음 */}
-                            {!(selectedYear && selectedYear < String(new Date().getFullYear())) && (
-                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>{kpiData.month}월 완료</div>
-                                {kpiData.doneCnt !== null ? (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.doneCnt}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
-                                ) : (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
-                                )}
-                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
-                                    {kpiData.doneCnt !== null ? `공사완료 날짜 기준 · 신규 등록 ${kpiData.newCnt}건` : '이 팀 표엔 공사완료 날짜 항목 없음'}
-                                </div>
-                            </div>
-                            )}
+                            {/* 'N월 완료' 카드는 삭제 (2026-08-25 팀장님: 의미 없음) — 남은 카드가 flex로 폭을 나눠 채움 */}
                         </div>
                     )}
                     {/* ── 진행현황 + 담당자 칩 필터 바 (한 행) ── */}
