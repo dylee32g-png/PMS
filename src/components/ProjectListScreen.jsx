@@ -2924,6 +2924,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     };
 
+    // ── 프로젝트 번호 자동 +1 · 중복 차단 (2026-08-25 팀장님) ──────────────────
+    //   번호 열 = '번호'(기술2·3팀 — 3자리 패딩) 또는 '순번'(기술1팀 — 패딩 없음). 같은 연도 메인 행 기준.
+    const projNoColOf = () => (activeHeaders || []).find(h => ['번호', '순번'].includes(String(h).replace(/\s/g, '')));
+    const _cyStr = () => String(new Date().getFullYear());
+    const nextProjNo = (year) => {
+        const c = projNoColOf(); if (!c) return null;
+        let mx = 0;
+        activeRows.forEach(r => {
+            if (isSubListRow(r)) return;
+            if (String(r._year || _cyStr()) !== String(year)) return;
+            const n = Number(String(r[c] ?? '').trim());
+            if (Number.isFinite(n)) mx = Math.max(mx, n);
+        });
+        const nx = String(mx + 1);
+        return String(c).replace(/\s/g, '') === '번호' ? padProjectNo(nx) : nx;
+    };
+
     // ── 새 행 추가 ────────────────────────────────────────────────────────
     const handleOpenAddRow = () => {
         if (!activeHeaders.length) {
@@ -2942,6 +2959,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const regDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
         const newRow = { _id: newId, _pid: newPid, _year: newYear, _regDate: regDate };
         activeHeaders.forEach(h => { newRow[h] = baseRow ? (baseRow[h] || '') : ''; });   // 엑셀 항목만 복사(_ 내부필드는 복사 안 됨)
+        // 번호 자동 = 그 연도 최대 번호+1 (2026-08-25 팀장님) — 행 복사 추가여도 번호는 새로 받아 중복 방지
+        const _autoNoC = projNoColOf();
+        const _autoNo = nextProjNo(newYear);
+        if (_autoNoC && _autoNo !== null) newRow[_autoNoC] = _autoNo;
         setAddingRow(newRow);
     };
 
@@ -3016,6 +3037,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!addingRow) return;
         // 번호 3자리 통일 (2026-07-20 팀장님): 웹에서 추가할 때도 1→001 — 업로드·정렬 규칙과 일치
         const rowToAdd = addingRow['번호'] !== undefined ? { ...addingRow, '번호': padProjectNo(addingRow['번호']) } : addingRow;
+        // ★ 프로젝트 번호 중복 차단 (2026-08-25 팀장님) — 같은 연도 메인 행과 겹치면 저장 금지 (하위(s) 추가는 번호 없음·제외)
+        {
+            const _noC = projNoColOf();
+            const _isSubAdd = String(rowToAdd['실행번호'] ?? '').trim().toLowerCase() === 's';
+            if (_noC && !_isSubAdd) {
+                const _no = padProjectNo(String(rowToAdd[_noC] ?? '').trim());
+                if (_no !== '') {
+                    const _yr = String(rowToAdd._year || _cyStr());
+                    const dup = activeRows.find(r => r._id !== rowToAdd._id && !isSubListRow(r)
+                        && String(r._year || _cyStr()) === _yr
+                        && padProjectNo(String(r[_noC] ?? '').trim()) === _no);
+                    if (dup) {
+                        const _dupNm = String((projectNameCol && dup[projectNameCol]) || '').trim() || '(이름 없음)';
+                        setAlertMsg(`⛔ 프로젝트 번호 중복 — 저장할 수 없습니다!\n\n'${_no}'번은 이미 등록돼 있습니다:\n→ ${_dupNm}\n\n번호를 다른 값으로 바꾼 뒤 다시 저장해 주세요.\n(추가 창을 새로 열면 다음 번호가 자동으로 들어갑니다)`);
+                        return;
+                    }
+                }
+            }
+        }
         // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
         const dateErr = checkContractDates(rowToAdd);
         if (dateErr) { setAlertMsg(dateErr); return; }
