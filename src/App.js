@@ -1367,12 +1367,26 @@ const TechTeamPMS = () => {
   //   실적 그래프·진행실적 팝업이 바로 따라오게 한다. 표(List)가 행을 구독하는 것과 같은 방식.
   useEffect(() => {
       if ((currentMode !== 'pms' && currentMode !== 'projectList') || !currentTeam || !db) return;
+      let _first = false;
       const unsub = onSnapshot(
           collection(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`),
           (snap) => {
-              const map = {};
-              snap.docs.forEach(d => { map[d.id] = d.data(); });
-              setProgressRecordsMap(map);
+              // 증분 갱신 (2026-08-26 속도): 바뀐 문서만 새로 풀고(data()), 나머지는 이전 객체 재사용
+              //   — 저장 1건마다 장부 전체(수백 건)를 다시 풀어 100ms씩 멈추던 것 완화.
+              //   첫 스냅샷(팀 전환 직후)은 전체를 새로 만든다 — 이전 팀 장부가 섞이지 않게.
+              if (!_first) {
+                  _first = true;
+                  const map = {};
+                  snap.docs.forEach(d => { map[d.id] = d.data(); });
+                  setProgressRecordsMap(map);
+                  return;
+              }
+              const chg = snap.docChanges();
+              setProgressRecordsMap(prev => {
+                  const map = { ...(prev || {}) };
+                  chg.forEach(c => { if (c.type === 'removed') delete map[c.doc.id]; else map[c.doc.id] = c.doc.data(); });
+                  return map;
+              });
           },
           (e) => { console.error('[progressRecords 구독 오류]', e); }
       );
@@ -5999,6 +6013,7 @@ const TechTeamPMS = () => {
               <ProjectListScreen
                   currentTeam={currentTeam}
                   user={user}
+                  progressRecordsMap={progressRecordsMap}
                   isAdmin={registeredUser?.role === 'admin'}   /* ★ 위험 버튼(엑셀 확정저장·전체저장) 관리자 전용 게이팅 (2026-07-14) */
                   openProgressPid={openProgressPid}                     /* ★ 그래프 → 진행실적 팝업 이동 (2026-07-14) */
                   onProgressOpened={() => setOpenProgressPid(null)}

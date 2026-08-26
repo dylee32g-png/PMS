@@ -96,10 +96,16 @@ const _memRowsCache = {};   // { 팀: rows[] }
 const _memMetaCache = {};   // { 팀: { headers, colGroups } }
 
 // ─── 컴포넌트 ──────────────────────────────────────────────────────────────
+// ★ 행 메모 컴포넌트 (2026-08-25 팀장님 "메인표 수정이 너무 느림"): 표 188행×30칸을 상태가 바뀔 때마다 전부 다시 그리던 것을
+//   '그 행의 데이터(객체 동일성)·편집·선택·강조·NAS 상태·하위 합·전역 레이아웃 신호(gsig)'가 바뀐 행만 다시 그린다.
+//   렌더 본체는 부모의 최신 클로저(rowCtxRef.current.renderRow)를 그대로 실행 — 기존 셀 코드 무변경.
+const MemoRow = React.memo(function MemoRow({ row, ri, sig, ctx }) { return ctx.current.renderRow(row, ri); },
+    (p, n) => p.row === n.row && p.ri === n.ri && p.sig === n.sig);
+
 const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog, onSwitchTeam, highlightExecNo, allProjects, onShowGraph,
     weeklyLinks, weeklyPanel, setWeeklyPanel, onOpenWeeklyPanel, onWeeklyUnlink, onWeeklyDownload, onOpenWeeklyLinkModal,
     baseDate = '', onApplyProgressByPid, onProgressSaved, teamSettings, isAdmin = false,
-    openProgressPid = null, onProgressOpened }) => {
+    openProgressPid = null, onProgressOpened, progressRecordsMap = null }) => {
     // ── 팀 프로파일 카드 (2026-08-11 2단계) — 팀별 값·규칙은 카드에서만 읽는다 (src/teamProfiles/, if(팀명) 하드코딩 금지)
     const teamProfile = getTeamProfile(currentTeam);
     // List 전용 마스터 목록 — teamSettings[팀].listStatus/listManager 우선 → 팀 카드 → 공용 기본값 (2026-07-06 구조 + 2026-08-11 카드)
@@ -332,8 +338,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
         const unsubRows = onSnapshot(rowsColRef(currentTeam), snap => {
             if (!_gotRows) { _gotRows = true; addLog(`[속도] 행 ${snap.docs.length}개 도착 +${Date.now() - _t0}ms (${snap.metadata.fromCache ? '로컬 캐시' : '서버'})`); }
+            // ★ 안 바뀐 문서는 이전 행 객체 그대로 재사용 (2026-08-25): 매 갱신마다 2천 개 객체를 새로 만들면
+            //   행 메모(MemoRow)가 전부 '바뀜'으로 보고 다시 그린다. docChanges로 바뀐 문서만 새 객체.
+            const _prevMap = new Map((_memRowsCache[currentTeam] || []).map(x => [x._id, x]));
+            const _chg = new Set(snap.docChanges().map(c => c.doc.id));
             const r = snap.docs
-                .map(d => ({ _id: d.id, ...d.data() }))
+                .map(d => { const pv = _prevMap.get(d.id); return (pv && !_chg.has(d.id)) ? pv : { _id: d.id, ...d.data() }; })
                 .sort((a, b) => String(a._id).localeCompare(String(b._id)));
             _memRowsCache[currentTeam] = r;
             setFbRows(r);
@@ -429,15 +439,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ★ 고정 열 오프셋 '실측' (2026-07-21): 표가 내용맞춤(한 줄 펼침)이라 저장 너비(getW) 누적과 실제 폭이 달라
     //   넓은 열(Project 등) 뒤로 고정하면 겹치는 버그 → 첫 데이터 행의 실제 위치(offsetLeft)를 재서 쓴다.
     const tbodyRef = useRef(null);
-    const [frzMeasured, setFrzMeasured] = useState({});
+    // ★ 고정 열 오프셋은 React 상태가 아니라 표(<table>)의 CSS 변수(--frz-i)로 직접 기록 (2026-08-26 속도):
+    //   종전엔 실측값을 state로 두어 값 하나 저장해도 열 폭이 2px 넘게 흔들리면 188행 전체 재렌더(≈430ms)가 따라왔다.
+    //   셀은 left:var(--frz-i)만 들고 있고, 실측은 변수 값만 바꾼다 → 재실측이 행 재렌더를 일으키지 않는다.
+    const frzVarsRef = useRef({});
     // 재실측 신호 (2026-08-18): 표는 sortedRows(칩·검색·정렬 반영)를 그리는데 아래 실측 의존성엔 전체(activeRows)만
     //   있어, 필터로 행이 줄어 내용맞춤 열이 좁아져도 옛 오프셋이 남았음(기술3팀 발주처↔Project 틈 벌어짐).
     //   sortedRows가 이 지점보다 뒤에 선언돼 직접 의존 불가 → 신호 값으로 연결.
     const [frzTick, setFrzTick] = useState(0);
     const [fitWidths, setFitWidths] = useState({});   // 기본 화면 맞춤 폭 (2026-08-21) — 수동 폭(colWidths)보다 낮은 우선순위
     const [fitTick, setFitTick] = useState(0);        // 창 크기 변경 신호
-    useLayoutEffect(() => {
-        if (!frozenUpTo) { setFrzMeasured(p => (Object.keys(p).length ? {} : p)); return; }
+    const measureFrzRef = useRef(() => {});
+    const measureFrz = () => {
+        if (!frozenUpTo) {
+            const tbl0 = tbodyRef.current ? tbodyRef.current.closest('table') : null;
+            if (tbl0 && Object.keys(frzVarsRef.current).length) for (let i = 0; i < 64; i++) tbl0.style.removeProperty(`--frz-${i}`);
+            frzVarsRef.current = {};
+            return;
+        }
         // 데이터 행만 실측 (2026-08-11): '불러오는 중/데이터 없음'은 colSpan 한 칸짜리 행이라
         //   그걸로 재면 발주처·Project 오프셋이 빠져 고정 열이 좁은 예비값으로 겹침 → 번호 잘림.
         let tr = null;
@@ -469,19 +488,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (mainVisibleHeaders[i] === frozenUpTo) break;
             }
         }
-        setFrzMeasured(p => {
-            const keys = Object.keys(map);
-            // ±2px 허용 오차 — sticky 적용 시 테두리 반올림으로 1~2px 오가는 값에 반응하지 않음 (무한루프 방지 2중 장치)
-            const same = keys.length === Object.keys(p).length && keys.every(k => Math.abs((p[k] ?? -9999) - map[k]) <= 2);
-            return same ? p : map;
-        });
-    // ★ 의존성 명시 = 레이아웃이 바뀌는 경우에만 실측 (열구성·너비·배율·컴팩트·데이터·표시행 신호). 이전의 '매 렌더 실측'은 무한루프 원인이라 금지.
-    }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, activeRows, frzTick, fitWidths]); // eslint-disable-line react-hooks/exhaustive-deps
+        {
+            const prev = frzVarsRef.current, keys = Object.keys(map);
+            // ±2px 허용 오차 — sticky 적용 시 테두리 반올림으로 1~2px 오가는 값에 반응하지 않음
+            const same = keys.length === Object.keys(prev).length && keys.every(k => Math.abs((prev[k] ?? -9999) - map[k]) <= 2);
+            if (!same) {
+                const tbl1 = tbodyRef.current.closest('table');
+                mainVisibleHeaders.forEach((h, i) => { if (map[h] !== undefined) tbl1.style.setProperty(`--frz-${i}`, `${map[h]}px`); });
+                frzVarsRef.current = map;
+            }
+        }
+    };
+    measureFrzRef.current = measureFrz;
+    // ★ 구조 변경(열구성·너비·배율·컴팩트·맞춤) = 즉시(레이아웃 효과) — 어긋난 화면이 한 프레임도 보이면 안 되는 경우
+    useLayoutEffect(() => { measureFrzRef.current(); }, [frozenUpTo, activeHeaders, hiddenCols, colWidths, tableScale, compactMode, fitWidths]); // eslint-disable-line react-hooks/exhaustive-deps
+    // ★ 값 변경(행 데이터·표시행 신호) = 0.4초 뒤 (2026-08-26 속도): 커밋 중 offsetLeft 읽기 = 표 전체 강제 배치(≈290ms)라 저장 직후
+    //   프레임을 막았음. 브라우저가 그리기용 배치를 끝낸 뒤 읽으면 비용 0. (이전의 '매 렌더 실측'은 무한루프 원인이라 금지)
+    useEffect(() => { const t = setTimeout(() => measureFrzRef.current(), 400); return () => clearTimeout(t); }, [activeRows, frzTick]);
 
     // ── 기본 화면 맞춤 (2026-08-21 팀장님): 손대지 않은 기본 상태에서 카드 '기본맞춤.까지열'(기술1팀 2026 = 발주처 담당자)까지
     //    화면 100% 폭에 들어오게 비례 축소. 글자는 잘려도 됨(한 줄·말줄임 col-clip). 손잡이로 고친 열(colWidths)은 그대로, 나머지만 축소.
     //    ★무한루프 방지: (연도·열구성·배율·컴팩트·창폭·행수·수동폭) 키가 바뀔 때만 — 1패스: 맞춤 비워 자연 폭으로 그림 → 2패스: 실측·계산 → 이후 같은 키면 무시.
     const fitKeyRef = useRef('');
+    // ★ 자연 폭 캐시 (2026-08-26 속도): 열의 자연 폭은 창 폭(W)과 무관 → 한 번 재 두면 창 폭이 바뀌어도
+    //   '맞춤 해제→자연 폭으로 전체 재렌더(1패스)' 없이 바로 계산 (재맞춤 전체 재렌더 2회→1회, 틀고정 실측도 1회 감소).
+    //   캐시 키 = 연도·열구성·배율·컴팩트·행수 (W 제외). 값(글자)이 바뀌어도 열 자연 폭이 달라질 수 있으나 기본맞춤은
+    //   '대략 화면에 들어오게'가 목적이라 행수 같으면 재측정 안 함(수동 폭 손잡이·행 추가 시 자동 재측정).
+    const natCacheRef = useRef({ key: '', nat: null });
+    const fitWRef = useRef({ key: '', W: 0 });   // 창 폭 캐시 — 값 저장마다 getBoundingClientRect(강제 배치) 안 읽게 (2026-08-26)
     useEffect(() => { const onR = () => setFitTick(t => t + 1); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR); }, []);
     useLayoutEffect(() => {
         const cfg = teamProfile?.기본맞춤;
@@ -492,24 +526,38 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const wrap = tbl ? tbl.parentElement : null;
         if (!target || !wrap) return;
         const z = (tableScale || 100) / 100;
-        const W = Math.floor(wrap.getBoundingClientRect().width / z) - 2;
+        const wKey = [fitTick, tableScale, compactMode, mainVisibleHeaders.join('|'), selectedYear, currentTeam].join('#');
+        let W;
+        if (fitWRef.current.key === wKey) W = fitWRef.current.W;
+        else { W = Math.floor(wrap.getBoundingClientRect().width / z) - 2; fitWRef.current = { key: wKey, W }; }
         if (W <= 0) return;
         // 키에 수동 폭(colWidths)은 넣지 않음 — 손잡이 드래그 중 매 픽셀마다 재맞춤·깜빡임 방지. 수동 폭은 계산 때 '고정'으로만 취급.
-        const key = [selectedYear, mainVisibleHeaders.join('|'), tableScale, compactMode, W, activeRows.length].join('#');
+        const natKey = [selectedYear, mainVisibleHeaders.join('|'), tableScale, compactMode, activeRows.length].join('#');
+        const key = natKey + '#' + W;
         if (fitKeyRef.current === key) return;
-        if (Object.keys(fitWidths).length) { setFitWidths({}); return; }   // 1패스: 맞춤 해제 → 자연 폭으로 다시 그린 뒤 재진입
-        const nat = {};
-        tbl.querySelectorAll('thead th[data-col]').forEach(th => { nat[th.getAttribute('data-col')] = th.getBoundingClientRect().width / z; });
+        let nat = natCacheRef.current.key === natKey ? natCacheRef.current.nat : null;
+        if (!nat) {
+            // 자연 폭을 모를 때만: 맞춤 해제 → 자연 폭으로 다시 그린 뒤 재진입해 실측 (1패스)
+            if (Object.keys(fitWidths).length) { setFitWidths({}); return; }
+            nat = {};
+            tbl.querySelectorAll('thead th[data-col]').forEach(th => { nat[th.getAttribute('data-col')] = th.getBoundingClientRect().width / z; });
+            natCacheRef.current = { key: natKey, nat };
+        }
         const idx = mainVisibleHeaders.indexOf(target);
         fitKeyRef.current = key;
         if (idx < 0) return;
         const cols = mainVisibleHeaders.slice(0, idx + 1);
         let fixed = 0, flex = 0;
         cols.forEach(h => { const w = nat[h] || getW(h) || 40; if (colWidths[h]) fixed += w; else flex += w; });
-        if (fixed + flex <= W || flex <= 0) return;   // 이미 다 들어옴 — 건드리지 않음
+        if (fixed + flex <= W || flex <= 0) {   // 이미 다 들어옴 — 맞춤 없음 (적용돼 있던 축소는 해제)
+            if (Object.keys(fitWidths).length) { setFitWidths({}); }
+            return;
+        }
         const scale = Math.max(0, W - fixed) / flex;
         const next = {};
         cols.forEach(h => { if (colWidths[h]) return; const w = nat[h] || getW(h) || 40; next[h] = Math.max(28, Math.floor(w * scale)); });
+        const sameFit = Object.keys(next).length === Object.keys(fitWidths).length && Object.keys(next).every(k => fitWidths[k] === next[k]);
+        if (sameFit) return;   // 결과 동일 → 재렌더 생략
         setFitWidths(next);
     }, [selectedYear, activeHeaders, hiddenCols, tableScale, compactMode, colWidths, fitTick, activeRows, fitWidths]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1639,8 +1687,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (from === to) return null;
         return { datetime: new Date().toISOString(), changes: [{ field: key, from, to }] };
     };
-    const pushChangeHist = (row, entry) =>
-        entry ? [...(Array.isArray(row._changeHistory) ? row._changeHistory : []), entry] : (row._changeHistory || []);
+    // 변경 이력 상한 300건 (2026-08-26): 무제한이면 행 문서가 저장마다 커져 업로드·응답·에코가 느려지고 1MB 한도 위험
+    const HIST_MAX = 300;
+    const pushChangeHist = (row, entry) => {
+        const base = Array.isArray(row._changeHistory) ? row._changeHistory : [];
+        const arr = entry ? [...base, entry] : base;
+        return arr.length > HIST_MAX ? arr.slice(arr.length - HIST_MAX) : arr;
+    };
 
     // ── 동시 편집 안전장치 (2026-07-14) ────────────────────────────────────────
     //  ① stampSave = 저장할 때마다 '누가·언제' 도장(_updatedAt/_updatedBy)을 찍는다.
@@ -1671,7 +1724,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //  editOrigRef = 셀 편집을 '시작한 순간'의 값. 편집하는 동안 실시간 구독으로 화면값이
     //  바뀌어도 이 원본은 그대로 두어야, 그 사이 남이 고친 걸 잡아낼 수 있다.
     const editOrigRef = useRef(null);   // { id, key, value }
+    // ★ 키인 속도 (2026-08-25 팀장님 "예전보다 너무 느림"): 편집 칸이 제어형(value=state)이라 한 글자마다
+    //   화면 전체(2,198행 데이터·표 188×30칸) 재렌더 → 14개년 적재(8/24) 후 체감 급락. 입력 중 값은 ref에만 두고
+    //   (비제어 defaultValue) Enter/이동(blur) 때만 doCommitCell로 넘긴다. 저장 로직은 불변.
+    const editWRef = useRef(0);   // 편집 시작 시 칸 내용 폭(px) — 입력창을 이 폭으로 고정해 열 재분배(표 전체 재배치) 방지 (2026-08-26)
+    const editValRef = useRef('');
     useEffect(() => {
+        editValRef.current = String(editingCell.value ?? '');   // 편집 시작 값으로 초기화 (타이핑 없이 바로 이동해도 원값 보존)
         if (!editingCell.id || !editingCell.key) { editOrigRef.current = null; return; }
         const cur = editOrigRef.current;
         if (cur && cur.id === editingCell.id && cur.key === editingCell.key) return;   // 같은 셀 편집 중 → 원본 유지
@@ -1684,19 +1743,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const findCellConflict = async (rowId, key, baseVal) => {
         if (dataSource !== 'firebase' || !rowId || !key) return null;
         try {
-            const snap = await getDoc(rowDocRef(currentTeam, rowId));
-            if (!snap.exists()) return null;
-            const server = snap.data();
+            // ★ 서버 getDoc(왕복 1회) 대신 실시간 구독 메모리(fbRows) — onSnapshot이 항상 최신이라 결과 동일, 대기 0 (2026-08-25 속도)
+            const server = fbRows.find(r => r._id === rowId);
+            if (!server) return null;
             const who = String(server._updatedBy || '');
             if (who && who === String(user?.email || '')) return null;              // 내가 방금 고친 것
             if (String(server[key] ?? '') === String(baseVal ?? '')) return null;   // 그대로 → 충돌 아님
             return { who, at: server._updatedAt || '', fields: [key], server };
         } catch (e) { return null; }
     };
+    // ★ 장부(progressRecords) 쓰기 직렬 큐 (2026-08-25): 저장을 낙관적으로(편집창 먼저 닫음) 바꾸면서
+    //   연속 키인의 장부 쓰기가 겹칠 수 있음 → 같은 '읽고 통째로 쓰기' 패턴이라 반드시 한 줄로 세움 (8/19 ETOS 소실 재발 방지)
+    const ledgerQRef = useRef(Promise.resolve());
+    const queueLedger = (fn) => { const p = ledgerQRef.current.then(fn, fn); ledgerQRef.current = p.catch(() => {}); return p; };
 
     // ── 인라인 셀 편집 ────────────────────────────────────────────────────
     //   onBlur={commitCellEdit} 로도 불리므로(이벤트 객체가 인자로 들어옴) 저장 본체는 doCommitCell로 분리.
-    const commitCellEdit = () => doCommitCell(editingCell, false);
+    const commitCellEdit = () => doCommitCell({ ...editingCell, value: editValRef.current }, false);
     const doCommitCell = async (editingCell, isForce) => {
         if (!editingCell.id || !editingCell.key) return;
         const srcRow = activeRows.find(r => r._id === editingCell.id);
@@ -1733,10 +1796,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (dataSource !== 'firebase') {
             // ★순차 await 필수 (2026-08-19 버그): 두 기록이 같은 장부 문서를 '읽고 통째로 다시 쓰기'라
             //   동시에 나가면 나중 쓰기가 먼저 쓰기를 덮음(ETOS 키인이 자체시운전 기록에 지워지던 원인)
-            await syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
+            await queueLedger(() => syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value));
             {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 저장 전체 중단 (2026-08-25)
-                const accR = await syncAccPointToLedger(srcRow, editingCell.key, editingCell.value);
-                if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum)); setEditingCell({ id: null, key: null, value: '' }); return; }
+                const accR = await queueLedger(() => syncAccPointToLedger(srcRow, editingCell.key, editingCell.value));
+                if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur)); setEditingCell({ id: null, key: null, value: '' }); return; }
             }
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
@@ -1770,21 +1833,28 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         //   충돌 확인창에서 [취소]를 눌렀는데 주차장부만 바뀌는 일을 막는다 (2026-07-14)
         // ★순차 await 필수 (2026-08-19 버그): 같은 장부 문서 동시 쓰기 = 나중 것이 먼저 것을 덮음 (ETOS 소실 원인)
         {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 메인표 저장까지 전체 중단 (2026-08-25)
-            const accR = await syncAccPointToLedger(row, editingCell.key, editingCell.value);
-            if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum)); setEditingCell({ id: null, key: null, value: '' }); return; }
+            //   Point 칸일 때만 장부를 읽으므로(왕복 1회) PLC·ETOS·HMI 등은 대기 없이 통과
+            const accR = await queueLedger(() => syncAccPointToLedger(row, editingCell.key, editingCell.value));
+            if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur)); setEditingCell({ id: null, key: null, value: '' }); return; }
         }
-        await syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value);
-        const { _id, ...rest } = row;
+        // ★ 낙관적 저장 (2026-08-25 팀장님 "키인 너무 느림·멈춤"): 종전엔 충돌검사 getDoc → 장부 getDoc+setDoc → 행 setDoc을
+        //   전부 기다린 뒤에야 편집창이 닫혀 Enter마다 클라우드 왕복 3~4회를 그대로 체감. 이제 행 저장을 먼저 던지고(Firestore가
+        //   로컬 스냅샷을 즉시 줘서 표에는 바로 반영) 편집창을 곧바로 닫는다. 장부 기록은 뒤에서 직렬 큐로(순서·안전 동일).
+        // ★ 변경 칸만 전송 (2026-08-26 속도): 종전엔 행 전체(수십 칸+이력+NAS 정보)를 매번 통째로 보내 업로드·확정·에코가 비쌌음.
+        //   merge=true → 고친 칸·도장·이력만 올라가고 나머지 칸은 서버 값 그대로 (삭제 없음 = 종전과 동일 결과)
+        const { _id } = row;
+        const rowWrite = setDoc(rowDocRef(currentTeam, _id), stampSave({
+            ...patch,
+            _changeHistory: pushChangeHist(row, entry)
+        }), { merge: true });
+        setEditingCell({ id: null, key: null, value: '' });
         try {
-            await setDoc(rowDocRef(currentTeam, _id), stampSave({
-                ...rest,
-                ...patch,
-                _changeHistory: pushChangeHist(row, entry)
-            }));
+            await rowWrite;
             if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...row, ...patch }, entry.changes);   // 백로그: 표 셀 수정
+            // 역방향 동기화(공정률 → 주차장부)는 행 저장이 확정된 뒤 (2026-07-14 규칙 유지) · 큐로 직렬
+            await queueLedger(() => syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value));
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
-        setEditingCell({ id: null, key: null, value: '' });
     };
 
     // ── 직접 셀 값 저장 (상태·담당자 드롭다운용) ─────────────────────────
@@ -1954,8 +2024,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, docKey);
         try {
             // 읽어서 고쳐 쓰기 — 중첩 맵의 특정 주차를 지우려면 필요. 다른 항목·과거 주차 값은 그대로 보존.
-            const snap = await getDoc(ref);
-            const data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') };
+            // 실시간 구독본(App.js progressRecordsMap) 우선 (2026-08-26 속도): 장부는 이미 onSnapshot으로 최신 상태라
+            //   서버 getDoc 왕복(수백 ms + 읽기 1회)을 생략. 구독본에 없을 때만 서버에서 읽음.
+            const _live = progressRecordsMap && progressRecordsMap[docKey];
+            let data;
+            if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
+            else { const snap = await getDoc(ref); data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') }; }
             const weekly = { ...(data.weekly || {}) };
             const itemWeeks = { ...(weekly[itemKey] || {}) };
             // 이번 달에서 '현재 주차보다 뒤(미래)' 주차값 제거 → 현재 주차가 '누적 최신값'이 되어 팝업 합계와 일치.
@@ -1992,14 +2066,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const curWKey = `${cy}-${cm}-${cw}`;
         const ref = doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, docKey);
         try {
-            const snap = await getDoc(ref);
-            const data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') };
+            // 실시간 구독본(App.js progressRecordsMap) 우선 (2026-08-26 속도): 장부는 이미 onSnapshot으로 최신 상태라
+            //   서버 getDoc 왕복(수백 ms + 읽기 1회)을 생략. 구독본에 없을 때만 서버에서 읽음.
+            const _live = progressRecordsMap && progressRecordsMap[docKey];
+            let data;
+            if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
+            else { const snap = await getDoc(ref); data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') }; }
             const weekly = { ...(data.weekly || {}) };
             // 하위(sub_i) 체제 장부 = NAS가 원장 → 메인 키인 동기화 금지 (잠금과 별개의 이중 안전장치)
             if (Object.keys(weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k))) return { ok: true };
             const iw = { ...(weekly.intCommissioning || {}) };
             const otherSum = Object.entries(iw).reduce((s2, [wk, v]) => (wk === curWKey ? s2 : s2 + (Number(v) || 0)), 0);
-            if (num < otherSum) return { ok: false, sum: otherSum };        // 감소 → 저장 중단 (호출부에서 경고)
+            if (num < otherSum) return { ok: false, sum: otherSum, cur: Number(iw[curWKey] || 0) };   // 감소 → 저장 중단 (호출부에서 경고)
             const delta = Math.round((num - otherSum) * 1000) / 1000;
             if (Number(iw[curWKey] ?? NaN) === delta) return { ok: true };  // 변화 없음 → 쓰기 생략
             iw[curWKey] = delta;
@@ -2009,7 +2087,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { console.warn('[accSync] Point→장부 반영 실패:', e); }
         return { ok: true };
     };
-    const accSyncBlockMsg = (num, sum) => `Point(실적) ${num}점은 저장할 수 없습니다.\n\n진행실적 장부에 이미 ${sum}점이 기록돼 있어\n그보다 작은 값을 넣으면 주간 기록이 어긋납니다.\n\n실적을 줄이려면 진행실적 팝업에서\n해당 주차 값을 직접 고쳐주세요.`;
+    const accSyncBlockMsg = (num, sum, cur = 0) => `Point(실적) ${num}점은 저장할 수 없습니다.\n\n진행실적 장부에 지난 주차까지 ${sum}점이 기록돼 있습니다\n(이번 주 ${cur}점 포함 총 ${sum + cur}점).\n지난 주차 합(${sum})보다 작은 값은 주간 기록이 어긋나 막습니다.\n\n실적을 줄이려면 진행실적 팝업에서\n해당 주차 값을 직접 고쳐주세요.`;   // 2026-08-25 테스트: '185인데 왜 135?' 혼동 방지 — 총합 병기
 
     // ─── NAS 진척자료 자동 반영 (2026-07-22) ─────────────────────────────────
     //   개념: 원본은 NAS 폴더의 최신 진척 엑셀(복사본 안 올림). 이 PC에 '폴더 읽기 허가증'을 한 번 받아두면
@@ -3572,6 +3650,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ── 헤더 드롭다운 멀티필터 (월간보고 스타일) ─────────────────────────
     // 진행현황→activeStatusChips, 담당자→activeAssignees, 나머지→columnFilters 로 통합
+    // ★ ComboFilter·SortHeader는 컴포넌트가 아니라 '렌더 함수'로 직접 호출 (2026-08-25 속도):
+    //   컴포넌트 안에서 정의한 함수를 <ComboFilter/>로 쓰면 매 렌더마다 새 타입 → 헤더 30여 칸 전부 언마운트/리마운트.
+    //   훅을 안 쓰므로 ComboFilter({ h })처럼 부르면 같은 화면·리마운트 0.
     const ComboFilter = ({ h, small = false }) => {
         const isStatusH   = !!statusFilterCol   && h === statusFilterCol;
         const isAssigneeH = !!assigneeFilterCol && h === assigneeFilterCol;
@@ -3812,6 +3893,31 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (t === currentTeam) return;
         if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 팀 이동을 할 수 없습니다.\n확정 저장 또는 업로드 취소 후 이동해 주세요.'); return; }
         if (onSwitchTeam) onSwitchTeam(t);
+    };
+
+    // ── 행 단위 재렌더 게이트 (2026-08-25) ───────────────────────────────────
+    //   gsig = 행 모양에 영향을 주는 전역 상태의 '버전 번호'. 여기 든 것이 바뀌면 전 행 재렌더(종전과 동일),
+    //   안 든 것(알림창·토스트·로그·팝업 열림 등)이 바뀌면 행은 그대로 둔다. 행별 신호는 rowSig에서 따로 본다.
+    const gsigRef = useRef(0);
+    const _gsigDeps = [columnFilters, colWidths, fitWidths, frozenUpTo, tableScale, compactMode, hiddenCols,
+        activeHeaders, mainVisibleHeaders, activeColMids, selectedYear, selectedMonth, viewMonth, monthMode, sortConfig, searchTerm,
+        activeStatusChips, activeAssignees, activeManagers, teamSettings, currentTeam, isAdmin, user, weeklyLinks, weeklyPanel, highlightExecNo,
+        pendingData, localData, fbHeaders, fbColGroups, fbByYear, fbColMids, extMainTeams];
+    const gsig = useMemo(() => {
+        return ++gsigRef.current;
+    }, _gsigDeps);   // eslint-disable-line react-hooks/exhaustive-deps
+    const rowCtxRef = useRef({ renderRow: () => null });
+    const rowSig = (row) => {
+        const sp = getSubPt(row._id);
+        const st = extStatus[row._id];
+        let par = '';
+        if (isSubListRow(row)) {   // 하위 행의 잠금 칸은 부모 규칙에 좌우 → 부모 갱신 도장·규칙 수를 신호에 포함
+            const pid = String(row._id).replace(/_sub\d+$/, '');
+            const p = pid !== String(row._id) ? fbRows.find(r => r._id === pid) : null;
+            par = p ? `${p._updatedAt || ''}/${(p._extSync && Array.isArray(p._extSync.rules)) ? p._extSync.rules.length : 0}` : '';
+        }
+        return `${gsig}|${editingCell.id === row._id ? editingCell.key : ''}|${selectedRowId === row._id ? 1 : 0}|${highlightedRowId === row._id ? 1 : 0}`
+            + `|${st ? `${st.state}/${st.checkedAt || ''}/${(st.files || []).length}` : ''}|${sp ? `${sp.sum}/${sp.count}` : ''}|${par}`;
     };
 
     // ─── 렌더 ──────────────────────────────────────────────────────────────
@@ -5776,9 +5882,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 //   getW 기본폭 누적 폴백은 실제 내용맞춤 폭보다 좁아(번호 22px 등) 스크롤 시
                                 //   고정 열끼리 겹쳐 왼쪽 열이 잘리는 원인이라 폐기. 실측 전 찰나엔 고정 미적용
                                 //   (스크롤 전이라 화면 차이 없음 — 실측(useLayoutEffect)이 같은 프레임에 채워줌).
+                                // 값 = CSS 변수 참조 (실측 px는 useLayoutEffect가 <table>의 --frz-i에 기록)
                                 let frozenOffsets = {};
-                                if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo) && Object.keys(frzMeasured).length) {
-                                    frozenOffsets = frzMeasured;
+                                if (frozenUpTo && mainVisibleHeaders.includes(frozenUpTo)) {
+                                    const _F = mainVisibleHeaders.indexOf(frozenUpTo);
+                                    mainVisibleHeaders.slice(0, _F + 1).forEach((h, i) => { frozenOffsets[h] = `var(--frz-${i})`; });
                                 }
                                 const isFrz  = h => frozenOffsets[h] !== undefined;
                                 const isPinH = h => h === frozenUpTo;
@@ -5806,7 +5914,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}${grpSep(h)}`}
                                                     style={{...(isStatusCol(h)?{}:{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
-                                                    {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
+                                                    {isFilterable(h) ? ComboFilter({ h }) : SortHeader({ h })}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
@@ -5833,7 +5941,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
                                             style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
                                             onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
-                                            {isFilterable(h) ? <ComboFilter h={h}/> : <SortHeader h={h}/>}
+                                            {isFilterable(h) ? ComboFilter({ h }) : SortHeader({ h })}
                                             <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                 onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                         </th>
@@ -5872,8 +5980,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h)
-                                                        ? <ComboFilter h={h} small/>
-                                                        : <SortHeader h={h} small/>}
+                                                        ? ComboFilter({ h, small: true })
+                                                        : SortHeader({ h, small: true })}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
@@ -5893,8 +6001,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h)
-                                                        ? <ComboFilter h={h} small/>
-                                                        : <SortHeader h={h} small/>}
+                                                        ? ComboFilter({ h, small: true })
+                                                        : SortHeader({ h, small: true })}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
@@ -5906,8 +6014,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}), background:'var(--head-bg)', ...(centerCol(h)?{textAlign:'center'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h)
-                                                        ? <ComboFilter h={h} small/>
-                                                        : <SortHeader h={h} small/>}
+                                                        ? ComboFilter({ h, small: true })
+                                                        : SortHeader({ h, small: true })}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
                                                         onMouseDown={e => startResize(h, e)} onDoubleClick={e => { e.stopPropagation(); autoFitCol(h); }}/>
                                                 </th>
@@ -5933,7 +6041,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             )}
                                         </td>
                                     </tr>
-                                ) : sortedRows.map((row,ri) => {
+                                ) : (
+                                // 행 렌더 본체를 매 렌더마다 최신 클로저로 갱신(ref) → MemoRow는 신호가 바뀐 행만 이걸 실행 (2026-08-25)
+                                // eslint-disable-next-line no-sequences
+                                rowCtxRef.current.renderRow = (row, ri) => {
                                     const isSelected    = selectedRowId    === row._id;
                                     const isHlRow       = highlightedRowId === row._id;
                                     // 고정(sticky) 열은 스크롤 내용이 밑으로 지나가므로 배경 반투명 금지 — 같은 톤 불투명 색 (2026-08-11 틀고정 겹침 수리)
@@ -5941,7 +6052,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     return (
                                     <tr key={row._id}
                                         data-row-id={row._id}
-                                        className={`group transition-colors cursor-pointer
+                                        className={`group cursor-pointer
                                             ${isHlRow
                                                 ? 'tr-highlighted border-l-[3px] border-l-amber-400'
                                                 : isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-white/5'}`}
@@ -5960,20 +6071,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             );
                                             const isEd = editingCell.id===row._id && editingCell.key===h;
                                             if (isEd) return (
-                                                <td key={h} className={`px-2 py-1 border ${isDateCol(h)?'bg-white border-blue-400':'bg-emerald-950/40 border-emerald-500/40'} ${isFrz(h)?'z-10':''}`}
-                                                    style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:isDateCol(h)?'#fff':'#0a2010'}:{}}>
+                                                // 편집 칸 = 보통 칸과 같은 상자(패딩·테두리·폭) + 안쪽 그림자 강조 (2026-08-26 속도):
+                                                //   종전엔 테두리 4면·패딩 축소·w-full 입력창(고유폭 ~150px)이 열 폭을 바꿔 표 전체가 다시 배치됐음
+                                                <td key={h} className={`${tdPx} align-middle ${isPinH(h)?'border-r-2 border-blue-400/50 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-10':''}`}
+                                                    style={{ width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, boxShadow: `inset 0 0 0 2px ${isDateCol(h)?'#3b82f6':'#10b981'}`, background: isDateCol(h)?'#fff':'#ecfdf5', ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}) }}>
                                                     {isDateCol(h) ? (
-                                                        <input autoFocus type="date" value={editingCell.value}
-                                                            onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))}
+                                                        <input autoFocus type="date" defaultValue={editingCell.value}
+                                                            onChange={e=>{ editValRef.current = e.target.value; }}
                                                             onBlur={commitCellEdit}
                                                             onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
-                                                            className="w-full border-none outline-none text-xs text-slate-800 bg-transparent"/>
+                                                            style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                     ) : (
-                                                        <input autoFocus type="text" value={editingCell.value}
-                                                            onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))}
+                                                        <input autoFocus type="text" defaultValue={editingCell.value}
+                                                            onChange={e=>{ editValRef.current = e.target.value; }}
                                                             onFocus={e=>e.target.select()} onBlur={commitCellEdit}
                                                             onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
-                                                            className="w-full bg-slate-950 border border-emerald-500 rounded-md px-2 py-0.5 text-xs text-white outline-none ring-1 ring-emerald-500/40"/>
+                                                            style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                     )}
                                                 </td>
                                             );
@@ -5989,7 +6102,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 && extRulesOf(row).length > 0 && !isExtLockedCell(row, h) && !String(val || '').trim();
                                             return (
                                                 <td key={h}
-                                                    className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20 transition-colors
+                                                    className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20
                                                         ${isPinH(h)?'border-r-2 border-blue-400/50 frz-edge':'border-r border-slate-400'}
                                                         ${isStatusCol(h)?'cursor-pointer':''}
                                                         ${cellSz}
@@ -6003,6 +6116,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     onClick={e=>{
                                                         e.stopPropagation();
                                                         if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
+                                                        { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
                                                         if (nasX) { setAlertMsg(`'${h}'은(는) 이 프로젝트의 NAS 진척자료(엑셀)에 없는 항목입니다.
 NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키인하지 않습니다.`); return; }   // NAS 미포함 항목 (2026-08-20)
                                                         if (isExtLockedCell(row, h)) { setAlertMsg(`'${h}' 칸은 NAS 진척자료에서 자동으로 들어옵니다.\n수정은 NAS 원본 엑셀에서 하세요.\n(관리 칸의 NAS 버튼 = 상태 확인·새로고침)`); return; }   // NAS 자동 칸 잠금 (2026-07-22)
@@ -6085,7 +6199,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                 </td>
                                             );
                                         })}
-                                        <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 transition-colors shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
+                                        <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
                                             {(() => {
                                                 const wKey = row._pid || row['실행번호'] || row.execNo || '';   // 주간보고 연결 키 = pid (실행번호 폐지, 2026-07-21)
                                                 const hasLink = wKey && weeklyLinks?.[wKey];
@@ -6178,7 +6292,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                         </td>
                                     </tr>
                                     );
-                                })}
+                                }, sortedRows.map((row, ri) => <MemoRow key={row._id} row={row} ri={ri} sig={rowSig(row)} ctx={rowCtxRef}/>))}
                             </tbody>
                                 </>);
                             })()}
