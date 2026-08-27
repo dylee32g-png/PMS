@@ -377,8 +377,51 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     }, [_rawColGroups, _mgrOff]);
     // 3층 헤더 중간 라벨 (2026-08-24): 연도 별 우선, 없으면 팀 공통 — {열이름: 중간라벨}
     const activeColMids = useMemo(() => (_yearMeta && _yearMeta.colMids) || pendingData?.colMids || localData?.colMids || fbColMids || {}, [_yearMeta, pendingData, localData, fbColMids]);
-    const activeRows      = pendingData?.rows       || localData?.rows       || fbRows;
+    const activeRowsBase  = pendingData?.rows       || localData?.rows       || fbRows;
     const dataSource      = pendingData ? 'pending' : localData ? 'local' : 'firebase';
+    // ★ 임시 편집(초안) (2026-08-27 팀장님): 메인표 키인·드롭다운은 즉시 저장하지 않고 여기에 모았다가 [저장 N칸]/Ctrl+S 때
+    //   행별 1회 저장 — 팝업 [저장]과 같은 방식. 칸 1개당 쓰기 2~3회·저장 뒤 배경 작업(IndexedDB 왕복)이 칸마다 붙던 것을 1번으로.
+    //   구조 { rowId: { patch:{칸:값(파생 칸 포함)}, orig:{칸:편집 시작 때 서버 값}, edited:{칸:내가 친 값}, entries:[변경이력] } }
+    //   표에는 overlay로 즉시 보임(activeRows) · 서버 값(fbRows)은 그대로 → [취소]하면 원래대로.
+    const [draft, setDraft] = useState({});
+    const draftRef = useRef(draft); draftRef.current = draft;
+    const [draftSaving, setDraftSaving] = useState(false);
+    const draftCellCount = useMemo(() => Object.values(draft).reduce((n, d) => n + Object.keys(d.edited || {}).length, 0), [draft]);
+    const activeRows = useMemo(() => {
+        if (dataSource !== 'firebase' || !Object.keys(draft).length) return activeRowsBase;
+        return activeRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
+    }, [activeRowsBase, draft, dataSource]);
+    const hasDraftCell = (rowId, key) => !!(draftRef.current[rowId] && draftRef.current[rowId].orig && Object.prototype.hasOwnProperty.call(draftRef.current[rowId].orig, key));
+    const addDraft = (rowId, patch, orig, edited, entry) => {
+        setDraft(prev => {
+            const d = prev[rowId] || { patch: {}, orig: {}, edited: {}, entries: [] };
+            const nOrig = { ...d.orig };
+            Object.keys(orig).forEach(k => { if (!Object.prototype.hasOwnProperty.call(nOrig, k)) nOrig[k] = orig[k]; });
+            return { ...prev, [rowId]: { patch: { ...d.patch, ...patch }, orig: nOrig, edited: { ...d.edited, ...edited }, entries: entry ? [...d.entries, entry] : d.entries } };
+        });
+    };
+    const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftCellCount}칸이 아직 저장되지 않았습니다.\n\n헤더의 [저장 ${draftCellCount}칸] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
+    const guardNav = (fn) => () => { if (draftCellCount > 0) { draftNavBlock(); return; } fn && fn(); };
+    // 초안 보관 — 이 PC(localStorage) 팀별. F5·재접속해도 노란 칸 유지 (2026-08-27)
+    const draftKey = (t) => `pms_list_draft_${t}`;
+    useEffect(() => {
+        try { const s = localStorage.getItem(draftKey(currentTeam)); const d = s ? JSON.parse(s) : {}; setDraft(d && typeof d === 'object' ? d : {}); } catch (e) { setDraft({}); }
+    }, [currentTeam]);
+    useEffect(() => {
+        try { if (Object.keys(draft).length) localStorage.setItem(draftKey(currentTeam), JSON.stringify(draft)); else localStorage.removeItem(draftKey(currentTeam)); } catch (e) {}
+    }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (!draftCellCount) return;
+        const onBU = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
+        window.addEventListener('beforeunload', onBU);
+        return () => window.removeEventListener('beforeunload', onBU);
+    }, [draftCellCount]);
+    const saveDraftRef = useRef(() => {});
+    useEffect(() => {
+        const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 's') { e.preventDefault(); saveDraftRef.current(); } };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     // ── 하위(공종) 행 규칙 (2026-07-16) ──────────────────────────────────────────
     //   판별 = 실행번호가 's' 또는 '-'로 시작 — 월간보고·진행실적 팝업·모바일과 완전히 같은 규칙.
@@ -576,7 +619,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setHighlightedRowId(target._id);
         const t1 = setTimeout(() => {
             const el = document.querySelector(`[data-row-id="${target._id}"]`);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+            // 창 렌더 중이라 아직 안 그려진 행 → 위치를 계산해 스크롤(창이 따라 이동) 후 재시도 (2026-08-27)
+            if (winOnRef.current && winWrapRef.current) {
+                const idx = (sortedRowsRef.current || []).findIndex(r => r._id === target._id);
+                if (idx >= 0) {
+                    winWrapRef.current.scrollTop = Math.max(0, idx * (winRowHRef.current || 30) - winWrapRef.current.clientHeight / 2);
+                    setTimeout(() => { const el2 = document.querySelector(`[data-row-id="${target._id}"]`); if (el2) el2.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 450);
+                }
+            }
         }, 300);
         const t2 = setTimeout(() => setHighlightedRowId(null), 4000);
         return () => { clearTimeout(t1); clearTimeout(t2); };
@@ -1755,6 +1806,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ★ 장부(progressRecords) 쓰기 직렬 큐 (2026-08-25): 저장을 낙관적으로(편집창 먼저 닫음) 바꾸면서
     //   연속 키인의 장부 쓰기가 겹칠 수 있음 → 같은 '읽고 통째로 쓰기' 패턴이라 반드시 한 줄로 세움 (8/19 ETOS 소실 재발 방지)
     const ledgerQRef = useRef(Promise.resolve());
+    // ★ 장부 직전 쓰기 최신본 캐시 (2026-08-27): 초안 [저장]이 한 행의 여러 칸을 밀리초 간격으로 연속 쓰는데,
+    //   각 쓰기가 실시간 구독본(progressRecordsMap)을 읽으면 에코가 못 따라와 뒤 쓰기가 앞 쓰기를 통째로 지움
+    //   (PLC·ETOS·HMI 소실 — 실기 재현으로 확정). 15초 안에 내가 쓴 최신본이 있으면 그것을 base로 사용.
+    const ledgerFreshRef = useRef({});   // { docKey: { at, data } }
     const queueLedger = (fn) => { const p = ledgerQRef.current.then(fn, fn); ledgerQRef.current = p.catch(() => {}); return p; };
 
     // ── 인라인 셀 편집 ────────────────────────────────────────────────────
@@ -1762,6 +1817,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const commitCellEdit = () => doCommitCell({ ...editingCell, value: editValRef.current }, false);
     const doCommitCell = async (editingCell, isForce) => {
         if (!editingCell.id || !editingCell.key) return;
+        // ★ 0 입력 = 지우기(빈칸) 통일 (2026-08-27 팀장님): 팝업 규칙(7/10 '0입력→빈칸·이월유지')을 메인표에도.
+        //   대상 = 팝업과 동기화되는 칸(공정률 7개·Point) + 포인트(총점 — 0 만점은 의미 없음, 2026-08-27 실기 확인).
+        if ((progItemKeyOf(editingCell.key) || isAccPointCol(editingCell.key) || isPointCol(editingCell.key))
+            && String(editingCell.value ?? '').trim() !== ''
+            && Number(String(editingCell.value).replace(/[,%]/g, '')) === 0) {
+            editingCell = { ...editingCell, value: '' };
+        }
         const srcRow = activeRows.find(r => r._id === editingCell.id);
         // 날짜 칸: 입력값이 원본(정규화)과 같으면 = 사용자가 안 바꾼 것 → 저장 스킵.
         //   비표준 날짜('6/8','5/21' 등)는 toDateInputVal이 ''라, 클릭만 해도 빈칸으로 덮어써지던 버그 방지 (2026-06-29)
@@ -1813,7 +1875,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const row = fbRows.find(r => r._id === editingCell.id);
         if (!row) { setEditingCell({ id: null, key: null, value: '' }); return; }
         // ★ 동시수정 감지 (2026-07-14): 편집을 시작할 때 보던 값 ↔ 서버 최신값 비교
-        if (!isForce) {
+        //   (이미 초안이 있는 칸은 '내 초안값 ≠ 서버값'이 정상이라 여기선 건너뛰고 [저장] 직전 검사에 맡김 — 2026-08-27)
+        if (!isForce && !hasDraftCell(editingCell.id, editingCell.key)) {
             const o = editOrigRef.current;
             const baseVal = (o && o.id === editingCell.id && o.key === editingCell.key)
                 ? o.value : String(srcRow?.[editingCell.key] ?? '');
@@ -1834,7 +1897,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ★순차 await 필수 (2026-08-19 버그): 같은 장부 문서 동시 쓰기 = 나중 것이 먼저 것을 덮음 (ETOS 소실 원인)
         {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 메인표 저장까지 전체 중단 (2026-08-25)
             //   Point 칸일 때만 장부를 읽으므로(왕복 1회) PLC·ETOS·HMI 등은 대기 없이 통과
-            const accR = await queueLedger(() => syncAccPointToLedger(row, editingCell.key, editingCell.value));
+            const accR = await queueLedger(() => syncAccPointToLedger(row, editingCell.key, editingCell.value, { checkOnly: true }));
             if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur)); setEditingCell({ id: null, key: null, value: '' }); return; }
         }
         // ★ 낙관적 저장 (2026-08-25 팀장님 "키인 너무 느림·멈춤"): 종전엔 충돌검사 getDoc → 장부 getDoc+setDoc → 행 setDoc을
@@ -1842,19 +1905,75 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         //   로컬 스냅샷을 즉시 줘서 표에는 바로 반영) 편집창을 곧바로 닫는다. 장부 기록은 뒤에서 직렬 큐로(순서·안전 동일).
         // ★ 변경 칸만 전송 (2026-08-26 속도): 종전엔 행 전체(수십 칸+이력+NAS 정보)를 매번 통째로 보내 업로드·확정·에코가 비쌌음.
         //   merge=true → 고친 칸·도장·이력만 올라가고 나머지 칸은 서버 값 그대로 (삭제 없음 = 종전과 동일 결과)
-        const { _id } = row;
-        const rowWrite = setDoc(rowDocRef(currentTeam, _id), stampSave({
-            ...patch,
-            _changeHistory: pushChangeHist(row, entry)
-        }), { merge: true });
+        // ★ 초안 적재 (2026-08-27 팀장님): 즉시 저장 대신 초안에 모음 → 표에는 overlay로 바로 보임(노란 칸) → [저장 N칸]에서 행별 1회 저장.
+        //   백로그·장부 동기화(공정률→주차장부, Point→증분)도 [저장] 때 최종값으로 1번.
+        if (!entry) { setEditingCell({ id: null, key: null, value: '' }); return; }   // 값이 안 바뀜 = 초안 안 만듦
+        const _chg = new Set(entry.changes.map(c => c.field));   // 노란 칸 = 실제 저장될 변경 칸만 (2026-08-27: 값 그대로인 자동 동반 칸 제외)
+        const patch2 = {};
+        Object.keys(patch).forEach(k => { if (k.startsWith('_') || _chg.has(k)) patch2[k] = patch[k]; });
+        addDraft(row._id, patch2, { [editingCell.key]: String(row[editingCell.key] ?? '') }, { [editingCell.key]: editingCell.value }, entry);
         setEditingCell({ id: null, key: null, value: '' });
-        try {
-            await rowWrite;
-            if (entry) recordAudit(AUDIT_ACTIONS.EDIT, { ...row, ...patch }, entry.changes);   // 백로그: 표 셀 수정
-            // 역방향 동기화(공정률 → 주차장부)는 행 저장이 확정된 뒤 (2026-07-14 규칙 유지) · 큐로 직렬
-            await queueLedger(() => syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value));
+    };
+
+    // ── ★ 초안 저장/취소 (2026-08-27) ─────────────────────────────────────
+    const saveDraft = async (force = false) => {
+        const d = draftRef.current; const ids = Object.keys(d);
+        if (!ids.length || draftSaving || dataSource !== 'firebase') return;
+        const nameOf = (r) => String((projectNameCol && r[projectNameCol]) || r._id || '');
+        // 동시수정 검사: 편집 시작 때 서버 값(orig) ≠ 지금 서버 값 → 그 사이 다른 사람이 고침 (내 값과 같으면 무시)
+        if (!force) {
+            const conflicts = [];
+            ids.forEach(id => {
+                const sv = fbRows.find(r => r._id === id); if (!sv) return;
+                Object.keys(d[id].orig || {}).forEach(k => {
+                    const now = String(sv[k] ?? '');
+                    if (now !== String(d[id].orig[k] ?? '') && now !== String(d[id].patch[k] ?? '')) conflicts.push(`· ${nameOf(sv)} — ${k}: 서버 '${now}' ↔ 내 값 '${d[id].patch[k] ?? ''}'`);
+                });
+            });
+            if (conflicts.length) {
+                const ok = window.confirm(`다른 사람이 먼저 고친 칸이 ${conflicts.length}개 있습니다:\n\n${conflicts.slice(0, 8).join('\n')}${conflicts.length > 8 ? '\n…' : ''}\n\n내 값으로 덮어쓸까요? (취소 = 저장 보류, 노란 칸 유지)`);
+                if (!ok) return;
+            }
         }
-        catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
+        setDraftSaving(true);
+        let okRows = 0, okCells = 0;
+        try {
+            for (const id of ids) {
+                const sv = fbRows.find(r => r._id === id);
+                const { patch = {}, edited = {}, entries = [] } = d[id] || {};
+                if (sv) {
+                    let hist = Array.isArray(sv._changeHistory) ? sv._changeHistory : [];
+                    entries.forEach(en => { hist = pushChangeHist({ _changeHistory: hist }, en); });
+                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
+                    const allChanges = entries.flatMap(en => (en && en.changes) || []);
+                    if (allChanges.length) {   // 백로그 1건/행 — 상태를 보류·삭제로 바꿨으면 그 동작으로 기록
+                        let act = AUDIT_ACTIONS.EDIT;
+                        const stKey = Object.keys(patch).find(k => isStatusCol(k));
+                        if (stKey) { const v = String(patch[stKey] ?? '').replace(/\s/g, '').toUpperCase(); if (v === 'HOLD' || v === '보류') act = AUDIT_ACTIONS.HOLD; else if (v === '삭제' || v === 'DELETE') act = AUDIT_ACTIONS.DELETE; }
+                        recordAudit(act, { ...sv, ...patch }, allChanges);
+                    }
+                    // 장부 동기화 = 내가 직접 친 칸만(파생 칸 제외), 최종값으로 1번 — 함수가 공정률 7개/Point 칸을 스스로 가려냄
+                    const finalRow = { ...sv, ...patch };
+                    for (const k of Object.keys(edited)) {
+                        await queueLedger(() => syncProgressCellToLedger(finalRow, k, edited[k]));
+                        const accR = await queueLedger(() => syncAccPointToLedger(finalRow, k, edited[k]));
+                        if (accR && accR.ok === false) setAlertMsg(accSyncBlockMsg(edited[k], accR.sum, accR.cur));
+                    }
+                    okRows++; okCells += Object.keys(edited).length;
+                }
+                // 행 단위로 초안 비움 (중간 오류 시 남은 행만 노란 칸으로 남음 · 사라진 행의 초안은 버림)
+                setDraft(prev => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n; });
+            }
+            showExtToast(`저장 완료 — ${okRows}행 ${okCells}칸`);
+        } catch (err) {
+            setAlertMsg(`저장 오류: ${err.message}\n\n저장되지 않은 행은 노란 칸으로 남아 있습니다 — 다시 [저장]을 눌러 주세요.`);
+        } finally { setDraftSaving(false); }
+    };
+    saveDraftRef.current = () => saveDraft();
+    const discardDraft = () => {
+        const n = draftCellCount; if (!n || draftSaving) return;
+        if (!window.confirm(`임시 편집 ${n}칸을 모두 되돌릴까요? (서버 값으로 복구)`)) return;
+        setDraft({});
     };
 
     // ── 직접 셀 값 저장 (상태·담당자 드롭다운용) ─────────────────────────
@@ -1872,7 +1991,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const srcRow = activeRows.find(r => r._id === id);
         const entry  = makeChangeEntry(srcRow, key, value);
         // ★ 동시수정 감지 (2026-07-14): 드롭다운은 화면에 보이던 값이 곧 '내가 본 원본'
-        if (dataSource === 'firebase' && isForce !== true) {
+        if (dataSource === 'firebase' && isForce !== true && !hasDraftCell(id, key)) {   // 초안 칸은 [저장] 직전 검사 (2026-08-27)
             const cf = await findCellConflict(id, key, String(srcRow?.[key] ?? ''));
             if (cf) {
                 setConflictDlg({
@@ -1897,26 +2016,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (dataSource === 'local')   setLocalData(p =>   ({ ...p, rows: updater(p.rows) }));
             return;
         }
-        const row = [...fbRows, ...(localData?.rows || [])].find(r => r._id === id);
-        if (!row) return;
-        const { _id, ...rest } = row;
-        try {
-            await setDoc(rowDocRef(currentTeam, _id), stampSave({
-                ...rest, [key]: value,
-                _statusHistory: appendStatusHistory(row, key, value),
-                _changeHistory: pushChangeHist(row, entry)
-            }));
-            if (entry) {   // 백로그: 상태/담당자 변경. 상태를 '보류'·'삭제'로 바꾸면 해당 동작으로 구분 기록
-                const v = String(value).replace(/\s/g, '').toUpperCase();
-                let act = AUDIT_ACTIONS.EDIT;
-                if (isStatusCol(key)) {
-                    if (v === 'HOLD' || v === '보류') act = AUDIT_ACTIONS.HOLD;
-                    else if (v === '삭제' || v === 'DELETE') act = AUDIT_ACTIONS.DELETE;
-                }
-                recordAudit(act, { ...row, [key]: value }, entry.changes);
-            }
-        }
-        catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
+        const row = fbRows.find(r => r._id === id);
+        if (!row || !entry) return;   // 같은 값 다시 고름 = 초안 안 만듦
+        // ★ 초안 적재 (2026-08-27): 드롭다운 변경도 즉시 저장 대신 초안 — 상태 이력은 초안 위에 이어 붙임(srcRow=overlay) · 백로그(보류/삭제 구분)는 [저장] 때
+        addDraft(id, { [key]: value, _statusHistory: appendStatusHistory(srcRow || row, key, value) }, { [key]: String(row[key] ?? '') }, { [key]: value }, entry);
     };
 
     // ── 팝업 편집 저장 ────────────────────────────────────────────────────
@@ -2009,9 +2112,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const syncProgressCellToLedger = async (row, header, value, forceItemKey) => {
         const itemKey = forceItemKey || progItemKeyOf(header);          // forceItemKey: 수식 자동값(자체시운전) 반영용 (2026-08-19)
         if (!itemKey || !row) return;                                   // 공정률 7개가 아니면 무시(포인트·시운전·날짜·상태 등)
-        if (String(value ?? '').trim() === '') return;                  // 빈칸은 주차장부 안 건드림
-        const num = Math.max(0, Number(value));
-        if (!Number.isFinite(num)) return;                             // 숫자가 아니면 무시
+        const _sv = String(value ?? '').replace(/[,%]/g, '').trim();     // '50%'처럼 붙여 넣어도 숫자만 (2026-08-27)
+        // 빈칸 = '이번 주' 기록 삭제 → 팝업도 함께 되돌아감 (2026-08-27 팀장님 "지워도 동기화").
+        //   지난 주·지난 달 기록(이력)은 보존 — 이번에 넣은 것만 되돌린다는 의미.
+        const isClear = _sv === '';
+        const num = isClear ? 0 : Math.max(0, Number(_sv));
+        if (!isClear && !Number.isFinite(num)) return;                  // 숫자가 아니면 무시
         // docKey = ProgressModal과 동일 규칙: pid 우선 → 실행번호 → 행ID
         const docKey = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || row.id || '');
         if (!docKey) return;
@@ -2026,9 +2132,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             // 읽어서 고쳐 쓰기 — 중첩 맵의 특정 주차를 지우려면 필요. 다른 항목·과거 주차 값은 그대로 보존.
             // 실시간 구독본(App.js progressRecordsMap) 우선 (2026-08-26 속도): 장부는 이미 onSnapshot으로 최신 상태라
             //   서버 getDoc 왕복(수백 ms + 읽기 1회)을 생략. 구독본에 없을 때만 서버에서 읽음.
+            const _fresh = ledgerFreshRef.current[docKey];               // 직전 쓰기 최신본 우선 (2026-08-27 일괄 저장 소실 수리)
             const _live = progressRecordsMap && progressRecordsMap[docKey];
             let data;
-            if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
+            if (_fresh && Date.now() - _fresh.at < 15000) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._fresh.data };
+            else if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
             else { const snap = await getDoc(ref); data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') }; }
             const weekly = { ...(data.weekly || {}) };
             const itemWeeks = { ...(weekly[itemKey] || {}) };
@@ -2040,9 +2148,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 // 자체시운전(팝업 합계=월합)은 이번 달의 다른 주차도 정리 — 이번 달 값은 '한 칸'만 유지해 월합=금월값 (2026-08-19)
                 if (forceItemKey && parts[0] === cy && parts[1] === cm && parts[2] !== curW) delete itemWeeks[wk];
             });
-            itemWeeks[curWKey] = num;                                    // 현재 주차에 값 기록
-            weekly[itemKey] = itemWeeks;
+            if (isClear) {
+                delete itemWeeks[curWKey];                               // 이번 주 기록 삭제 = 키인 이전 상태로
+                if (JSON.stringify(itemWeeks) === JSON.stringify(weekly[itemKey] || {})) return;   // 지울 것 없음 → 쓰기 생략
+                if (Object.keys(itemWeeks).length) weekly[itemKey] = itemWeeks; else delete weekly[itemKey];
+            } else {
+                itemWeeks[curWKey] = num;                                // 현재 주차에 값 기록
+                weekly[itemKey] = itemWeeks;
+            }
             await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+            ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
+            if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });   // 그래프·팝업 즉시 반영 (Point 동기화와 동일)
         } catch (e) { console.warn('[reverseSync] progressRecords 반영 실패:', e); }
     };
 
@@ -2053,12 +2169,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   메인 행 전용 — 하위(sub) 체제 장부(NAS 원장)는 건드리지 않음 (NAS 칸은 어차피 키인 잠금).
     const isAccPointCol = (h) => !!teamProfile?.시운전?.누적열
         && String(h).replace(/\s/g, '') === String(teamProfile.시운전.누적열).replace(/\s/g, '');
-    const syncAccPointToLedger = async (row, header, value) => {
+    const syncAccPointToLedger = async (row, header, value, opts = {}) => {
         if (!row || isSubListRow(row) || !isAccPointCol(header)) return { ok: true };
         const s = String(value ?? '').replace(/[,%]/g, '').trim();
-        if (s === '') return { ok: true };                                  // 빈칸 = 장부 안 건드림 (공정률 동기화와 동일)
-        const num = Number(s);
-        if (!Number.isFinite(num) || num < 0) return { ok: true };
+        const isClear = s === '';                                           // 빈칸 = '이번 주' 기록 삭제(팝업 되돌림) — 아래 분기 (2026-08-27)
+        const num = isClear ? 0 : Number(s);
+        if (!isClear && (!Number.isFinite(num) || num < 0)) return { ok: true };
         const docKey = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || row.id || '');
         if (!docKey) return { ok: true };
         const now = new Date();
@@ -2068,21 +2184,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try {
             // 실시간 구독본(App.js progressRecordsMap) 우선 (2026-08-26 속도): 장부는 이미 onSnapshot으로 최신 상태라
             //   서버 getDoc 왕복(수백 ms + 읽기 1회)을 생략. 구독본에 없을 때만 서버에서 읽음.
+            const _fresh = ledgerFreshRef.current[docKey];               // 직전 쓰기 최신본 우선 (2026-08-27 일괄 저장 소실 수리)
             const _live = progressRecordsMap && progressRecordsMap[docKey];
             let data;
-            if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
+            if (_fresh && Date.now() - _fresh.at < 15000) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._fresh.data };
+            else if (_live && _live.weekly) data = { docKey, execNo: (row['실행번호'] || row.execNo || ''), ..._live };
             else { const snap = await getDoc(ref); data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') }; }
             const weekly = { ...(data.weekly || {}) };
             // 하위(sub_i) 체제 장부 = NAS가 원장 → 메인 키인 동기화 금지 (잠금과 별개의 이중 안전장치)
             if (Object.keys(weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k))) return { ok: true };
             const iw = { ...(weekly.intCommissioning || {}) };
+            if (isClear) {                                               // Point 지움 = 이번 주 기록만 삭제 (지난 주 이력 보존, 2026-08-27)
+                if (!(curWKey in iw)) return { ok: true };               // 이번 주 기록 없음 → 지울 것 없음
+                delete iw[curWKey];
+                if (Object.keys(iw).length) weekly.intCommissioning = iw; else delete weekly.intCommissioning;
+                await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+                ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
+                if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });
+                return { ok: true };
+            }
             const otherSum = Object.entries(iw).reduce((s2, [wk, v]) => (wk === curWKey ? s2 : s2 + (Number(v) || 0)), 0);
             if (num < otherSum) return { ok: false, sum: otherSum, cur: Number(iw[curWKey] || 0) };   // 감소 → 저장 중단 (호출부에서 경고)
+            if (opts.checkOnly) return { ok: true };                              // 초안 단계 = 검사만 (쓰기는 [저장] 때)
             const delta = Math.round((num - otherSum) * 1000) / 1000;
             if (Number(iw[curWKey] ?? NaN) === delta) return { ok: true };  // 변화 없음 → 쓰기 생략
             iw[curWKey] = delta;
             weekly.intCommissioning = iw;
             await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+            ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
             if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });   // 그래프·팝업 즉시 반영
         } catch (e) { console.warn('[accSync] Point→장부 반영 실패:', e); }
         return { ok: true };
@@ -2842,6 +2971,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try {
             await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
             if (entry) recordAudit(AUDIT_ACTIONS.EDIT, working, entry.changes);   // 백로그: 상세팝업 수정
+            setDraft(prev => { if (!prev[_id]) return prev; const n = { ...prev }; delete n[_id]; return n; });   // 팝업이 행 전체를 썼으니 그 행 초안은 해소 (2026-08-27)
             setDetailRow(null); setDetailRowOriginal(null);
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
@@ -3574,7 +3704,89 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ★ 표시 행이 바뀌면(칩·검색·정렬·기준월) 내용맞춤 열 너비가 같이 변함 → 틀고정 오프셋 재실측 신호 (2026-08-18)
     //   frzTick은 sortedRows에 영향을 주지 않으므로 무한루프 없음. ±2px 허용 오차가 2중 장치.
-    useEffect(() => { setFrzTick(t => t + 1); }, [sortedRows]);
+    const sortedIdsRef = useRef('');
+    useEffect(() => {
+        const sig = sortedRows.map(r => r._id).join('|');
+        if (sortedIdsRef.current === sig) return;   // 값만 바뀐 커밋(초안 키인)은 행 구성 그대로 → 신호 생략 (2026-08-27 속도: 여분 렌더 1회 제거 — 폭 재실측은 activeRows 효과가 담당)
+        sortedIdsRef.current = sig;
+        setFrzTick(t => t + 1);
+    }, [sortedRows]);
+
+    // ── 창 렌더링 (2026-08-27 팀장님 "키인 후 이동이 너무 느림"): 화면 근처 행만 그린다 ──
+    //   표가 202행×35칸(≈7,000칸)이라 칸 하나만 바뀌어도 브라우저가 표 전체 스타일·배치를 다시 계산(실측 0.5~1.3초/키인).
+    //   40행만 그리면 0.15초(실측 4~8배 개선) → 처음 1회는 전체를 그려 열 폭을 실측해 고정(winPinW, 화면 모습 종전과 동일)한 뒤
+    //   화면 근처 ±15행만 그리고 위·아래는 같은 높이의 빈 줄로 대체(스크롤바 길이·위치 동일 — 한 줄 펼침 불변 기준 유지).
+    //   내용이 더 길어지면 열은 자동으로 넓어짐(고정 폭은 '최소 제안'일 뿐 잘림 없음) + 아래 넓힘 효과가 고정 폭도 따라 올림.
+    const WIN_MIN = 80, WIN_OVERSCAN = 15, WIN_STEP = 10;
+    const [winStart, setWinStart] = useState(0);
+    const [winReady, setWinReady] = useState(false);
+    const [winPinW, setWinPinW] = useState({});
+    const winRowHRef = useRef(0);          // 행 높이(배율 반영 사용값 px) — 배율·밀집도 바뀌면 재실측
+    const winCntRef = useRef(40);
+    const winWrapRef = useRef(null);
+    const winOnRef = useRef(false);
+    const winStartRef = useRef(0); winStartRef.current = winStart;
+    const winScrollRAF = useRef(0);
+    const sortedRowsRef = useRef([]); sortedRowsRef.current = sortedRows;
+    winOnRef.current = winReady && sortedRows.length > WIN_MIN;
+    // 팀·연도·열구성·자료원·배율·밀집도가 바뀌면 전체를 다시 그려 재실측 (열 폭·행 높이가 달라짐)
+    useEffect(() => { setWinReady(false); setWinPinW({}); setWinStart(0); }, [currentTeam, selectedYear, activeHeaders, dataSource, tableScale, compactMode]); // eslint-disable-line react-hooks/exhaustive-deps
+    // 전체 렌더가 그려진 뒤(0.6초) 열 폭·행 높이 실측 → 창 렌더 켬 (그리기 끝난 뒤 읽어 강제 배치 비용 없음)
+    useEffect(() => {
+        if (winReady || sortedRows.length <= WIN_MIN) return;
+        const t = setTimeout(() => {
+            const tbl = tbodyRef.current ? tbodyRef.current.closest('table') : null;
+            if (!tbl) return;
+            const z = (tableScale || 100) / 100;
+            const pins = {};
+            tbl.querySelectorAll('thead th[data-col]').forEach(th => {
+                const c = th.getAttribute('data-col');
+                pins[c] = Math.max(pins[c] || 0, Math.ceil(th.getBoundingClientRect().width / z));
+            });
+            let tr = null;
+            for (const cand of tbodyRef.current.querySelectorAll('tr')) {
+                const f = cand.children[0];
+                if (f && (!f.colSpan || f.colSpan <= 1)) { tr = cand; break; }
+            }
+            if (!tr) return;
+            winRowHRef.current = Math.max(16, tr.offsetHeight);
+            const wrap = tbl.parentElement;
+            winWrapRef.current = wrap;
+            if (wrap) winCntRef.current = Math.max(30, Math.ceil(wrap.clientHeight / winRowHRef.current) + WIN_OVERSCAN * 2);
+            setWinPinW(pins);
+            setWinReady(true);
+        }, 600);
+        return () => clearTimeout(t);
+    }, [winReady, sortedRows.length, tableScale]); // eslint-disable-line react-hooks/exhaustive-deps
+    // 값 키인으로 열이 실제 넓어졌으면 고정 폭도 따라 넓힘 (넓어지기만 — 스크롤 중 흔들림 방지)
+    useEffect(() => {
+        if (!winOnRef.current) return;
+        const t = setTimeout(() => {
+            const tbl = tbodyRef.current ? tbodyRef.current.closest('table') : null;
+            if (!tbl) return;
+            const z = (tableScale || 100) / 100;
+            const cur = {};
+            tbl.querySelectorAll('thead th[data-col]').forEach(th => { cur[th.getAttribute('data-col')] = Math.ceil(th.getBoundingClientRect().width / z); });
+            setWinPinW(prev => {
+                let grew = false; const next = { ...prev };
+                Object.keys(cur).forEach(c => { if ((cur[c] || 0) > (next[c] || 0)) { next[c] = cur[c]; grew = true; } });
+                return grew ? next : prev;
+            });
+        }, 700);
+        return () => clearTimeout(t);
+    }, [activeRows]); // eslint-disable-line react-hooks/exhaustive-deps
+    const onWinScroll = (e) => {
+        if (!winOnRef.current) return;
+        const el = e.currentTarget;
+        if (winScrollRAF.current) return;
+        winScrollRAF.current = requestAnimationFrame(() => {
+            winScrollRAF.current = 0;
+            const rh = winRowHRef.current || 30;
+            let s = Math.floor((el.scrollTop || 0) / rh) - WIN_OVERSCAN;
+            s = Math.max(0, s - (s % WIN_STEP));
+            if (Math.abs(s - winStartRef.current) >= WIN_STEP || (s === 0 && winStartRef.current !== 0)) setWinStart(s);
+        });
+    };
 
     const requestSort = key =>
         setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
@@ -3891,9 +4103,128 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   미저장(pending/local) 상태에서는 이동 차단 — 미리보기 데이터가 다른 팀에 섞이는 사고 방지
     const switchTeam = (t) => {
         if (t === currentTeam) return;
+        if (draftCellCount > 0) { draftNavBlock(); return; }   // 임시 편집 미저장 (2026-08-27)
         if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 팀 이동을 할 수 없습니다.\n확정 저장 또는 업로드 취소 후 이동해 주세요.'); return; }
         if (onSwitchTeam) onSwitchTeam(t);
     };
+
+    // ── 드래그 범위 선택 → Del 일괄 지우기 (2026-08-27 팀장님: 엑셀처럼 끌어서 한 번에) ──
+    //   하이라이트는 DOM 클래스(cell-selr)로만 칠함(React 재렌더 0 = 속도 유지) · Del = 초안(노란 칸)으로 일괄 적재
+    //   → [저장 N칸]으로 확정, [취소]로 복구. 잠금·자동 계산·드롭다운(진행현황·담당자 등)·실행번호 칸은 건너뜀.
+    const selRef = useRef(null);           // { r1, c1, r2, c2 } — sortedRows 인덱스 × 열 인덱스
+    const clearSelPaint = () => { document.querySelectorAll('td.cell-selr').forEach(td => td.classList.remove('cell-selr')); };
+    const paintSel = () => {
+        clearSelPaint();
+        const sel = selRef.current; if (!sel || !tbodyRef.current) return;
+        for (let r = sel.r1; r <= sel.r2; r++) {
+            const row = sortedRowsRef.current[r]; if (!row) continue;
+            const tr = tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(row._id))}"]`);
+            if (!tr) continue;   // 창 렌더 밖 행 — 표시만 생략(범위엔 포함)
+            for (let c = sel.c1; c <= sel.c2 && c < tr.children.length; c++) tr.children[c].classList.add('cell-selr');
+        }
+    };
+    const canClearCell = (row, h) => {
+        if (isNaItemCell(row, h) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금
+        if (isStatusCol(h) || isAssigneeCol(h) || isManagerCol(h) || isCardAsgCol(h) || isClientCol(h) || isVendorAssCol(h) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
+        if (isExecNoCol(h)) return false;                                  // 실행번호 = 하위(s) 구조 마커와 얽힘
+        if (isPointCol(h) && getSubPt(row._id)) return false;              // 하위 합계 자동
+        return true;
+    };
+    const onSelMouseDown = (e) => {
+        clearSelPaint(); selRef.current = null;
+        if (e.button !== 0) return;
+        const td = e.target.closest && e.target.closest('td');
+        const tr = td && td.closest('tr[data-row-id]');
+        if (!td || !tr || td.colSpan > 1) return;
+        const ci = td.cellIndex;
+        if (ci < 0 || ci >= mainVisibleHeaders.length) return;
+        const ri = sortedRowsRef.current.findIndex(r => String(r._id) === tr.getAttribute('data-row-id'));
+        if (ri < 0) return;
+        const anchor = { r: ri, c: ci };
+        let dragging = false, last = '';
+        const mm = (ev) => {
+            const td2 = ev.target && ev.target.closest && ev.target.closest('td');
+            const tr2 = td2 && td2.closest('tr[data-row-id]');
+            if (!td2 || !tr2 || td2.cellIndex < 0 || td2.cellIndex >= mainVisibleHeaders.length) return;
+            const ri2 = sortedRowsRef.current.findIndex(r => String(r._id) === tr2.getAttribute('data-row-id'));
+            if (ri2 < 0) return;
+            if (!dragging && (ri2 !== anchor.r || td2.cellIndex !== anchor.c)) { dragging = true; document.body.classList.add('sel-noselect'); }
+            if (!dragging) return;
+            const key = ri2 + ':' + td2.cellIndex;
+            if (key === last) return;
+            last = key;
+            selRef.current = { r1: Math.min(anchor.r, ri2), r2: Math.max(anchor.r, ri2), c1: Math.min(anchor.c, td2.cellIndex), c2: Math.max(anchor.c, td2.cellIndex) };
+            paintSel();
+            ev.preventDefault();
+        };
+        const mu = () => {
+            document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu);
+            document.body.classList.remove('sel-noselect');
+            if (!dragging) { selRef.current = null; clearSelPaint(); }
+        };
+        document.addEventListener('mousemove', mm);
+        document.addEventListener('mouseup', mu);
+    };
+    const clearSelectedCells = () => {
+        const sel = selRef.current; if (!sel) return;
+        if (dataSource !== 'firebase') { setAlertMsg('드래그 지우기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
+        const rows = sortedRowsRef.current;
+        const adds = {}; let cleared = 0, skipped = 0;
+        for (let r = sel.r1; r <= sel.r2 && r < rows.length; r++) {
+            const row = rows[r];
+            const sv = fbRows.find(x => x._id === row._id) || row;
+            const patch = {}, orig = {}, edited = {};
+            for (let c = sel.c1; c <= sel.c2 && c < mainVisibleHeaders.length; c++) {
+                const h = mainVisibleHeaders[c];
+                if (String(row[h] ?? '').trim() === '') continue;          // 이미 빈칸
+                if (!canClearCell(row, h)) { skipped++; continue; }
+                patch[h] = ''; orig[h] = String(sv[h] ?? ''); edited[h] = '';
+                cleared++;
+            }
+            if (!Object.keys(patch).length) continue;
+            // 파생 자동 칸 재계산 — 키인과 동일 규칙 (기술1팀 수식·진행율%)
+            if (fmActive(row) && Object.keys(patch).some(k => fmTrigSet.has(fmNorm(k)))) Object.assign(patch, fmRecalc({ ...row, ...patch }, row));
+            if (Object.keys(patch).some(k => paTrigger(k))) Object.assign(patch, paRecalc({ ...row, ...patch }));
+            // 내용 지움 → 날짜=오늘 (셀 키인 규칙과 동일)
+            if (Object.keys(edited).some(k => isProgressContentCol(k))) {
+                const today = new Date().toISOString().slice(0, 10);
+                activeHeaders.forEach(hh => { if (isProgressDateCol(hh)) patch[hh] = today; });
+            }
+            const changes = Object.keys(patch).filter(k => !k.startsWith('_'))
+                .map(k => ({ field: k, from: String(row[k] ?? ''), to: String(patch[k] ?? '') })).filter(ch => ch.from !== ch.to);
+            if (!changes.length) continue;
+            const chg = new Set(changes.map(ch => ch.field));   // 노란 칸 = 실제 바뀌는 칸만 (키인 규칙과 동일)
+            const p2 = {}; Object.keys(patch).forEach(k => { if (k.startsWith('_') || chg.has(k)) p2[k] = patch[k]; });
+            adds[row._id] = { patch: p2, orig, edited, entry: { datetime: new Date().toISOString(), changes } };
+        }
+        clearSelPaint(); selRef.current = null;
+        if (!Object.keys(adds).length) { if (skipped) setAlertMsg('선택한 칸은 잠금·자동 계산·드롭다운 칸이라 지울 수 없습니다.'); return; }
+        setDraft(prev => {
+            const n = { ...prev };
+            Object.keys(adds).forEach(id => {
+                const a = adds[id]; const d = n[id] || { patch: {}, orig: {}, edited: {}, entries: [] };
+                const nOrig = { ...d.orig };
+                Object.keys(a.orig).forEach(k => { if (!Object.prototype.hasOwnProperty.call(nOrig, k)) nOrig[k] = a.orig[k]; });
+                n[id] = { patch: { ...d.patch, ...a.patch }, orig: nOrig, edited: { ...d.edited, ...a.edited }, entries: [...d.entries, a.entry] };
+            });
+            return n;
+        });
+        showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
+    };
+    const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
+    useEffect(() => {
+        const onKey = (e) => {
+            if (e.key === 'Escape') { if (selRef.current) { selRef.current = null; clearSelPaint(); } return; }
+            if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;   // 편집창 안 Del은 원래대로
+            if (!selRef.current) return;
+            e.preventDefault();
+            clearSelectedCellsRef.current();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     // ── 행 단위 재렌더 게이트 (2026-08-25) ───────────────────────────────────
     //   gsig = 행 모양에 영향을 주는 전역 상태의 '버전 번호'. 여기 든 것이 바뀌면 전 행 재렌더(종전과 동일),
@@ -5280,7 +5611,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <div className="flex items-center gap-2 min-w-0 shrink-0">
                     {/* 홈 + 팀 전환 탭 (2026-08-11 팀장님 — 목록=팀 카드(LIST_TEAMS), Software팀 공사중 제외) */}
                     <div className="flex items-center gap-0.5 p-0.5 bg-[#eef1f5] border border-[#dde2e9] rounded-lg shrink-0">
-                        <button onClick={onBack} title="홈 — 팀 선택 화면으로"
+                        <button onClick={guardNav(onBack)} title="홈 — 팀 선택 화면으로"
                             className="flex items-center justify-center w-7 h-[26px] rounded-md text-[#5d6b7c] hover:bg-white hover:text-[#1e7ac8] hover:shadow-sm transition-all">
                             <Home size={14}/>
                         </button>
@@ -5385,6 +5716,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     </div>
 
 
+                    {/* ★ 임시 편집 저장 (2026-08-27 팀장님): 메인표 키인·드롭다운은 노란 칸(초안)으로 모아 두었다가 여기서 행별 1회 저장 (Ctrl+S) */}
+                    {dataSource === 'firebase' && draftCellCount > 0 && (
+                        <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => saveDraft()} disabled={draftSaving} title="임시 편집을 서버에 저장 (Ctrl+S)"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-bold shrink-0"
+                                style={{ backgroundColor: draftSaving ? '#9ca3af' : '#16a34a', borderColor: draftSaving ? '#9ca3af' : '#15803d', color: '#fff', animation: draftSaving ? 'none' : 'pmsDraftPulse 1.6s ease-in-out infinite' }}>
+                                <Save size={13}/> {draftSaving ? '저장 중…' : `저장 ${draftCellCount}칸`}
+                            </button>
+                            <button onClick={discardDraft} disabled={draftSaving} title="임시 편집 전부 되돌리기 (서버 값으로)"
+                                className="px-2 py-1.5 rounded border text-xs font-bold shrink-0"
+                                style={{ backgroundColor: '#fff', borderColor: '#d8d4cf', color: '#b91c1c' }}>취소</button>
+                        </div>
+                    )}
                     {/* 전체 저장 — ★관리자 전용 (2026-07-14). 일반 사용자는 셀·상세팝업 개별 저장만 사용
                         ★2026-08-11 팀장님: 숨김 처리 — 모든 수정 경로가 즉시 저장이라 평상시 용도 없음 + 전량 덮어쓰기 위험.
                         원개발자 의도 불명이라 삭제 아닌 숨김 (아래 false 지우면 복원. 로컬 임시 저장은 설정 메뉴에 있음) */}
@@ -5403,7 +5747,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
                     {/* 월간 업무 보고 이동 버튼 */}
                     {onGoToPms && (
-                        <button onClick={() => onGoToPms()} title="월간 업무 보고"
+                        <button onClick={guardNav(onGoToPms)} title="월간 업무 보고"
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
                             <FileText size={13}/> 월간보고
                         </button>
@@ -5411,7 +5755,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
                     {/* 작업 백로그 이동 (2026-07-10) */}
                     {onGoToBacklog && (
-                        <button onClick={() => onGoToBacklog()} title="작업 백로그 — 누가·언제·무엇을 바꿨는지"
+                        <button onClick={guardNav(onGoToBacklog)} title="작업 백로그 — 누가·언제·무엇을 바꿨는지"
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
                             <Clock size={13}/> 백로그
                         </button>
@@ -5859,11 +6203,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         </div>
                     )}
                     {/* zoom = 개인 배율. 표만 확대/축소되고 위 버튼·헤더는 그대로 (2026-07-13) */}
-                    <div className="overflow-auto flex-1 custom-scrollbar" style={{ zoom: (tableScale || 100) / 100 }}>
+                    <div className="overflow-auto flex-1 custom-scrollbar" ref={winWrapRef} onScroll={onWinScroll} onMouseDown={onSelMouseDown} style={{ zoom: (tableScale || 100) / 100 }}>
                         <table className="text-left border-collapse list-oneline" style={{ minWidth:'100%' }}>
                             <colgroup>
                                 {/* (2026-06-29) 맨 앞 'No.칸' 잔재 <col width:22> 제거 — 이 빈 col이 모든 칸 너비를 한 칸씩 밀어, 도면입수에 옆 '내용' 칸(210px)이 적용되던 진짜 원인. Chrome 실측 확인(210→60). 칸 너비 = getW(h). */}
-                                {mainVisibleHeaders.map(h => <col key={h} style={{ width: getW(h) || 40, minWidth: getW(h) || 40 }}/>)}
+                                {mainVisibleHeaders.map(h => <col key={h} style={{ width: getW(h) || winPinW[h] || 40, minWidth: getW(h) || winPinW[h] || 40 }}/>)}
                                 <col style={{width:120}}/>
                             </colgroup>
                             {(() => {
@@ -6058,7 +6402,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 : isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-white/5'}`}
                                         style={isHlRow ? { backgroundColor: 'rgba(251,191,36,0.18)' } : {}}
                                         onClick={() => setSelectedRowId(prev => prev === row._id ? null : row._id)}
-                                        onDoubleClick={() => { setDetailRow({...row}); setDetailRowOriginal({...row}); }}
+                                        onDoubleClick={() => { if (draft[row._id]) { setAlertMsg('이 행에 임시 편집(노란 칸)이 있습니다.\n먼저 [저장] 또는 [취소]한 뒤 상세 팝업을 여세요.'); return; } setDetailRow({...row}); setDetailRowOriginal({...row}); }}
                                         onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, row }); }}>
                                         {/* No. 칸 제거 — 엑셀 '번호'와 중복 (2026-06-26) */}
                                         {mainVisibleHeaders.map(h => {
@@ -6110,7 +6454,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${autoTip && !isHl ? 'cell-auto' : ''}
                                                         ${(!isHl && !autoTip && isGrayEmptyCol(h) && !String(val ?? '').trim() && !isNaItemCell(row, h) && !nasX) ? 'cell-empty' : ''}
                                                         ${isFrz(h)?'z-10':''}
-                                                        ${(colWidths[h]||fitWidths[h])?'col-clip':''}`}
+                                                        ${(colWidths[h]||fitWidths[h])?'col-clip':''}
+                                                        ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
                                                     title={autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
                                                     onClick={e=>{
@@ -6292,7 +6637,21 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                         </td>
                                     </tr>
                                     );
-                                }, sortedRows.map((row, ri) => <MemoRow key={row._id} row={row} ri={ri} sig={rowSig(row)} ctx={rowCtxRef}/>))}
+                                }, (() => {
+                                    const total = sortedRows.length;
+                                    if (!winReady || total <= WIN_MIN) return sortedRows.map((row, ri) => <MemoRow key={row._id} row={row} ri={ri} sig={rowSig(row)} ctx={rowCtxRef}/>);
+                                    const z = (tableScale || 100) / 100;
+                                    const rowH = winRowHRef.current || 30;
+                                    const cnt = winCntRef.current;
+                                    const start = Math.max(0, Math.min(winStart, Math.max(0, total - cnt)));
+                                    const end = Math.min(total, start + cnt);
+                                    const nCols = mainVisibleHeaders.length + 2;
+                                    return (<>
+                                        {start > 0 && <tr aria-hidden="true"><td colSpan={nCols} style={{ height: start * rowH / z, padding: 0, border: 0 }}/></tr>}
+                                        {sortedRows.slice(start, end).map((row, i) => <MemoRow key={row._id} row={row} ri={start + i} sig={rowSig(row)} ctx={rowCtxRef}/>)}
+                                        {end < total && <tr aria-hidden="true"><td colSpan={nCols} style={{ height: (total - end) * rowH / z, padding: 0, border: 0 }}/></tr>}
+                                    </>);
+                                })())}
                             </tbody>
                                 </>);
                             })()}

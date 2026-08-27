@@ -8008,12 +8008,17 @@ const TechTeamPMS = () => {
                                                               stroke="#10b981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
                                                       )}
                                                       {pts.map(o => {
-                                                          /* 라벨 겹침 회피 (2026-08-20 팀장님): 막대 값 라벨과 같은 높이면(예: 20pt 막대 = 20% 점) 공정률 라벨을 한 칸 위로 */
+                                                          /* 라벨 겹침 회피 v2 (2026-08-27 팀장님): 종전 '점에서 고정 24px 위'는 기하에 따라(예: 50pt 막대+45% 점)
+                                                             올린 위치가 막대 값 라벨 위에 다시 얹힘 → 막대 라벨 기준선(BAR_H-h-8)을 직접 계산해 그 위로 비켜 세우고,
+                                                             꼭대기 밖으로 나가면 점 아래에 표시 */
                                                           const barTop = o.t.monthPt > 0 ? BAR_H - Math.max(Math.round((o.t.monthPt/maxY)*BAR_H), 3) : null;
-                                                          const clash = barTop !== null && Math.abs(py(o) - barTop) < 22;
+                                                          const barLabelY = barTop !== null ? barTop - 8 : null;
+                                                          let ly = py(o) - 11;
+                                                          if (barLabelY !== null && Math.abs(ly - barLabelY) < 15) ly = barLabelY - 15;
+                                                          if (ly < 9) ly = py(o) + 18;
                                                           return (
                                                           <g key={'pct'+o.i}>
-                                                              <text x={cx(o.i)} y={py(o) - (clash ? 24 : 11)} textAnchor="middle" fontSize="10" fontWeight="800" fill="#059669">{o.t.progressPct}%</text>
+                                                              <text x={cx(o.i)} y={ly} textAnchor="middle" fontSize="10" fontWeight="800" fill="#059669">{o.t.progressPct}%</text>
                                                               <circle cx={cx(o.i)} cy={py(o)} r={3.5} fill="#10b981" stroke="#fff" strokeWidth={1.5}/>
                                                           </g>
                                                           );

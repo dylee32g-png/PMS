@@ -447,3 +447,14 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .frz-edge { box-shadow: 7px 0 10px -4px rgba(15, 40, 80, 0.32) !important; }
 */
 
+
+/* ── 임시 편집(초안) 칸 — 저장 전 노란 표시 (2026-08-27) ── */
+.list-oneline td.cell-draft { background-color: #fef9c3 !important; box-shadow: inset 0 -2px 0 #ca8a04; }
+tbody tr:hover td.cell-draft { background-color: #fef3b2 !important; }
+/* 깜빡임은 opacity만 — box-shadow 애니메이션은 초안이 떠 있는 내내 매 프레임 페인트·레이어 재구성을 일으켜
+   키인 지연의 한 원인이었음(2026-08-27 크롬 트레이스 실측: Layerize 1.9s). opacity는 합성기 전용이라 비용 0급 */
+@keyframes pmsDraftPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.72; } }
+
+/* ── 드래그 범위 선택 (2026-08-27) — Del로 일괄 지우기 전 하이라이트. 고정(sticky) 칸의 인라인 배경을 이겨야 해서 !important */
+.list-oneline td.cell-selr { background-color: #d7e8f7 !important; box-shadow: inset 0 0 0 1px rgba(30,122,200,0.55); }
+body.sel-noselect, body.sel-noselect * { user-select: none !important; }
