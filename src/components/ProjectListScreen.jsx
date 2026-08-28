@@ -722,7 +722,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             ? (Number(row._pctBase) || 0)
             : fmNum(b[fmCol('전체')]) - fmNum(b[fmCol('금월 (2)')]);   // 최초엔 엑셀 전체−금월
         const pctAll = Math.round((pctBase + avg) * 10) / 10;
-        return { [cAcc]: String(acc), [cSelf]: self === '' ? '' : String(self), [fmCol('전체')]: String(pctAll), [fmCol('금월 (2)')]: String(avg), _accBase: base, _pctBase: pctBase };
+        const z0 = (n) => (n === 0 ? '' : String(n));   // 0 = 빈칸 (2026-08-28, 8/27 '0=지우기' 통일 — 빈 행 자동 칸이 0으로 채워지지 않게)
+        return { [cAcc]: z0(acc), [cSelf]: self === '' ? '' : z0(self), [fmCol('전체')]: z0(pctAll), [fmCol('금월 (2)')]: z0(avg), _accBase: base, _pctBase: pctBase };
     };
     // ── 월간 마감 스냅샷 (2026-08-13 팀장님 확정 b안: 담당자가 값 확인 후 버튼으로 '찰칵') ──
     //   월간보고(웹) 전월/금월/증감의 근거. 팀 카드 '월간마감' 팀만 노출(기술1팀). 달마다 문서 1개, 재실행=덮어쓰기(확인창).
@@ -1841,11 +1842,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecAssignRowCol(srcRow, editingCell.key) ? execNoNorm(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN은 당해 연도 실제 수행번호 칸만 (2026-08-24)
         // ★ 수식 재계산 (2026-08-19, 기술1팀): 트리거 칸(PLC·ETOS·HMI·총물량·금월)을 고치면 자동 칸 함께 갱신
         //   (2026-08-20 팀장님: 팝업 자체시운전 = 메인표와 별개 운영 — 금월 키인을 주차장부로 밀어넣던 자동은 폐지, 사람이 팝업에서 직접 키인)
-        if (srcRow && fmActive(srcRow) && fmTrigSet.has(fmNorm(editingCell.key))) {
+        //   ★ 값이 실제로 바뀐 경우에만 (2026-08-28 팀장님: ETOS 칸을 클릭만 하고 나와도 누적·전체·금월이 0 노란 칸으로 잡히던 버그 —
+        //     빈칸 행에서 재계산이 '0' 문자열을 만들어 ''→'0' 변경으로 초안에 올라감)
+        const cellChanged = String(srcRow?.[editingCell.key] ?? '') !== String(patch[editingCell.key] ?? '');
+        if (cellChanged && srcRow && fmActive(srcRow) && fmTrigSet.has(fmNorm(editingCell.key))) {
             Object.assign(patch, fmRecalc({ ...srcRow, ...patch }, srcRow));
         }
         // ★ 진행율% 자동 (2026-08-24): 포인트(Total)·Point를 고치면 진행율% 함께 갱신
-        if (srcRow && paTrigger(editingCell.key)) Object.assign(patch, paRecalc({ ...srcRow, ...patch }));
+        if (cellChanged && srcRow && paTrigger(editingCell.key)) Object.assign(patch, paRecalc({ ...srcRow, ...patch }));
         const contentChanged = isProgressContentCol(editingCell.key)
             && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
         if (contentChanged) {
