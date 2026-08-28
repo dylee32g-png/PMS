@@ -3207,6 +3207,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const _autoNoC = projNoColOf();
         const _autoNo = nextProjNo(newYear);
         if (_autoNoC && _autoNo !== null) newRow[_autoNoC] = _autoNo;
+        // 수행번호는 복사하지 않음 (2026-08-28): 선택 행의 번호가 그대로 따라오면 중복 — 빈칸으로 두고 저장 후 메인표 [+]로 받는다
+        activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; });
         setAddingRow(newRow);
     };
 
