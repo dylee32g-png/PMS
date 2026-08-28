@@ -3824,8 +3824,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     };
 
+    // 헤더 클릭 정렬 3단계: 오름차순 → 내림차순 → 해제(기본 순서) (2026-08-28 팀장님: 수행번호 헤더를 눌러 내림차순이 걸린 채
+    //   [+]로 번호를 받으니 행이 위로 튀어 '번호가 아래로 바뀐다'고 보임 — 종전엔 연도를 바꾸기 전엔 정렬을 끌 방법이 없었음)
     const requestSort = key =>
-        setSortConfig(p => ({ key, dir: p.key === key && p.dir === 'asc' ? 'desc' : 'asc' }));
+        setSortConfig(p => p.key !== key ? { key, dir: 'asc' } : p.dir === 'asc' ? { key, dir: 'desc' } : { key: null, dir: 'asc' });
 
     const visibleHeaders    = activeHeaders.filter(h => !hiddenCols.has(h));
     const activeFilterCount = Object.values(columnFilters).reduce((acc, v) => acc + (v instanceof Set ? v.size : (v ? 1 : 0)), 0)
