@@ -121,6 +121,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 담당자식(다중 선택) 드롭다운 열 — 팀 카드 '담당자식열' (2026-08-21 팀장님: 기술1팀 담당·수행 = 명단 5명+직접 입력+여러 명)
     const asgColCfg = teamProfile?.담당자식열 || null;
     const isCardAsgCol = (h) => !!asgColCfg && (asgColCfg.열 || []).some(c => String(c).replace(/\s/g, '') === String(h).replace(/\s/g, '') || aliasCol(c) === h);
+    // ★ 이름만 저장 → 표시할 때 직책 자동 부착 (2026-08-27 팀장님: 기술1팀 심광호 담당·염경록 팀장·나머지 책임).
+    //   직책은 팀 명단(ASSIGNEES)에서 찾음 — 저장값·엑셀 표기는 이름만 그대로(원본 엑셀 불변). 명단에 없는 이름은 그대로.
+    const asgTitleOf = (token) => { const k = extractName(normalizeAssignee(token)); const hit = k ? ASSIGNEES.find(n => extractName(normalizeAssignee(n)) === k) : null; return hit ? toExcelAssignee(hit) : String(token ?? '').trim(); };
+    const decorateAsg = (val) => { const s = String(val ?? '').trim(); if (!s) return s; return s.split(/[,/·]/).map(t => t.trim()).filter(Boolean).map(asgTitleOf).join(' / '); };
     // ── 연도별 1:1 헤더 별칭 (2026-08-21 팀장님): 옛 연도 표는 그 해 엑셀 열 이름 그대로라, 화면 기능(칩·카드·드롭다운)이 찾는
     //    표준 이름(계약·작업·수행·공사명…)을 팀 카드 '열번역'(옛 이름→표준 이름)으로 역추적. 올해는 정확 일치만.
     //    ★헤더에 열을 추가하지 않는 '읽기 전용 찾기' — 표·데이터는 엑셀 그대로 유지.
@@ -4423,7 +4427,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                      backgroundColor: isCur ? '#374151' : 'transparent', border:'none', cursor:'pointer' }}
                                             onMouseEnter={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='rgba(107,114,128,0.1)'; }}
                                             onMouseLeave={e=>{ if(!isCur) e.currentTarget.style.backgroundColor='transparent'; }}>
-                                            <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{disp(name)}</span>
+                                            <span style={{ fontSize:'12px', fontWeight: isCur ? 800 : 500, color: isCur ? '#fff' : '#374151' }}>{toExcelAssignee(name)}</span>{/* 라벨은 직책 표기, 저장은 disp(이름만 팀=이름만) (2026-08-27) */}
                                             {isCur && <Check size={11} style={{ marginLeft:'auto', color:'#fff' }}/>}
                                         </button>
                                     );
@@ -6188,7 +6192,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <button key={name}
                                             onClick={() => setActiveAssignees(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; })}
                                             style={{ padding: '3px 8px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? 'rgba(30,122,200,0.12)' : '#fff', color: isActive ? '#1358a0' : '#888', border: isActive ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
-                                            {(isCardAsgCol(assigneeFilterCol) && asgColCfg?.이름만) ? extractName(name) : toExcelAssignee(name)}{/* 직책 한글 통일 (2026-08-27 팀장님: DD·TL·C → 담당·팀장·책임, 드롭다운과 동일 규칙) */}
+                                            {toExcelAssignee(name)}{/* 직책 한글 통일 (2026-08-27 팀장님: DD·TL·C → 담당·팀장·책임 · 이름만 팀도 칩은 직책 표기) */}
                                             <span style={{ fontSize:'10px', opacity:0.8 }}>({assigneeCountMap[extractName(name)] || 0})</span>
                                         </button>
                                     );
@@ -6532,7 +6536,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 ) : null}
                                                             </div>
                                                         );
-                                                    })() : isDateCol(h) && val ? fmtDate(val, row._year) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
+                                                    })() : isDateCol(h) && val ? fmtDate(val, row._year) : isCardAsgCol(h) ? (decorateAsg(val) || <span className="text-slate-700">—</span>) : h === assigneeFilterCol ? (normalizeAssignee(val) || <span className="text-slate-700">—</span>) : isPointCol(h) ? (() => {
                                                         // 포인트 칸 = 엑셀 값만 표시 ('실적/총점' 복합표시 폐지, 2026-07-21 팀장님). 하위 있으면 Σ 자동합 (2026-07-20 2단계).
                                                         const _sp = getSubPt(row._id);
                                                         const _auto = !!(_sp && _sp.sum > 0);
