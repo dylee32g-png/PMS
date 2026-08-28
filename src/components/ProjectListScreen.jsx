@@ -6705,6 +6705,9 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                             전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''} ·
                             주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
+                            {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
+                            {sortConfig.key && <span className="ml-3 font-bold" style={{ color: '#1e7ac8' }}>· 정렬: {dispHeader(sortConfig.key)} {sortConfig.dir === 'asc' ? '↑ 오름차순' : '↓ 내림차순'}
+                                <button onClick={() => setSortConfig({ key: null, dir: 'asc' })} title="정렬을 끄고 기본 순서(번호 순)로" style={{ marginLeft: 6, padding: '0 6px', border: '1px solid #7fb3e3', borderRadius: 4, background: '#eaf3fc', color: '#1e7ac8', fontWeight: 800, cursor: 'pointer' }}>해제</button></span>}
                             {/* 메인 PC 표시 (2026-07-27) — 관리자 메뉴가 안 보이는 일반 계정도 이 PC의 자동 반영 여부를 알 수 있게 */}
                             {/* NAS_SYNC_ENABLED=false 이면 배지도 숨김 (2026-07-30) */}
                             {NAS_SYNC_ENABLED && extMainPc && (
