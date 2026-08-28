@@ -157,8 +157,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const isExecAssignCol = (h) => isExecNoCol(h) && String(h).replace(/\s+/g, '') === String(execColBase).replace(/\s+/g, '');
     // [+]·✕·YY-NNN 정형화는 당해 연도 행만 (2026-08-24 팀장님: 지난 연도는 수동 키인 — 기술3팀 과거 시트도 열 이름이 '수행번호'라 행 _year로 구분)
     const isExecAssignRowCol = (row, h) => { if (!isExecAssignCol(h)) return false; const cy = String(new Date().getFullYear()); return String((row && row._year) || cy) === cy; };
-    const execMaxOf = (year, h) => { const yy = String(year || new Date().getFullYear()).slice(-2); let max = 0; (activeRows || []).forEach(r => { if (String(r._year || '') !== String(year || '')) return; const m = String(r[h] || '').trim().match(/^(\d{2})-(\d{3})/); if (m && m[1] === yy) max = Math.max(max, Number(m[2])); }); return { yy, max }; };
-    const assignExecNo = (row, h) => { const { yy, max } = execMaxOf(row._year, h); const next = `${yy}-${String(max + 1).padStart(3, '0')}`; commitCellWith(row._id, h, next); };
+    // ★ 최신 행 목록(activeRowsRef = 초안 노란 칸 포함)으로 계산 (2026-08-28 팀장님 버그: 행 렌더가 캐시(MemoRow)라 [+] 클릭 핸들러가
+    //   초안 반영 전 옛 목록을 붙잡고 있어 저장 전까지 몇 번을 눌러도 같은 번호(26-003)가 나오던 것)
+    const execMaxOf = (year, h) => { const cy = String(new Date().getFullYear()); const yr = String(year || cy); const yy = yr.slice(-2); let max = 0; (activeRowsRef.current || []).forEach(r => { if (String(r._year || cy) !== yr) return; const m = String(r[h] || '').trim().match(/^(\d{2})-(\d{3})/); if (m && m[1] === yy) max = Math.max(max, Number(m[2])); }); return { yy, max }; };
+    // 같은 연도 다른 메인 행에 이미 있는 수행번호인지 (초안 포함) → 중복이면 그 행, 없으면 null (2026-08-28 중복 차단)
+    const execDupOf = (rowId, year, h, value) => {
+        const v = execNoNorm(value); if (!v) return null;
+        const cy = String(new Date().getFullYear()); const yr = String(year || cy);
+        return (activeRowsRef.current || []).find(r => r._id !== rowId && !isSubListRow(r) && String(r._year || cy) === yr && execNoNorm(r[h]) === v) || null;
+    };
+    const execDupMsg = (v, dup) => `⛔ 수행번호 중복 — 저장할 수 없습니다!\n\n'${v}'은(는) 이미 등록돼 있습니다:\n→ ${String((projectNameCol && dup[projectNameCol]) || '').trim() || '(이름 없음)'}\n\n다른 번호로 바꾸거나 [+]로 다음 번호를 받아 주세요.`;
+    const assignExecNo = (row, h) => { const { yy, max } = execMaxOf(row._year, h); let n = max + 1, next = `${yy}-${String(n).padStart(3, '0')}`; while (execDupOf(row._id, row._year, h, next)) { n++; next = `${yy}-${String(n).padStart(3, '0')}`; } commitCellWith(row._id, h, next); };
     const revokeExecNo = (row, h) => {
         const cur = String(row[h] || '').trim(); const { max } = execMaxOf(row._year, h);
         const m = cur.match(/^\d{2}-(\d{3})/); const n = m ? Number(m[1]) : 0;
@@ -395,6 +404,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (dataSource !== 'firebase' || !Object.keys(draft).length) return activeRowsBase;
         return activeRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
     }, [activeRowsBase, draft, dataSource]);
+    const activeRowsRef = useRef([]); activeRowsRef.current = activeRows;   // 클릭 핸들러(캐시된 행 렌더)에서도 최신 목록 (2026-08-28)
     const hasDraftCell = (rowId, key) => !!(draftRef.current[rowId] && draftRef.current[rowId].orig && Object.prototype.hasOwnProperty.call(draftRef.current[rowId].orig, key));
     const addDraft = (rowId, patch, orig, edited, entry) => {
         setDraft(prev => {
@@ -1840,6 +1850,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
         // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
         const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecAssignRowCol(srcRow, editingCell.key) ? execNoNorm(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN은 당해 연도 실제 수행번호 칸만 (2026-08-24)
+        // ★ 수행번호 중복 차단 (2026-08-28 팀장님): 같은 연도 다른 메인 행(초안 포함)과 겹치면 키인 단계에서 거부
+        if (srcRow && isExecAssignRowCol(srcRow, editingCell.key) && !isSubListRow(srcRow)) {
+            const dup = execDupOf(srcRow._id, srcRow._year, editingCell.key, patch[editingCell.key]);
+            if (dup) { setAlertMsg(execDupMsg(patch[editingCell.key], dup)); setEditingCell({ id: null, key: null, value: '' }); return; }
+        }
         // ★ 수식 재계산 (2026-08-19, 기술1팀): 트리거 칸(PLC·ETOS·HMI·총물량·금월)을 고치면 자동 칸 함께 갱신
         //   (2026-08-20 팀장님: 팝업 자체시운전 = 메인표와 별개 운영 — 금월 키인을 주차장부로 밀어넣던 자동은 폐지, 사람이 팝업에서 직접 키인)
         //   ★ 값이 실제로 바뀐 경우에만 (2026-08-28 팀장님: ETOS 칸을 클릭만 하고 나와도 누적·전체·금월이 0 노란 칸으로 잡히던 버그 —
@@ -1929,6 +1944,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const d = draftRef.current; const ids = Object.keys(d);
         if (!ids.length || draftSaving || dataSource !== 'firebase') return;
         const nameOf = (r) => String((projectNameCol && r[projectNameCol]) || r._id || '');
+        // ★ 수행번호 중복 최종 검사 (2026-08-28): 초안에 든 수행번호가 다른 행(기존·초안)과 겹치면 저장 보류 (노란 칸 유지)
+        {
+            const dups = [];
+            ids.forEach(id => {
+                const r = activeRowsRef.current.find(x => x._id === id); if (!r || isSubListRow(r)) return;
+                Object.keys(d[id].patch || {}).forEach(k => {
+                    if (!isExecAssignRowCol(r, k)) return;
+                    const dup = execDupOf(id, r._year, k, d[id].patch[k]);
+                    if (dup) dups.push(`· ${nameOf(r)} — '${execNoNorm(d[id].patch[k])}' ↔ ${nameOf(dup)}`);
+                });
+            });
+            if (dups.length) { setAlertMsg(`⛔ 수행번호 중복 — 저장할 수 없습니다!\n\n${dups.slice(0, 8).join('\n')}${dups.length > 8 ? '\n…' : ''}\n\n겹치는 행의 번호를 고치거나(✕ 회수 후 [+]) [취소]로 되돌린 뒤 다시 저장해 주세요.`); return; }
+        }
         // 동시수정 검사: 편집 시작 때 서버 값(orig) ≠ 지금 서버 값 → 그 사이 다른 사람이 고침 (내 값과 같으면 무시)
         if (!force) {
             const conflicts = [];
