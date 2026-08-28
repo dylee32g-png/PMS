@@ -447,7 +447,7 @@ export default function DetailModal({
                             </button>
                             <button onClick={onSave}
                                 style={{ padding:'8px 22px', backgroundColor:'#1e7ac8', border:'none', fontSize:'13px', fontWeight:700, color:'#fff', cursor:'pointer' }}>
-                                저장
+                                {isAdd ? '추가' : '저장'}{/* 추가 모드=[추가] (2026-08-28 팀장님: '저장'은 기존 수정과 혼동) */}
                             </button>
                         </div>
                     </div>
