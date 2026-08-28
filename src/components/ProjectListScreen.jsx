@@ -842,7 +842,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return s === '포인트' || /^point$/i.test(s);
     };
     // 번호 칸 판별 — 정확히 '번호'만 (실행번호·전화번호 등 제외). 값 패딩은 padProjectNo (2026-07-20)
-    const isProjNoCol = (h) => String(h).replace(/\s/g, '') === '번호';
+    const isProjNoCol = (h) => ['번호', '순번'].includes(String(h).replace(/\s/g, ''));   // '순번'(기술1팀)도 3자리 통일 (2026-08-27 팀장님: 설정 [번호 3자리 정리]가 순번을 못 찾던 문제)
 
     const getW = h => {
         if (colWidths[h]) return colWidths[h];
@@ -1714,18 +1714,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const handlePadAllNumbers = async () => {
         if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.'); return; }
         if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 실행할 수 있습니다.\n(엑셀 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
+        const noCol = projNoColOf() || '번호';   // 팀 번호 열('번호' 또는 기술1팀 '순번') — 종전엔 '번호'만 봐서 기술1팀은 대상 0건 (2026-08-27)
         const targets = fbRows.filter(r => {
-            const v = String(r['번호'] ?? '').trim();
+            const v = String(r[noCol] ?? '').trim();
             return v && padProjectNo(v) !== v;
         });
-        if (!targets.length) { setAlertMsg('정리할 번호가 없습니다 — 전부 3자리(또는 문자·빈칸)입니다.'); return; }
-        const sample = targets.slice(0, 3).map(r => `${r['번호']}→${padProjectNo(r['번호'])}`).join(', ');
+        if (!targets.length) { setAlertMsg(`정리할 ${noCol}가 없습니다 — 전부 3자리(또는 문자·빈칸)입니다.`); return; }
+        const sample = targets.slice(0, 3).map(r => `${r[noCol]}→${padProjectNo(r[noCol])}`).join(', ');
         if (!window.confirm(`[번호 3자리 일괄 정리]\n\n${targets.length}건의 번호를 3자리로 바꿉니다 (전체 연도 대상).\n예: ${sample}${targets.length > 3 ? ' …' : ''}\n\n번호 칸만 바뀌고 다른 값·pid·이력은 건드리지 않습니다.\n진행할까요?`)) return;
         setIsLoading(true);
         try {
             let batch = writeBatch(db), cnt = 0;
             for (const r of targets) {
-                batch.set(rowDocRef(currentTeam, r._id), { '번호': padProjectNo(r['번호']) }, { merge: true });
+                batch.set(rowDocRef(currentTeam, r._id), { [noCol]: padProjectNo(r[noCol]) }, { merge: true });   // 팀 번호 열(번호/순번) (2026-08-27)
                 if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
             }
             if (cnt > 0) await batch.commit();
@@ -3137,7 +3138,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     // ── 프로젝트 번호 자동 +1 · 중복 차단 (2026-08-25 팀장님) ──────────────────
-    //   번호 열 = '번호'(기술2·3팀 — 3자리 패딩) 또는 '순번'(기술1팀 — 패딩 없음). 같은 연도 메인 행 기준.
+    //   번호 열 = '번호'(기술2·3팀) 또는 '순번'(기술1팀) — 둘 다 3자리 패딩 (2026-08-27 통일). 같은 연도 메인 행 기준.
     const projNoColOf = () => (activeHeaders || []).find(h => ['번호', '순번'].includes(String(h).replace(/\s/g, '')));
     const _cyStr = () => String(new Date().getFullYear());
     const nextProjNo = (year) => {
@@ -3149,8 +3150,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const n = Number(String(r[c] ?? '').trim());
             if (Number.isFinite(n)) mx = Math.max(mx, n);
         });
-        const nx = String(mx + 1);
-        return String(c).replace(/\s/g, '') === '번호' ? padProjectNo(nx) : nx;
+        return padProjectNo(String(mx + 1));   // 번호·순번 모두 3자리 (2026-08-27 통일)
     };
 
     // ── 새 행 추가 ────────────────────────────────────────────────────────
