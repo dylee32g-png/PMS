@@ -76,7 +76,7 @@ export const STATUS_COLOR_PRESETS = [
 export const DEFAULT_STATUS_OPTIONS = ['진행중','추진중','완료','취소','삭제','Hold','이전'];
 
 // ─── 담당자 목록 & 이름 정규화 ───────────────────────────────────────────
-export const ASSIGNEE_LIST = ['최영환DD','김준혁TL','조장현TL','신정환C','김종석C','장명휘C','김윤재C','김수민C'];
+export const ASSIGNEE_LIST = ['최영환 담당','김준혁 팀장','조장현 팀장','신정환 책임','김종석 책임','장명휘 책임','김윤재 책임','김수민 책임'];   // 직책 한글 통일 (2026-08-27) — 코드 표기(DD·TL·C)는 toExcelAssignee가 계속 변환
 export const ASSIGNEE_NORMALIZE = {
     '신장환CK':'신정환C','신정환CK':'신정환C',
     '김종석K':'김종석C','장명휘D':'장명휘C',

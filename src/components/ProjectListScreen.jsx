@@ -5563,7 +5563,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     <span className="text-slate-400 text-xs w-5 text-center">{i+1}</span>
                                     {locked ? (
                                         <div className="flex-1 flex items-center gap-1.5 px-2 py-1 bg-slate-100 border border-slate-200 rounded">
-                                            <span className="text-sm text-slate-700">{s}</span>
+                                            <span className="text-sm text-slate-700">{toExcelAssignee(s)}</span>
                                             <span className="text-[10px] text-slate-400 ml-auto">🔒 기존 · 이름 고정</span>
                                         </div>
                                     ) : (
@@ -6188,7 +6188,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <button key={name}
                                             onClick={() => setActiveAssignees(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; })}
                                             style={{ padding: '3px 8px', fontSize: '11px', fontWeight: isActive ? 800 : 600, backgroundColor: isActive ? 'rgba(30,122,200,0.12)' : '#fff', color: isActive ? '#1358a0' : '#888', border: isActive ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display:'flex', alignItems:'center', gap:'4px' }}>
-                                            {name}
+                                            {(isCardAsgCol(assigneeFilterCol) && asgColCfg?.이름만) ? extractName(name) : toExcelAssignee(name)}{/* 직책 한글 통일 (2026-08-27 팀장님: DD·TL·C → 담당·팀장·책임, 드롭다운과 동일 규칙) */}
                                             <span style={{ fontSize:'10px', opacity:0.8 }}>({assigneeCountMap[extractName(name)] || 0})</span>
                                         </button>
                                     );
