@@ -4846,6 +4846,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     suggestions={fieldSuggestions}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
+                    execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
                 />
             )}
 
@@ -4894,6 +4895,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     detailRow={addingRow}
                     setDetailRow={setAddingRow}
                     onSave={saveAddingRow}
+                    execLockedCols={addingRow && !isSubListRow(addingRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(addingRow, h)) : []}
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
                     hiddenCols={hiddenCols}
@@ -6499,6 +6501,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     onClick={e=>{
                                                         e.stopPropagation();
                                                         if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
+                                                        // ★ 수행번호(당해 연도) 손 키인 금지 (2026-08-28 팀장님: [+] 옆 빈 곳을 눌러 편집창이 열려 '011' 같은 값이 들어가는 사고) — [+] 자동 부여·✕ 회수만
+                                                        if (isExecAssignRowCol(row, h) && !isSubListRow(row)) { showExtToast('수행번호는 손으로 키인할 수 없습니다 — 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수'); return; }
                                                         { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
                                                         if (nasX) { setAlertMsg(`'${h}'은(는) 이 프로젝트의 NAS 진척자료(엑셀)에 없는 항목입니다.
 NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키인하지 않습니다.`); return; }   // NAS 미포함 항목 (2026-08-20)

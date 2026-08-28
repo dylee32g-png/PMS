@@ -24,12 +24,14 @@ export default function DetailModal({
     suggestions = {},         // { 항목명: [기존값들] } — 발주처·업체담당자 자동완성 목록
     subPtInfo = null,         // 2단계(2026-07-20): 메인 행에 하위(공종)가 있으면 {count, sum} — '포인트' 칸 잠금+합계 표시
     extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
+    execLockedCols = [],      // 수행번호(당해 연도) — 손 키인 금지, 메인표 [+]/✕로만 (2026-08-28 팀장님)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
     if (!detailRow) return null;
     const isAdd = mode === 'add';
     const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
+    const isExecLockedDM = (h) => (execLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 수행번호 자동 부여 칸 (2026-08-28)
 
     // 팀 마스터 목록 우선(진행현황 관리 / 담당자 관리) — 없으면 기본 상수
     const STATUS_OPTS   = (statusOptions && statusOptions.length) ? statusOptions : DEFAULT_STATUS_OPTIONS;
@@ -103,6 +105,14 @@ export default function DetailModal({
                             title={subPtInfo.sum > 0 ? `총점 = 하위 ${subPtInfo.count}개 '포인트' 합계 (자동)` : `하위 ${subPtInfo.count}개의 총점이 아직 빈칸 — 입력 전까지 기존 부모 총점 유지`}>
                             <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{subPtInfo.sum > 0 ? `Σ ${subPtInfo.sum}` : (String(val).trim() ? val : '—')}</span>
                             <span style={{ fontSize:'11px', fontWeight:700, color:'#7c3aed', whiteSpace:'nowrap' }}>하위 {subPtInfo.count}개 합계 자동{subPtInfo.sum > 0 ? '' : ' 대기'}</span>
+                            <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
+                        </div>
+                    ) : isExecLockedDM(h) ? (
+                        // 수행번호 (2026-08-28 팀장님): 손 키인 금지 — 메인표 빈칸의 [+]로 다음 번호 자동 부여, ✕로 회수
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
+                            title="수행번호는 손으로 키인하지 않습니다 — 메인표 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수">
+                            <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val).trim() !== '' ? val : '—'}</span>
+                            <span style={{ fontSize:'11px', fontWeight:700, color:'#1e7ac8', whiteSpace:'nowrap' }}>메인표 [+]로 자동 부여</span>
                             <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
                         </div>
                     ) : isExtLockedDM(h) ? (
