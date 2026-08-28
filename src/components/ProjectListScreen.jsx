@@ -6442,7 +6442,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 : isSelected ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-white/5'}`}
                                         style={isHlRow ? { backgroundColor: 'rgba(251,191,36,0.18)' } : {}}
                                         onClick={() => setSelectedRowId(prev => prev === row._id ? null : row._id)}
-                                        onDoubleClick={() => { if (draft[row._id]) { setAlertMsg('이 행에 임시 편집(노란 칸)이 있습니다.\n먼저 [저장] 또는 [취소]한 뒤 상세 팝업을 여세요.'); return; } setDetailRow({...row}); setDetailRowOriginal({...row}); }}
+                                        /* 행 더블클릭 → 상세 팝업 제거 (2026-08-28 팀장님: 셀 편집 중 더블클릭에 팝업이 튀어 혼란) — 상세 팝업은 우클릭 메뉴 [상세 보기/수정]으로만 */
                                         onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, row }); }}>
                                         {/* No. 칸 제거 — 엑셀 '번호'와 중복 (2026-06-26) */}
                                         {mainVisibleHeaders.map(h => {
