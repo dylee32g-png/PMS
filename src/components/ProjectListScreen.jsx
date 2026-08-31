@@ -4254,12 +4254,75 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
+    // ── 행 복사(Ctrl+C) → 새 프로젝트로 붙여넣기(Ctrl+V) (2026-08-31 팀장님: 엑셀처럼) ──
+    //   번호 칸 클릭 = 행 전체 선택(Shift+클릭 = 여러 행) → Ctrl+C = 내부 보관 + 엑셀용 텍스트도 클립보드에
+    //   → Ctrl+V = 즉시 새 프로젝트로 추가(번호 = 그 연도 마지막+1 연속 부여 · 수행번호 빈칸 · 새 ID/등록일)
+    const rowClipRef = useRef(null);          // { team, rows:[{...행}] }
+    const pasteBusyRef = useRef(false);
+    const copySelectedRows = () => {
+        const sel = selRef.current; if (!sel) { showExtToast('먼저 번호 칸을 클릭해 행을 선택하세요'); return; }
+        const rows = [];
+        for (let r = sel.r1; r <= sel.r2; r++) { const row = sortedRowsRef.current[r]; if (row && !isSubListRow(row)) rows.push({ ...row }); }
+        if (!rows.length) { showExtToast('복사할 메인 행이 없습니다 (하위 행은 제외)'); return; }
+        rowClipRef.current = { team: currentTeam, rows };
+        const TAB = String.fromCharCode(9), NL = String.fromCharCode(10);   // 엑셀 호환 탭 구분 텍스트
+        const tsv = rows.map(r => mainVisibleHeaders.map(h => String(r[h] ?? '')).join(TAB)).join(NL);
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tsv).catch(() => {});
+        showExtToast(`${rows.length}행 복사됨 — Ctrl+V = 새 프로젝트로 추가 (번호 자동 +1)`);
+    };
+    const pasteCopiedRows = async () => {
+        const clip = rowClipRef.current;
+        if (!clip || !clip.rows.length || pasteBusyRef.current) return;
+        if (dataSource !== 'firebase') { setAlertMsg('붙여넣기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
+        if (clip.team !== currentTeam) { setAlertMsg('다른 팀 화면에서 복사한 행입니다. 같은 팀에서만 붙여넣을 수 있습니다.'); return; }
+        pasteBusyRef.current = true;
+        try {
+            const yr = String(selectedYear || new Date().getFullYear());
+            const noC = projNoColOf();
+            const baseNo = noC ? Number(nextProjNo(yr)) : NaN;   // 그 연도 마지막 번호+1 (팀장님 확정)
+            const _d = new Date();
+            const regDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+            const nos = [];
+            for (let i = 0; i < clip.rows.length; i++) {
+                const src = clip.rows[i];
+                const newId = `row_manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                const newRow = { _id: newId, _pid: generatePid(), _year: yr, _regDate: regDate };
+                activeHeaders.forEach(h => { newRow[h] = src[h] || ''; });                         // 엑셀 항목만 복사(_ 내부필드 제외 = NAS 규칙·이력 안 따라옴)
+                activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; }); // 수행번호는 복사 안 함 — [+]로
+                if (noC && Number.isFinite(baseNo)) { newRow[noC] = padProjectNo(String(baseNo + i)); nos.push(newRow[noC]); }
+                const { _id, ...data } = newRow;
+                await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
+                recordAudit(AUDIT_ACTIONS.ADD, newRow, []);
+            }
+            clearSelPaint(); selRef.current = null;
+            showExtToast(`${clip.rows.length}건 새 프로젝트로 추가됨` + (nos.length ? ` — 번호 ${nos.join(', ')}` : ''));
+        } catch (err) {
+            setAlertMsg(`붙여넣기 오류: ${err.message}`);
+        } finally { pasteBusyRef.current = false; }
+    };
+    const copyRowsRef = useRef(() => {}); copyRowsRef.current = copySelectedRows;
+    const pasteRowsRef = useRef(() => {}); pasteRowsRef.current = pasteCopiedRows;
     useEffect(() => {
         const onKey = (e) => {
             if (e.key === 'Escape') { if (selRef.current) { selRef.current = null; clearSelPaint(); } return; }
-            if (e.key !== 'Delete' && e.key !== 'Backspace') return;
             const t = e.target;
-            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;   // 편집창 안 Del은 원래대로
+            const inEdit = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);   // 편집창 안 키는 원래대로
+            const k = String(e.key).toLowerCase();
+            if ((e.ctrlKey || e.metaKey) && k === 'c') {   // 행 복사 (2026-08-31)
+                if (inEdit || !selRef.current) return;
+                if (window.getSelection && String(window.getSelection())) return;   // 글자 드래그 복사는 원래대로
+                e.preventDefault();
+                copyRowsRef.current();
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && k === 'v') {   // 새 프로젝트로 붙여넣기 (2026-08-31)
+                if (inEdit || !rowClipRef.current) return;
+                e.preventDefault();
+                pasteRowsRef.current();
+                return;
+            }
+            if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+            if (inEdit) return;
             if (!selRef.current) return;
             e.preventDefault();
             clearSelectedCellsRef.current();
@@ -6509,6 +6572,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
                                                     title={autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
+                                                    onDoubleClick={e => {   // 번호 칸: 클릭=행 선택이라 편집은 더블클릭 (2026-08-31)
+                                                        if (!isProjNoCol(h) || isNaItemCell(row, h)) return;
+                                                        e.stopPropagation();
+                                                        { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
+                                                        clearSelPaint(); selRef.current = null;
+                                                        setEditingCell({ id: row._id, key: h, value: String(val ?? '') });
+                                                    }}
                                                     onClick={e=>{
                                                         e.stopPropagation();
                                                         if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
@@ -6553,6 +6623,17 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setWordDropdown({ rowId: row._id, col: h, preset: wordDropCols[wordDropKey(h)] || [], left: rect.left, width: Math.max(rect.width, 110), ...dropAnchor(rect, e.clientY) });
+                                                        } else if (isProjNoCol(h)) {
+                                                            // 번호 칸 클릭 = 행 전체 선택 (2026-08-31 엑셀 행 머리글처럼) · Shift+클릭 = 여러 행 · 번호 편집 = 더블클릭
+                                                            closeAll();
+                                                            const riNo = sortedRowsRef.current.findIndex(r => r._id === row._id);
+                                                            if (riNo >= 0) {
+                                                                const lastC = mainVisibleHeaders.length - 1;
+                                                                const prev = selRef.current;
+                                                                if (e.shiftKey && prev && prev.c1 === 0 && prev.c2 === lastC) selRef.current = { r1: Math.min(prev.r1, riNo), r2: Math.max(prev.r2, riNo), c1: 0, c2: lastC };
+                                                                else selRef.current = { r1: riNo, r2: riNo, c1: 0, c2: lastC };
+                                                                paintSel();
+                                                            }
                                                         } else if (isDateCol(h)) {
                                                             setEditingCell({id:row._id,key:h,value:displayDate(val, row._year)});
                                                         } else if (isPointCol(h)) {
