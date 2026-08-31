@@ -5816,18 +5816,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         </span>
                                     </span>
                                     {kpiData.ccOn ? items.map(it => {
-                                        const isProg = it.라벨 === '진행중' && kpiData.avgPct !== null;
+                                        // 도넛 = 전체 대비 비중으로 3칸 통일 (2026-08-31 팀장님: 평균 공정률은 모수가 애매 — 툴팁으로만)
                                         const share = total > 0 ? Math.round(it.cnt / total * 100) : 0;
+                                        const tip = `${kpiData.ccStName || '진행 현황'} 칸 기준 · 전체의 ${share}%`
+                                            + (it.라벨 === '진행중' && kpiData.avgPct !== null ? ` · 평균 공정률 ${kpiData.avgPct}% (공정률 값 있는 ${kpiData.pctN}건 평균)` : '');
                                         return (
-                                            <span key={it.라벨} style={chip} title={isProg ? `평균 공정률 ${kpiData.avgPct}% (값 있는 ${kpiData.pctN}건 평균) · 전체의 ${share}%` : `${kpiData.ccStName || '진행 현황'} 칸 기준 · 전체의 ${share}%`}>
+                                            <span key={it.라벨} style={chip} title={tip}>
                                                 <span>
                                                     <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        {isProg ? '진행중 · 평균 공정률' : it.라벨}
+                                                        {it.라벨}
                                                         {it.라벨 === '완료' && kpiData.doneThisMonth > 0 && <span style={{ fontSize: 9, fontWeight: 800, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 99, padding: '0 5px' }}>▲{kpiData.doneThisMonth} 이번 달</span>}
                                                     </span>
                                                     <span style={{ fontSize: 16, fontWeight: 800, color: miniNumColor(it.라벨), lineHeight: 1.15 }}>{it.cnt}<span style={{ fontSize: 10, color: '#a4a097' }}>건</span></span>
                                                 </span>
-                                                {miniDonut(isProg ? kpiData.avgPct : share, isProg ? '#059669' : colorOf(it.라벨), isProg ? Math.round(kpiData.avgPct) + '%' : share + '%')}
+                                                {miniDonut(share, colorOf(it.라벨), share + '%')}
                                             </span>
                                         );
                                     }) : (<>
