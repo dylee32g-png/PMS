@@ -397,6 +397,10 @@ const TechTeamPMS = () => {
   const [homeStats, setHomeStats] = useState({});
   useEffect(() => {
       if (!user || currentTeam) return;          // 홈(팀 선택 화면)일 때만 로드
+      // ★ 명단 확인이 끝난 뒤에만 (2026-08-31 첫 로그인 조사): 3팀 전체 행(~수천 건) 다운로드가 로그인 직후
+      //   같은 연결을 점거해, 홈 표시의 관문인 명단(registeredUsers) getDoc 1건이 그 뒤로 16초 줄을 서던 주범.
+      //   홈이 먼저 뜨고(카드 숫자는 '—') 통계는 배경에서 채워진다.
+      if (!userCheckDone || !registeredUser) return;
       let alive = true;
       LIST_TEAMS.forEach(t => {
           const c = cachedTeamStats(t);
@@ -404,7 +408,7 @@ const TechTeamPMS = () => {
           fetchTeamStats(t).then(st => { if (alive && st) setHomeStats(p => ({ ...p, [t]: st })); });
       });
       return () => { alive = false; };
-  }, [user, currentTeam]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, currentTeam, userCheckDone, registeredUser]);   // eslint-disable-line react-hooks/exhaustive-deps
   // ── 홈 공지사항 (2026-08-11) — notices.js가 원본, 배포하면 자동 반영. 안 본 공지 = 빨간 점 ──
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [noticeSeen, setNoticeSeen] = useState(() => { try { return localStorage.getItem('pms_notice_seen') === (NOTICES[0]?.date || ''); } catch (e) { return true; } });
@@ -818,7 +822,6 @@ const TechTeamPMS = () => {
     if (!user || !db || !user.uid) return;
     addLog(`Firestore DB 구독 시작...`);
 
-    const projectsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projects');
     const settingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'settings');
     const prefsRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'preferences'), 'config');
 
@@ -846,26 +849,10 @@ const TechTeamPMS = () => {
           }
         });
       }
+      setIsDbLoading(false);   // ★ 첫 로그인 속도 (2026-08-31): 홈은 설정만 오면 열림 — 무거운 월간보고 전체는 아래 별도 효과가 화면 진입 시 구독
     }, (error) => {
         console.error("Settings 로드 오류:", error);
         setAuthError("데이터베이스 접근 권한이 없습니다.");
-        setDbErrorDetail(error.message || error.code);
-        setIsDbLoading(false);
-    });
-
-    const unsubProjects = onSnapshot(projectsRef, (snapshot) => {
-      const loadedProjects = [];
-      if (!snapshot.empty) {
-        snapshot.forEach(d => {
-          loadedProjects.push({ ...d.data(), id: d.id });
-        });
-      }
-      setAllProjects(loadedProjects);
-      addLog(`DB 실시간 로드 완료: 총 ${loadedProjects.length}개 프로젝트 발견.`);
-      setIsDbLoading(false);
-    }, (error) => {
-        console.error("Projects 로드 오류:", error);
-        setAuthError("프로젝트 데이터를 불러올 수 없습니다.");
         setDbErrorDetail(error.message || error.code);
         setIsDbLoading(false);
     });
@@ -885,10 +872,33 @@ const TechTeamPMS = () => {
 
     return () => {
       unsubSettings();
-      unsubProjects();
       unsubPrefs();
     };
   }, [user]);
+
+  // ★ 월간보고 전체(projects) 구독 — 월간보고·List·모바일 입력 진입 시에만 (2026-08-31 첫 로그인 ~20초 조사)
+  //   종전엔 로그인 직후 전체(367건+월별데이터=무거움)를 다 받을 때까지 스피너가 화면을 막아 첫 로그인 지연의 주범.
+  //   List·모바일도 구독하는 이유 = 실적 그래프 연계·[적용하기] 월간 동기화(applyProgressByPid)가 allProjects를 봄.
+  useEffect(() => {
+    if (!user || !db || !['pms', 'projectList', 'mobileInput'].includes(currentMode)) return;
+    const projectsRef = collection(db, 'artifacts', appId, 'public', 'data', 'projects');
+    const unsub = onSnapshot(projectsRef, (snapshot) => {
+      const loadedProjects = [];
+      if (!snapshot.empty) {
+        snapshot.forEach(d => {
+          loadedProjects.push({ ...d.data(), id: d.id });
+        });
+      }
+      setAllProjects(loadedProjects);
+      addLog(`DB 실시간 로드 완료: 총 ${loadedProjects.length}개 프로젝트 발견.`);
+    }, (error) => {
+        console.error("Projects 로드 오류:", error);
+        setAuthError("프로젝트 데이터를 불러올 수 없습니다.");
+        setDbErrorDetail(error.message || error.code);
+    });
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, currentMode]);
 
   // ── 주간보고 연결 Firebase 구독 (팀 선택 시) ──────────────────────────────
   useEffect(() => {
