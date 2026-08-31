@@ -3,7 +3,7 @@ import {
     Upload, Download, Trash2, X, Shuffle,
     AlertTriangle, ListChecks, Search,
     FileSpreadsheet, TerminalSquare, Eye,
-    Edit2, Save, ChevronUp, ChevronDown, Check,
+    Edit2, Save, ChevronUp, ChevronDown, Check, Copy,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
     PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home
@@ -3186,7 +3186,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     // ── 새 행 추가 ────────────────────────────────────────────────────────
-    const handleOpenAddRow = () => {
+    const addCopiedRef = useRef(false);   // 추가 팝업이 '행 복사'로 열렸는지 — 팝업 상단 안내 표시용 (2026-08-31)
+    const handleOpenAddRow = (baseOverride) => {   // baseOverride = 우클릭 [이 행 복사해서 추가] (2026-08-31 팀장님). 버튼 onClick이 주는 이벤트 객체는 _id가 없어 무시됨
         if (!activeHeaders.length) {
             setAlertMsg('먼저 엑셀 파일을 업로드하거나 데이터를 불러오세요.');
             return;
@@ -3195,9 +3196,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const newPid = generatePid(); // A-4a: 고유 ID 자동 발급
         const newYear = selectedYear || String(new Date().getFullYear());
         // 선택된 행이 있으면 해당 데이터를 초기값으로 복사
-        const baseRow = selectedRowId
-            ? activeRows.find(r => r._id === selectedRowId)
+        const baseRow = (baseOverride && baseOverride._id) ? baseOverride
+            : selectedRowId ? activeRows.find(r => r._id === selectedRowId)
             : null;
+        addCopiedRef.current = !!baseRow;
         // 등록일(_regDate) — 프로젝트 추가 시점 자동 기입. 내부 필드·읽기전용·불변 (2026-07-13)
         const _d = new Date();
         const regDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
@@ -4646,6 +4648,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
+                        {/* ★ 이 행 복사해서 추가 (2026-08-31 팀장님: 행 복/붙 — 값을 초기값으로 복사한 추가 팝업. 번호=새 번호·수행번호=빈칸) */}
+                        {!isSubListRow(contextMenu.row) && (
+                            <button onClick={() => { handleOpenAddRow(contextMenu.row); setContextMenu(null); }}
+                                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                                <Copy size={16} className="text-[#1e7ac8]"/> 이 행 복사해서 추가
+                            </button>
+                        )}
                         {/* ★ 하위(공종) 추가 — 큰 프로젝트 밑에 공조·CDA 같은 공종 행 (2026-07-16). 하위 행에서는 숨김 */}
                         {!isSubListRow(contextMenu.row) && (
                         <button onClick={() => { const r = contextMenu.row; setContextMenu(null); handleAddSubRow(r); }}
@@ -4905,7 +4914,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
-                    copiedFromRow={!!selectedRowId}
+                    copiedFromRow={addCopiedRef.current}
                 />
             )}
 
