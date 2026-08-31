@@ -3549,8 +3549,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (accCol) { const v = Number(String(r[accCol] ?? '').replace(/,/g, '')); if (Number.isFinite(v)) accSum += v; }
         });
         accSum = Math.round(accSum); totSum = Math.round(totSum);
+        // 이번 달 완료 (2026-08-31 미니 요약 ▲배지): 공사 완료 날짜가 실제 이번 달인 메인 행 수
+        let doneThisMonth = 0;
+        {
+            const doneCol = (datePairCols && datePairCols[1]) || null;
+            if (doneCol) {
+                const now = new Date(); const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+                mains.forEach(r => { const d = toDateInputVal(r[doneCol]); if (d && String(d).slice(0, 7) === ym) doneThisMonth++; });
+            }
+        }
         return {
-            total: mains.length, subCnt, progCnt,
+            total: mains.length, subCnt, progCnt, doneThisMonth,
             avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN,
             ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
             // '—' 카드 사유 구분용 (2026-08-11): 항목 자체가 없음 vs 열은 있는데 아직 값 없음
@@ -3599,7 +3608,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     rcPtSum: Math.round(rcPtSum), rcAccSum: Math.round(rcAccSum), rcPtN };
             })(),
         };
-    }, [monthFilteredRows, activeHeaders, statusFilterCol, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [datePairCols, monthFilteredRows, activeHeaders, statusFilterCol, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     // '이름, 이름' 다중 담당자 지원 (2026-07-28 팀장님) — 쉼표 형식 + 옛 형식 모두 사람별로 나눠 취급
     const splitAssignees = (v) => splitAssigneeCell(v);
@@ -4148,6 +4157,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (draftCellCount > 0) { draftNavBlock(); return; }   // 임시 편집 미저장 (2026-08-27)
         if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 팀 이동을 할 수 없습니다.\n확정 저장 또는 업로드 취소 후 이동해 주세요.'); return; }
         if (onSwitchTeam) onSwitchTeam(t);
+    };
+    const [teamDropOpen, setTeamDropOpen] = useState(false);   // 제목 옆 ▾ 팀 전환 (2026-08-31 팀장님: 팀 탭 제거)
+    // ── 헤더 미니 요약 부품 (2026-08-31 팀장님: 큰 KPI 카드 줄 → 제목 라인 흡수, 동일 폭·그림 포함) ──
+    const MINI_STATUS_COLORS = { '추진중': '#1e7ac8', '진행중': '#059669', '완료': '#94a3b8', '준비': '#d97706' };
+    const miniNumColor = (nm) => nm === '완료' ? '#059669' : nm === '진행중' ? '#1e7ac8' : '#37352f';
+    const miniDonut = (pct, color, txt) => {
+        const C = 97.4;   // 반지름 15.5 원둘레
+        const p = Math.max(0, Math.min(100, Number(pct) || 0));
+        return (
+            <span style={{ position: 'relative', width: 40, height: 40, flex: 'none' }}>
+                <svg width="40" height="40" viewBox="0 0 40 40" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
+                    <circle cx="20" cy="20" r="15.5" fill="none" stroke="#eef2f7" strokeWidth="5.5"/>
+                    <circle cx="20" cy="20" r="15.5" fill="none" stroke={color} strokeWidth="5.5" strokeLinecap="round" strokeDasharray={`${p / 100 * C} ${C}`}/>
+                </svg>
+                <b style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color }}>{txt}</b>
+            </span>
+        );
     };
 
     // ── 드래그 범위 선택 → Del 일괄 지우기 (2026-08-27 팀장님: 엑셀처럼 끌어서 한 번에) ──
@@ -5723,26 +5749,28 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             <header className="flex flex-row flex-wrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
                 {/* 왼쪽: 홈·팀 탭 + 타이틀 + 연도 + 카운트 */}
                 <div className="flex items-center gap-2 min-w-0 shrink-0">
-                    {/* 홈 + 팀 전환 탭 (2026-08-11 팀장님 — 목록=팀 카드(LIST_TEAMS), Software팀 공사중 제외) */}
-                    <div className="flex items-center gap-0.5 p-0.5 bg-[#eef1f5] border border-[#dde2e9] rounded-lg shrink-0">
-                        <button onClick={guardNav(onBack)} title="홈 — 팀 선택 화면으로"
-                            className="flex items-center justify-center w-7 h-[26px] rounded-md text-[#5d6b7c] hover:bg-white hover:text-[#1e7ac8] hover:shadow-sm transition-all">
-                            <Home size={14}/>
-                        </button>
-                        {LIST_TEAMS.map(t => (
-                            <button key={t} onClick={() => switchTeam(t)} title={t + ' 프로젝트 List로 이동'}
-                                className={`px-2.5 h-[26px] rounded-md text-[11.5px] font-bold transition-all whitespace-nowrap ${t === currentTeam ? 'bg-white text-[#1e7ac8] shadow-sm' : 'text-[#5d6b7c] hover:bg-white/70 hover:text-[#37352f]'}`}>
-                                {t}
-                            </button>
-                        ))}
-                    </div>
+                    {/* 팀 탭 제거 (2026-08-31 팀장님) — 팀 전환은 제목 옆 ▾ 드롭다운, 홈은 오른쪽 버튼줄로 이동 */}
                     <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                         <ListChecks size={20}/>
                     </div>
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                        <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap min-w-0 overflow-hidden text-ellipsis">
-                            {currentTeam} 프로젝트 List
-                        </h1>
+                        <div className="relative shrink-0">
+                            <h1 onClick={() => setTeamDropOpen(v => !v)} title="팀 전환 — 클릭"
+                                className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1 whitespace-nowrap cursor-pointer select-none">
+                                {currentTeam} <ChevronDown size={13} className="text-slate-400"/> 프로젝트 List
+                            </h1>
+                            {teamDropOpen && (<>
+                                <div className="fixed inset-0 z-40" onClick={() => setTeamDropOpen(false)}/>
+                                <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-[#dde2e9] rounded-lg shadow-lg py-1 min-w-[130px]">
+                                    {LIST_TEAMS.map(t => (
+                                        <button key={t} onClick={() => { setTeamDropOpen(false); switchTeam(t); }}
+                                            className={`w-full text-left px-3.5 py-1.5 text-[12px] font-bold hover:bg-blue-50 transition-colors ${t === currentTeam ? 'text-[#1e7ac8]' : 'text-[#37352f]'}`}>
+                                            {t}{t === currentTeam ? ' ✓' : ''}
+                                        </button>
+                                    ))}
+                                </div>
+                            </>)}
+                        </div>
                         {/* 연도 선택 — 월선택기·그달만/이전전체 토글을 연도 선택기로 단순화 (2026-07-06, List 실제 필터는 연도만) */}
                         <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0">
                             <Calendar size={11} className="text-[#1e7ac8] mr-1" />
@@ -5768,6 +5796,59 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 <option value="etc">기타 ({monthCountMap.etc || 0})</option>
                             </select>
                         </div>
+                        {/* ── 미니 요약 (2026-08-31 팀장님: KPI 카드 줄을 제목 라인으로 — 동일 폭 200px, 그림 포함) ── */}
+                        {dataSource === 'firebase' && kpiData.total > 0 && (kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && (() => {
+                            const chip = { display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid #dfe5ee', background: '#fbfdff', borderRadius: 10, padding: '3px 8px 3px 11px', whiteSpace: 'nowrap', width: 190, flex: 'none', height: 46 };
+                            const colorOf = (nm) => MINI_STATUS_COLORS[nm] || '#cbd5e1';
+                            const items = kpiData.ccOn ? (kpiData.ccItems || []).filter(it => it.cnt !== null) : [];
+                            const total = kpiData.ccOn ? (kpiData.ccTotal || 0) : kpiData.total;
+                            return (
+                                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                    <span style={chip} title={(kpiData.ccOn ? `전체 ${total}건 = ` + items.map(it => `${it.라벨} ${it.cnt}건`).join(' + ') : `전체 ${total}건`) + (kpiData.ptPct !== null ? ` · 포인트 달성률 ${kpiData.ptPct}% (${kpiData.accSum.toLocaleString()}/${kpiData.totSum.toLocaleString()})` : '')}>
+                                        <span style={{ flex: 1, minWidth: 0 }}>
+                                            <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b' }}>전체 <b style={{ fontSize: 14, color: '#37352f' }}>{total}</b><span style={{ fontSize: 9.5, color: '#a4a097' }}>건</span></span>
+                                            <span style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 3, background: '#eef2f7' }}>
+                                                {items.map(it => it.cnt > 0 && <i key={it.라벨} style={{ width: `${total > 0 ? it.cnt / total * 100 : 0}%`, background: colorOf(it.라벨) }}/>)}
+                                            </span>
+                                            <span style={{ display: 'flex', gap: 8, fontSize: 9, color: '#64748b', marginTop: 2, fontWeight: 700 }}>
+                                                {items.map(it => <span key={it.라벨}><i style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 2, marginRight: 2, background: colorOf(it.라벨) }}/>{it.cnt}</span>)}
+                                            </span>
+                                        </span>
+                                    </span>
+                                    {kpiData.ccOn ? items.map(it => {
+                                        const isProg = it.라벨 === '진행중' && kpiData.avgPct !== null;
+                                        const share = total > 0 ? Math.round(it.cnt / total * 100) : 0;
+                                        return (
+                                            <span key={it.라벨} style={chip} title={isProg ? `평균 공정률 ${kpiData.avgPct}% (값 있는 ${kpiData.pctN}건 평균) · 전체의 ${share}%` : `${kpiData.ccStName || '진행 현황'} 칸 기준 · 전체의 ${share}%`}>
+                                                <span>
+                                                    <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                        {isProg ? '진행중 · 평균 공정률' : it.라벨}
+                                                        {it.라벨 === '완료' && kpiData.doneThisMonth > 0 && <span style={{ fontSize: 9, fontWeight: 800, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 99, padding: '0 5px' }}>▲{kpiData.doneThisMonth} 이번 달</span>}
+                                                    </span>
+                                                    <span style={{ fontSize: 16, fontWeight: 800, color: miniNumColor(it.라벨), lineHeight: 1.15 }}>{it.cnt}<span style={{ fontSize: 10, color: '#a4a097' }}>건</span></span>
+                                                </span>
+                                                {miniDonut(isProg ? kpiData.avgPct : share, isProg ? '#059669' : colorOf(it.라벨), isProg ? Math.round(kpiData.avgPct) + '%' : share + '%')}
+                                            </span>
+                                        );
+                                    }) : (<>
+                                        <span style={chip} title={kpiData.avgPct !== null ? `값 있는 ${kpiData.pctN}건 평균` : '아직 입력된 공정률 없음'}>
+                                            <span>
+                                                <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b' }}>평균 공정률</span>
+                                                <span style={{ fontSize: 16, fontWeight: 800, color: '#1e7ac8', lineHeight: 1.15, display: 'block' }}>{kpiData.avgPct !== null ? kpiData.avgPct + '%' : '—'}</span>
+                                            </span>
+                                            {miniDonut(kpiData.avgPct || 0, '#1e7ac8', kpiData.avgPct !== null ? Math.round(kpiData.avgPct) + '%' : '—')}
+                                        </span>
+                                        <span style={chip} title={kpiData.ptPct !== null ? `누적 ${kpiData.accSum.toLocaleString()} / 총점 ${kpiData.totSum.toLocaleString()}` : '아직 총점(포인트) 값 없음'}>
+                                            <span>
+                                                <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b' }}>포인트 달성률</span>
+                                                <span style={{ fontSize: 16, fontWeight: 800, color: '#059669', lineHeight: 1.15, display: 'block' }}>{kpiData.ptPct !== null ? kpiData.ptPct + '%' : '—'}</span>
+                                            </span>
+                                            {miniDonut(kpiData.ptPct || 0, '#059669', kpiData.ptPct !== null ? kpiData.ptPct + '%' : '—')}
+                                        </span>
+                                    </>)}
+                                </div>
+                            );
+                        })()}
                         {/* 행 수(188/202행)는 하단 상태줄 '표시/전체'와 중복이라 제거 (2026-08-31 팀장님) — 필터 켜짐 표시만 유지 */}
                         {activeFilterCount > 0 && <span className="text-[11px] text-amber-500 font-bold whitespace-nowrap">필터 {activeFilterCount}</span>}
                         {/* 데이터 소스 인디케이터 */}
@@ -5783,7 +5864,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
                 {/* 오른쪽: 버튼 (월간업무보고 동일 스타일) */}
                 <div className="flex items-center justify-end gap-1 shrink-0">
-                    {/* 이전화면 버튼 → 왼쪽 홈 탭으로 통합 (2026-08-11) */}
+                    {/* 홈 — 컴팩트 왼쪽 (2026-08-31 팀장님: 팀 탭 제거로 이동) */}
+                    <button onClick={guardNav(onBack)} title="홈 — 팀 선택 화면으로"
+                        className="flex items-center justify-center px-2.5 py-1.5 rounded border border-[#d8d4cf] bg-white hover:bg-gray-50 transition-all shrink-0">
+                        <Home size={14} style={{ color: '#37352f' }}/>
+                    </button>
 
                     {/* 표시 모드 — 컴팩트 */}
                     <button
@@ -5809,9 +5894,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     </div>
 
                     {/* 프로젝트 추가 */}
-                    <button onClick={handleOpenAddRow}
+                    <button onClick={handleOpenAddRow} title="프로젝트 추가"
                         className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border border-[#1e7ac8] bg-[#1e7ac8] hover:bg-[#1866a8] text-white transition-all text-xs font-bold shrink-0 shadow-sm">
-                        <Plus size={14}/> 프로젝트 추가
+                        <Plus size={14}/> 추가
                     </button>
 
                     {/* 검색 */}
@@ -5868,7 +5953,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     {onGoToBacklog && (
                         <button onClick={guardNav(onGoToBacklog)} title="작업 백로그 — 누가·언제·무엇을 바꿨는지"
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
-                            <Clock size={13}/> 백로그
+                            <Clock size={13}/>
                         </button>
                     )}
 
@@ -5877,7 +5962,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <div className="relative shrink-0">
                         <button onClick={() => setSettingsOpen(v=>!v)}
                             className="flex items-center justify-center gap-1 bg-white hover:bg-[#f7f5f2] border border-[#d8d4cf] px-2.5 py-1.5 rounded-lg transition-all text-xs font-bold text-[#37352f]">
-                            <Settings size={13}/> 설정 <ChevronDown size={11}/>
+                            <Settings size={13}/> <ChevronDown size={11}/>
                         </button>
                         {settingsOpen && (
                             <>
@@ -6180,59 +6265,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </div>
                         </div>
                     )}
-                    {(kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && kpiData.total > 0 && (
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', backgroundColor: '#edf1f7', flexShrink: 0 }}>
-                            {kpiData.ccOn ? (<>
-                                {/* 당해 카드 (2026-08-21 팀장님, 기술1팀): 전체(순번 기준) + 작업 칸 항목별 건수 */}
-                                <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                    <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>전체 프로젝트</div>
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.ccTotal}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
-                                    <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{kpiData.ccBasis}</div>
-                                </div>
-                                {(kpiData.ccItems || []).map(it => (
-                                    <div key={it.라벨} style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                        <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>{it.라벨}</div>
-                                        {it.cnt !== null ? (
-                                            <div style={{ fontSize: '20px', fontWeight: 800, color: it.라벨 === '완료' ? '#059669' : it.라벨 === '진행중' ? '#1e7ac8' : '#37352f', lineHeight: 1.2 }}>{it.cnt}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
-                                        ) : (
-                                            <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
-                                        )}
-                                        <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{it.cnt !== null ? `${kpiData.ccStName} 칸 기준` : '이 팀 표엔 작업 현황 항목 없음'}</div>
-                                    </div>
-                                ))}
-                            </>) : (<>
-                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>프로젝트</div>
-                                <div style={{ fontSize: '20px', fontWeight: 800, color: '#37352f', lineHeight: 1.2 }}>{kpiData.total}<span style={{ fontSize: '12px', color: '#a4a097' }}>건</span></div>
-                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>{statusFilterCol ? `진행중 ${kpiData.progCnt}건 · ` : ''}하위 {kpiData.subCnt}건</div>
-                            </div>
-                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>평균 공정률</div>
-                                {kpiData.avgPct !== null ? (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#1e7ac8', lineHeight: 1.2 }}>{kpiData.avgPct}<span style={{ fontSize: '12px' }}>%</span></div>
-                                ) : (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
-                                )}
-                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
-                                    {kpiData.avgPct !== null ? `값 있는 ${kpiData.pctN}건 평균` : (kpiData.pctColCnt ? '아직 입력된 공정률 없음' : '이 팀 표엔 공정률 항목 없음')}
-                                </div>
-                            </div>
-                            <div style={{ flex: '1 1 150px', minWidth: '150px', background: '#fff', border: '1px solid #dfe5ee', borderRadius: '10px', padding: '8px 14px' }}>
-                                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#8f8b84', marginBottom: '2px' }}>포인트 달성률</div>
-                                {kpiData.ptPct !== null ? (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>{kpiData.ptPct}<span style={{ fontSize: '12px' }}>%</span></div>
-                                ) : (
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#c0c8d4', lineHeight: 1.2 }}>—</div>
-                                )}
-                                <div style={{ fontSize: '10.5px', color: '#a4a097', marginTop: '1px' }}>
-                                    {kpiData.ptPct !== null ? `${kpiData.accSum.toLocaleString()} / ${kpiData.totSum.toLocaleString()}`
-                                        : (!kpiData.hasAccCol ? '이 팀 표엔 누적 항목 없음' : '아직 총점(포인트) 값 없음')}
-                                </div>
-                            </div>
-                            </>)}
-                            {/* 'N월 완료' 카드는 삭제 (2026-08-25 팀장님: 의미 없음) — 남은 카드가 flex로 폭을 나눠 채움 */}
-                        </div>
-                    )}
+                    {/* KPI 카드 줄(당해·일반)은 헤더 미니 요약으로 이동 (2026-08-31 팀장님) — 지난 연도 보고 카드(rcOn)만 위에 유지 */}
                     {/* ── 진행현황 + 담당자 칩 필터 바 (한 행) ── */}
                     {statusFilterCol && statusChipData.length > 0 && (
                         <div style={{ padding: '6px 14px', borderBottom: '1px solid #c4ccd8', backgroundColor: '#edf1f7', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flexShrink: 0 }}>
