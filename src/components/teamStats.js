@@ -3,7 +3,7 @@
 //   규칙은 List 화면 KPI 카드(kpiData)와 동일: 올해(_year) 기준 · 하위/삭제 행 제외 ·
 //   공정률 = PLC·ETOS·HMI·통합시운전 4항목 평균(없으면 공정률/진척률 열 폴백) ·
 //   포인트 달성률 = Σ누적 ÷ Σ총점(하위 '포인트' 합>0이면 부모 총점 = 하위 합 — 2단계 규칙 동일)
-import { getDocs, getDoc } from 'firebase/firestore';
+import { getDocs, getDoc, query, where } from 'firebase/firestore';
 import { rowsColRef, monthlyReportDocRef } from './projectListData';
 import { getTeamProfile } from '../teamProfiles';
 
@@ -141,7 +141,11 @@ export async function fetchTeamStats(team) {
                 }
             } catch (e) { /* 월간보고 자료 없으면 아래 List 기준으로 */ }
         }
-        const snap = await getDocs(rowsColRef(team));
+        // ★ 올해 행만 서버에서 조회 (2026-08-31): 카드는 올해만 계산하는데 전 연도(팀당 최대 1,900여 건)를 다 받아
+        //   홈 방문마다 읽기 ~2,600건·첫 PC 카드 채움 ~17초. 올해만(264건)으로 90% 절감. _year 없는 행 0건 실측 확인.
+        //   'in' = 문자('2026')·숫자(2026) 타입 혼재 대비.
+        const _cy = String(new Date().getFullYear());
+        const snap = await getDocs(query(rowsColRef(team), where('_year', 'in', [_cy, Number(_cy)])));
         const rows = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
         const st = computeTeamStats(rows, team);
         _cache[team] = st;
