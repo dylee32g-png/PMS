@@ -411,6 +411,28 @@ const TechTeamPMS = () => {
   const openNotices = () => { setNoticeOpen(true); setNoticeSeen(true); try { localStorage.setItem('pms_notice_seen', NOTICES[0]?.date || ''); } catch (e) {} };
   
   const [currentMode, setCurrentMode] = useState(null); // ★ 'pms' (월간보고) 또는 'projectList' 또는 'estimate' 상태 추가
+  // ── 브라우저 뒤로가기(←) = 앱 이전 화면 (2026-08-31 팀장님) ─────────────────
+  //   화면(mode·team)이 바뀔 때마다 브라우저 방문 기록에 한 장씩 남기고, ←/→를 누르면 그 기록의 화면으로 복원.
+  //   List의 노란 칸(임시 편집)은 팀별 localStorage에 있어 화면을 떠났다 돌아와도 그대로 남는다(안전).
+  const histNavRef = React.useRef(false);
+  useEffect(() => {
+    if (histNavRef.current) { histNavRef.current = false; return; }   // ←/→로 온 변경은 기록 추가 안 함(무한 쌓임 방지)
+    const st = window.history.state;
+    if (st && st.pmsNav && st.mode === currentMode && st.team === currentTeam) return;
+    try { window.history.pushState({ pmsNav: true, mode: currentMode, team: currentTeam }, ''); } catch (e) {}
+  }, [currentMode, currentTeam]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    try { window.history.replaceState({ pmsNav: true, mode: currentMode, team: currentTeam }, ''); } catch (e) {}   // 최초 화면 도장
+    const onPop = (e) => {
+      const st = e.state;
+      if (!st || !st.pmsNav) return;                                  // 우리 기록이 아니면(사이트 밖) 브라우저에 맡김
+      histNavRef.current = true;
+      setCurrentTeam(st.team ?? null);
+      setCurrentMode(st.mode ?? null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // ★ 월간보고 잠금 스위치 (2026-08-19 팀장님): 각 팀 프로젝트 List 완전 정리 후 재개 결정 — 그때까지 진입 차단.
   //   true로 바꾸면 전부 복원(홈 카드 [열기]·List 헤더 [월간보고]·우클릭 '업무현황 이동'). 코드·데이터는 그대로.
   const MONTHLY_REPORT_OPEN = false;
