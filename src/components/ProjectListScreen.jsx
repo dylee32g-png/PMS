@@ -5768,11 +5768,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 <option value="etc">기타 ({monthCountMap.etc || 0})</option>
                             </select>
                         </div>
-                        <span className="text-[11px] text-slate-500 whitespace-nowrap">
-                            <span className="text-emerald-400 font-bold">{sortedRows.length}</span>
-                            <span className="text-slate-600">/{monthFilteredRows.length}행</span>
-                            {activeFilterCount > 0 && <span className="text-amber-400 font-bold"> · 필터 {activeFilterCount}</span>}
-                        </span>
+                        {/* 행 수(188/202행)는 하단 상태줄 '표시/전체'와 중복이라 제거 (2026-08-31 팀장님) — 필터 켜짐 표시만 유지 */}
+                        {activeFilterCount > 0 && <span className="text-[11px] text-amber-500 font-bold whitespace-nowrap">필터 {activeFilterCount}</span>}
                         {/* 데이터 소스 인디케이터 */}
                         {dataSource !== 'firebase' && (
                             <span className={`text-[10px] font-bold px-2 py-0.5 border ${srcBadge.bg} ${srcBadge.text} whitespace-nowrap flex items-center gap-1`}>
