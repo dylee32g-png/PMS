@@ -748,7 +748,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setSettingsOpen(false);
         if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 월간 마감을 할 수 없습니다.\n확정 저장 후 진행하세요.'); return; }
         const now = new Date();
-        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        // ★ 마감 대상 달 선택 (2026-09-01 팀장님: 9/1에 눌렀더니 '2026-09'로 떠 혼란 — 월초에 하는 마감은 '지난달' 결과 확정):
+        //   월초(1~10일) 기본값 = 지난달, 그 외 = 이번 달. 창에서 YYYY-MM을 고칠 수도 있음. 스냅샷 키·롤오버 모두 이 달로.
+        //   ※ 12월 마감은 해가 바뀌기 전(12월 중)에 실행 권장 — 1월에 지난달(작년 12월)로 마감하면 당해 연도 행 필터와 어긋남.
+        const _d0 = new Date(now.getFullYear(), now.getMonth() - (now.getDate() <= 10 ? 1 : 0), 1);
+        const ymDef = `${_d0.getFullYear()}-${String(_d0.getMonth() + 1).padStart(2, '0')}`;
+        const ymIn = window.prompt(
+            `[월간 마감] 어느 달의 확정값으로 저장할까요? (YYYY-MM)\n\n· 지금 화면의 값이 '그 달의 결과'로 사진 찍혀 저장됩니다\n· 월초(1~10일)에 누르면 지난달 마감이 기본입니다 — 보통 그대로 [확인]`,
+            ymDef);
+        if (ymIn === null) return;
+        const ym = String(ymIn).trim();
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { setAlertMsg(`달 형식이 올바르지 않습니다: "${ymIn}"\n예: 2026-08`); return; }
         const _cyMc = String(now.getFullYear());
         const mains = activeRows.filter(r => !isSubListRow(r) && String(r._year || _cyMc) === _cyMc);   // 당해 연도만 — 월간보고=당해 (2026-08-24 3팀 통일)
         if (!mains.length) { setAlertMsg('마감할 데이터가 없습니다.'); return; }
@@ -772,7 +782,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const prev = await getDoc(ref);
             const msg = prev.exists()
                 ? `[월간 마감] ${ym} — 이미 마감본이 있습니다(${String(prev.data().savedAt || '').slice(0, 16)} 저장).\n지금 List 값 ${mains.length}건으로 덮어쓸까요?`
-                : `[월간 마감] ${ym}\n\n지금 List의 값 ${mains.length}건을 이 달의 확정값으로 저장합니다.\n(월간보고의 전월/금월/증감 계산 근거 — 엑셀의 '시트 복사'와 같은 역할)\n\n진행할까요?`;
+                : `[월간 마감] ${ym}\n\n지금 List의 값 ${mains.length}건을 ${ym}의 확정값으로 저장합니다.\n(월간보고의 전월/금월/증감 계산 근거 — 엑셀의 '시트 복사'와 같은 역할)\n\n진행할까요?`;
             if (!window.confirm(msg)) return;
             await setDoc(ref, { ym, savedAt: new Date().toISOString(), savedBy: user?.email || '', count: mains.length, rows });
             // ★ 수식 팀 롤오버 (2026-08-19 팀장님 확정: [월간 마감] 버튼 때 달 전환) —
@@ -6241,7 +6251,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {teamProfile?.월간마감 && (
                                     <button onClick={handleMonthlyClose} disabled={!activeRows.length}
                                         className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-xs font-bold text-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                        <Calendar size={14} className="text-emerald-600"/> 월간 마감 (이 달 값 확정)
+                                        <Calendar size={14} className="text-emerald-600"/> 월간 마감 (그 달 값 확정)
                                     </button>
                                     )}
 
