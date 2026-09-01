@@ -6982,7 +6982,10 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             );
                                                             const st = extStatus[row._id];
                                                             const fill = (!st || st.state === 'nofolder') ? '#1e7ac8' : st.state === 'changed' ? '#7c3aed' : st.state === 'perm' ? '#d97706' : st.state === 'error' ? '#dc2626' : st.state === 'ok' ? '#059669' : '#1e7ac8';
-                                                            const nasFiles = (st?.files && st.files.length ? st.files : (row._extSync?.lastFiles || []));
+                                                            const _nfRaw = (st?.files && st.files.length ? st.files : (row._extSync?.lastFiles || []));
+                                                            // 칩 순서 통일 (2026-09-01 팀장님: 등록 순서와 무관하게 P9·P10 전용 파일 먼저 → 공통(진행현황·공용) 2번째)
+                                                            const _nfKey = (f) => (String(f.name || '').replace(/\.[^.]+$/, '').match(/^[A-Za-z]+\d+/) ? 0 : 2) + (f.shared ? 1 : 0);
+                                                            const nasFiles = [..._nfRaw].sort((a, b) => _nfKey(a) - _nfKey(b));
                                                             return (<>
                                                             {/* 파일별 원클릭 [엑셀로 열기] (2026-08-24 팀장님) — 맨 앞: 등록 후엔 파일 열기가 주 용도. 라벨=파일명 머리글, 전체 이름은 툴팁 */}
                                                             {nasFiles.slice(0, 3).map((f, fi) => {
