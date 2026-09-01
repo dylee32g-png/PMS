@@ -554,13 +554,22 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         //   공정·제어 7개 = 누적 최신값(itemFinalPct %) / 시운전 2개 = selfPct·intPct(subRows 하위행 합산까지) / 포인트 = 자체 누적합 (자체/통합/합 선택은 task 17)
         const HEADER_MAP = { drawing:'도면입수', iomap:'I/O Map', screen:'화면작성', baseinfo:'기준정보', plc:'PLC', etos:'ETOS', hmi:'HMI' };
         const mainTable = {};
+        // ★ 지우기 동기화 (2026-09-01 팀장님): '열 때(마지막 저장)는 값이 있었는데 지금 없어진' 항목 = 이번에 지운 것 → 메인표도 빈칸.
+        //   원래부터 빈 항목은 종전대로 안 건드림(팝업 안 쓰는 프로젝트의 엑셀 수동 값 보호).
+        const _hadSaved = (k) => Object.values((savedWeekly || {})[k] || {}).some(v => v !== '' && v !== null && v !== undefined);
+        const _hadSavedComb = (kb) => subRows.length > 0 ? subRows.some((_, i) => _hadSaved(`sub_${i}_${kb}`)) : _hadSaved(kb);
         [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].forEach(({ key }) => {
             const wd = weeklyData[key] || {};
-            if (!Object.values(wd).some(v => v !== '' && v !== null && v !== undefined)) return; // 입력 없으면 메인표 안 건드림
+            if (!Object.values(wd).some(v => v !== '' && v !== null && v !== undefined)) {
+                if (_hadSaved(key)) mainTable[HEADER_MAP[key]] = '';   // 이번에 지운 항목 → 메인표 빈칸 (2026-09-01)
+                return; // 원래 없던 칸은 안 건드림
+            }
             mainTable[HEADER_MAP[key]] = Math.round(itemFinalPct(key));
         });
         if (selfPctCum !== null && accSelfPts > 0) mainTable['자체시운전'] = selfPctCum;
+        else if (accSelfPts === 0 && _hadSavedComb('commissioning')) mainTable['자체시운전'] = '';   // 이번에 지움 (2026-09-01)
         if (intPctCum  !== null && accIntPts  > 0) mainTable['통합시운전'] = intPctCum;
+        else if (accIntPts === 0 && _hadSavedComb('intCommissioning')) mainTable['통합시운전'] = '';   // 이번에 지움 (2026-09-01)
         // 수식 팀 (2026-08-20 팀장님): 메인표 '금월'(시운전 수량) = 기준월 전체 주 자체시운전 포인트 합 — 팝업이 입력 원장.
         //   기준월에 키인이 하나라도 있을 때만 반영(없는 달을 0으로 덮지 않음). 누적·자체%·공정률은 메인표 수식이 이어서 재계산.
         if (sumAsPct) {
@@ -569,6 +578,19 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 return pt[0] === y && pt[1] === m && v !== '' && v !== null && v !== undefined;
             });
             if (hasCur) mainTable['금월'] = selfPts;
+            else if (accSelfPts === 0 && _hadSavedComb('commissioning')) {
+                // ★ 자체시운전 기록을 이번 세션에서 '전부' 지움 (2026-09-01 팀장님: 팝업에서 지우면 메인표도 지워져야):
+                //   금월 백지 + _clearComm 마커 → applyProgressToMainRow가 _accBase(마감 기준값)까지 백지 → 수식이 누적·자체%·공정률 재계산(→빈칸)
+                mainTable['금월'] = '';
+                mainTable['_clearComm'] = 1;
+            } else {
+                // 기준월 키인만 지운 경우(다른 달 기록은 남음): 금월만 빈칸 — 누적은 지난달까지 값 유지
+                const hadCur0 = Object.entries((savedWeekly || {})['commissioning'] || {}).some(([wk, v]) => {
+                    const pt = String(wk).split('-').map(Number);
+                    return pt[0] === y && pt[1] === m && v !== '' && v !== null && v !== undefined;
+                });
+                if (hadCur0) mainTable['금월'] = '';
+            }
         }
         // 포인트 칸 = '만점'(상세팝업 입력, 고정)이라 진행실적이 덮지 않음. 실적(포인트실적)은 task ③(자체/통합/합 선택)에서 별도 처리.
 
@@ -616,7 +638,10 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             setSavedWeekly(weeklyData); setDirty(false);
             onProgressSaved?.({ docKey, weeklyData });
             // ③ 포인트 실적 = 선택(자체 또는 통합, 합 없음) → 메인표 포인트실적/포인트소스 (2026-06-29)
-            const _pts = pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0);
+            let _pts = pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0);
+            // ★ 이번에 지워 0이 된 경우(마지막 저장 때는 실적 있었음) = 메인표 Point도 빈칸 (2026-09-01 지우기 동기화)
+            const _hadPts0 = (kb) => Object.keys(savedWeekly || {}).some(k => (k === kb || k.endsWith('_' + kb)) && Object.values(savedWeekly[k] || {}).some(v => v !== '' && v !== null && v !== undefined));
+            if (_pts === 0 && _hadPts0(pointSource === 'int' ? 'intCommissioning' : 'commissioning')) _pts = '';
             const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, '포인트소스': pointSource } };
             await onApplyToMonthly(projectId, _confirm);
             const _bits = [];

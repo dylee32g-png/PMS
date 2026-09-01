@@ -2138,6 +2138,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // 수식 팀 (2026-08-20 팀장님): ① 메인표에 없는 열(포인트실적 등)·자동 칸(자체 시운전 등)은 버림 — 팝업 자체시운전은 별개 운영
         //   ② 'ETOS'는 기술1팀 열 이름 'ETOS T/S'로 짝 ③ 트리거(%)가 바뀌니 공정률 자동 칸 재계산
         if (fmActive(srcRow)) {
+            // ★ _clearComm (2026-09-01 팀장님): 팝업에서 자체시운전 기록을 '전부' 지운 세션 — _accBase(마감 기준값)까지 백지
+            //   → fmRecalc가 누적·자체%·공정률을 재계산해 함께 빈칸이 된다 (팝업→메인 지우기 완전 동기화)
+            const clearComm = String(patch._clearComm ?? '') === '1';
+            delete patch._clearComm;
             const colByNorm = {}; (activeHeaders || []).forEach(h => { colByNorm[fmNorm(h)] = h; });
             const p2 = {};
             Object.entries(patch).forEach(([k, v]) => {
@@ -2146,7 +2150,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 p2[col] = v;
             });
             Object.keys(patch).forEach(k => delete patch[k]);
-            Object.assign(patch, p2, fmRecalc({ ...srcRow, ...p2 }, srcRow));
+            Object.assign(patch, p2, fmRecalc({ ...srcRow, ...p2, ...(clearComm ? { _accBase: '' } : {}) }, srcRow));
+            if (clearComm) patch._accBase = '';
         }
         if (!Object.keys(patch).length) return;
         const changes = Object.keys(patch).map(k => ({ field: k, from: String(srcRow[k] ?? ''), to: String(patch[k]) })).filter(c => c.from !== c.to);
