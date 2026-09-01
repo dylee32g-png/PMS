@@ -41,6 +41,15 @@ if exist "%BASE%\파수꾼기록.txt" (
   echo       기록 없음 - 한 번도 꺼진 적이 없습니다. 좋은 신호입니다.
 )
 echo.
+echo   [5] 트레이 아이콘 (창 숨김 관리)
+set "TCNT=0"
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "@(Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*pms_tray.ps1*' }).Count"`) do set "TCNT=%%A"
+if "%TCNT%"=="0" (
+  echo       [X] 트레이 상주 없음 - 창이 작업표시줄에 그대로 보입니다. 로그오프 후 재로그인 또는 설치.bat 재실행
+) else (
+  echo       [O] 트레이 상주 중 - 시계 옆 아이콘 더블클릭 = 창 보기
+)
+echo.
 echo  ============================================================
 echo.
 pause

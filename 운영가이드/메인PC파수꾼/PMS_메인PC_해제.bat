@@ -25,6 +25,11 @@ if errorlevel 1 (
 schtasks /Delete /TN "PMS_MainPC_Guard_5min"  /F >nul 2>&1
 schtasks /Delete /TN "PMS_MainPC_Guard_Logon" /F >nul 2>&1
 schtasks /Delete /TN "PMS_MainPC_Restart_Daily" /F >nul 2>&1
+schtasks /Delete /TN "PMS_MainPC_Tray_Logon" /F >nul 2>&1
+rem 트레이 상주 종료 + 숨겨 둔 전용 창 다시 표시 (2026-09-01)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*pms_tray.ps1*' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+if exist "C:\PMS\pms_tray.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "C:\PMS\pms_tray.ps1" -ShowOnly >nul 2>&1
+echo   - 트레이 상주 종료, 숨겨 둔 창 다시 표시
 echo   - 자동 확인 등록 해제 완료
 del "%USERPROFILE%\Desktop\PMS 메인PC.lnk" >nul 2>&1
 echo   - 바탕화면 바로가기 삭제

@@ -60,6 +60,8 @@ copy /y "%SRC%pms_guard_hidden.vbs" "%BASE%\" >nul
 copy /y "%SRC%pms_check.ps1"        "%BASE%\" >nul
 copy /y "%SRC%pms_restart.ps1"      "%BASE%\" >nul
 copy /y "%SRC%pms_restart_hidden.vbs" "%BASE%\" >nul
+copy /y "%SRC%pms_tray.ps1"          "%BASE%\" >nul
+copy /y "%SRC%pms_tray_hidden.vbs"   "%BASE%\" >nul
 copy /y "%SRC%mk_shortcut.vbs"      "%BASE%\" >nul
 copy /y "%SRC%PMS_¸ÞÀÎPC_ÇØÁ¦.bat"     "%BASE%\" >nul
 copy /y "%SRC%PMS_¸ÞÀÎPC_»óÅÂº¸±â.bat" "%BASE%\" >nul
@@ -91,6 +93,11 @@ rem ¹èÆ÷ ÈÄ ¿¾ ÄÚµå/ÀçÀûÀç ÈÄ ¿¾ µ¥ÀÌÅÍ·Î °è¼Ó µ¹´Ù Áö¿î ÇàÀ» µÇ»ì¸± ¼ö ÀÖÀ½ - Ç
 schtasks /Create /TN "PMS_MainPC_Restart_Daily" /TR "wscript.exe %BASE%\pms_restart_hidden.vbs" /SC DAILY /ST 05:30 /RU "%USERNAME%" /IT /RL LIMITED /F >nul 2>&1
 if errorlevel 1 (echo   [!] »õº® Àç½ÃÀÛ µî·Ï ½ÇÆÐ) else (echo   [6/7] ¸ÅÀÏ »õº® 5:30 ÀÚµ¿ Àç½ÃÀÛ µî·Ï ¿Ï·á)
 
+rem Æ®·¹ÀÌ »óÁÖ (2026-09-01) - Àü¿ë Ã¢À» ÀÛ¾÷Ç¥½ÃÁÙ¿¡¼­ ¼û±â°í ½Ã°è ¿· ¾ÆÀÌÄÜÀ¸·Î¸¸ °ü¸®
+rem   (°ø¿ë PC¿¡¼­ Á÷¿øµéÀÌ Ã¢À» ¸¸Áö´Â »ç°í ¹æÁö - ´õºíÅ¬¸¯ÇÏ¸é 10ºÐ°£ Ã¢ È®ÀÎ °¡´É)
+schtasks /Create /TN "PMS_MainPC_Tray_Logon" /TR "wscript.exe %BASE%\pms_tray_hidden.vbs" /SC ONLOGON /DELAY 0000:30 /RU "%USERNAME%" /IT /RL LIMITED /F >nul 2>&1
+if errorlevel 1 (echo   [!] Æ®·¹ÀÌ »óÁÖ µî·Ï ½ÇÆÐ) else (echo   [6-1] Æ®·¹ÀÌ »óÁÖ(Ã¢ ¼û±è °ü¸®) µî·Ï ¿Ï·á)
+
 rem ===== ¹ÙÅÁÈ­¸é ¹Ù·Î°¡±â =====
 cscript //nologo "%BASE%\mk_shortcut.vbs" >nul 2>&1
 echo   [7/7] ¹ÙÅÁÈ­¸é ¹Ù·Î°¡±â »ý¼º
@@ -99,6 +106,10 @@ rem ===== Áï½Ã 1È¸ ½ÇÇà =====
 echo.
 echo   PMS Àü¿ë Ã¢À» Áö±Ý ¶ç¿ó´Ï´Ù...
 call "%BASE%\pms_guard.bat"
+
+rem Æ®·¹ÀÌ »óÁÖ ½ÃÀÛ - Ã³À½ 20ºÐÀº Ã¢À» ¼û±âÁö ¾ÊÀ½ (¾Æ·¡ ÃÊ±â ¼³Á¤À» ÇÏ½Ã¶ó°í)
+start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%BASE%\pms_tray.ps1" -GraceMinutes 20
+echo   [+] Æ®·¹ÀÌ ¾ÆÀÌÄÜ ½ÃÀÛ (½Ã°è ¿·) - 20ºÐ µÚºÎÅÍ Ã¢Àº ÀÚµ¿À¸·Î ¼û°ÜÁý´Ï´Ù
 
 echo.
 echo  ============================================================
@@ -121,5 +132,9 @@ echo      Á÷¿øµéÀÌ Å©·ÒÀ» ´Ù ´Ý¾Æµµ ÀÌ Ã¢Àº ¾È Á×½À´Ï´Ù.
 echo.
 echo    »óÅÂ È®ÀÎ : C:\PMS\PMS_¸ÞÀÎPC_»óÅÂº¸±â.bat
 echo    µÇµ¹¸®±â   : C:\PMS\PMS_¸ÞÀÎPC_ÇØÁ¦.bat
+echo    ¡Ú ÀÌ Ã¢Àº 20ºÐ µÚºÎÅÍ È­¸é¿¡¼­ ¼û°ÜÁö°í, ½Ã°è ¿· Æ®·¹ÀÌ ¾ÆÀÌÄÜÀ¸·Î¸¸ ³²½À´Ï´Ù.
+echo       È®ÀÎÇÏ·Á¸é : ½Ã°è ¿· Å©·Ò ¸ð¾ç ¾ÆÀÌÄÜ ´õºíÅ¬¸¯ (10ºÐ µÚ ÀÚµ¿ ¼û±è)
+echo       (ÀÛ¾÷Ç¥½ÃÁÙ¿¡ Ã¢ÀÌ ¾øÀ¸´Ï ´Ù¸¥ Á÷¿øÀÌ ¸¸Áú ÀÏÀÌ ¾ø½À´Ï´Ù)
+echo.
 echo.
 pause
