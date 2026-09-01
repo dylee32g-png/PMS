@@ -34,7 +34,7 @@ export const reportStatus = (계약, 작업) => {
         if (w === '보고완료') return '보고완료';
         if (w === '완료') return '완료';
         if (w === '진행') return '진행중';
-        if (w === '준비' || w === '대기') return '준비';
+        if (w === '준비' || w === '준비중' || w === '추진중' || w === '대기') return '추진중';   // '준비'→'추진중' 통일 (2026-09-01 팀장님)
         if (w === '미작업') return '미작업';
         return '수주';
     }

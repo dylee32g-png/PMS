@@ -1018,6 +1018,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const _reqCols = (po.필수열 ? [].concat(po.필수열) : [])
                 .map(rq => (colDefs.find(c => String(c.name).replace(/\s/g, '') === String(rq).replace(/\s/g, '')) || {}).name)
                 .filter(Boolean);
+            // 값 치환(팀 카드 파서옵션.값치환, 2026-09-01 팀장님): 업로드 시 지정 칸 값 통일 — 기슠1팀 '작업' 준비→추진중
+            const _subst = po.값치환 ? Object.entries(po.값치환).map(([cn, map]) => ({
+                name: (colDefs.find(c => String(c.name).replace(/\s/g, '') === String(cn).replace(/\s/g, '')) || {}).name, map
+            })).filter(x => x.name) : [];
             const sheetRows = raw.slice(dataStart).map((row, idx) => {
                 const obj = {
                     _id:   `row_${year}_${ts}_${String(idx).padStart(5,'0')}`,
@@ -1027,6 +1031,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 };
                 colDefs.forEach(({ idx: ci, name }) => { obj[name] = String(row[ci] ?? '').trim(); });
                 if (po.번호패딩 !== false && _noColName && obj[_noColName]) obj[_noColName] = padProjectNo(obj[_noColName]);
+                _subst.forEach(({ name, map }) => { const v0 = String(obj[name] ?? '').trim(); if (map[v0] !== undefined) obj[name] = map[v0]; });   // 값치환 (2026-09-01)
                 if (_reqCols.length && _reqCols.some(n => !obj[n])) return null;
                 return colDefs.every(({ name }) => !obj[name]) ? null : obj;
             }).filter(Boolean);
