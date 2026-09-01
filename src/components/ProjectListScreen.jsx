@@ -2216,9 +2216,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (forceItemKey && parts[0] === cy && parts[1] === cm && parts[2] !== curW) delete itemWeeks[wk];
             });
             if (isClear) {
-                delete itemWeeks[curWKey];                               // 이번 주 기록 삭제 = 키인 이전 상태로
-                if (JSON.stringify(itemWeeks) === JSON.stringify(weekly[itemKey] || {})) return;   // 지울 것 없음 → 쓰기 생략
-                if (Object.keys(itemWeeks).length) weekly[itemKey] = itemWeeks; else delete weekly[itemKey];
+                // ★ 빈칸(0 포함) = 그 항목 주차 기록 '전부' 삭제 (2026-09-01 팀장님: 메인표에서 지우면 팝업도 빈칸 — 완전 동기화)
+                //   구(2026-08-27) '이번 주만 삭제'는 주·달이 바뀌면 지난 주 값이 팝업에 이월 표시되는 구멍(9/1 실사례: 8월 4주차 잔존).
+                //   변경 이력(_changeHistory)·백로그 기록은 남음. 과거 주차도 지워지므로 그래프 월별 추이에서도 이 항목은 빠짐.
+                if (!(itemKey in weekly)) return;                        // 지울 것 없음 → 쓰기 생략
+                delete weekly[itemKey];
             } else {
                 itemWeeks[curWKey] = num;                                // 현재 주차에 값 기록
                 weekly[itemKey] = itemWeeks;
@@ -2261,10 +2263,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             // 하위(sub_i) 체제 장부 = NAS가 원장 → 메인 키인 동기화 금지 (잠금과 별개의 이중 안전장치)
             if (Object.keys(weekly).some(k => /^sub_\d+_(commissioning|intCommissioning)$/.test(k))) return { ok: true };
             const iw = { ...(weekly.intCommissioning || {}) };
-            if (isClear) {                                               // Point 지움 = 이번 주 기록만 삭제 (지난 주 이력 보존, 2026-08-27)
-                if (!(curWKey in iw)) return { ok: true };               // 이번 주 기록 없음 → 지울 것 없음
-                delete iw[curWKey];
-                if (Object.keys(iw).length) weekly.intCommissioning = iw; else delete weekly.intCommissioning;
+            if (isClear) {                                               // ★ Point 지움 = 통합시운전 주차 기록 '전부' 삭제 (2026-09-01 팀장님: 팝업 완전 동기화 — 구 '이번 주만'은 주가 바뀌면 지난 주 값 잔존)
+                if (!Object.keys(iw).length) return { ok: true };        // 지울 것 없음
+                delete weekly.intCommissioning;
                 await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
                 ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
                 if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });
