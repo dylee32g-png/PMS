@@ -816,7 +816,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // 팀 카드 '표시.막대제거' (2026-09-01 팀장님, 기슠1팀 자체 시운전): 막대 없이 숫자+%만
         const noBar = teamProfile?.표시?.막대제거;
         if (Array.isArray(noBar) && noBar.some(c => String(c).replace(/\s/g, '') === s)) {
-            return <span style={{ fontWeight: 800, fontSize: '12.5px', color: full ? '#047857' : '#1e5f9e' }}>{num}<span style={{ fontSize: '10px', fontWeight: 700, color: '#a4a097' }}>%</span></span>;
+            return <span style={{ fontWeight: 600 }}>{disp}</span>;   // PLC·HMI와 동일 표기 (2026-09-01 팀장님)
         }
         return (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
