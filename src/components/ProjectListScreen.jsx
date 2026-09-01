@@ -5798,7 +5798,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         </div>
                         {/* ── 미니 요약 (2026-08-31 팀장님: KPI 카드 줄을 제목 라인으로 — 동일 폭 200px, 그림 포함) ── */}
                         {dataSource === 'firebase' && kpiData.total > 0 && (kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && (() => {
-                            const chip = { display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid #dfe5ee', background: '#fbfdff', borderRadius: 10, padding: '3px 8px 3px 11px', whiteSpace: 'nowrap', width: 190, flex: 'none', height: 46 };
+                            const chip = { display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid #dfe5ee', background: '#fbfdff', borderRadius: 10, padding: '3px 8px 3px 11px', whiteSpace: 'nowrap', width: 185, flex: 'none', height: 46 };
                             const colorOf = (nm) => MINI_STATUS_COLORS[nm] || '#cbd5e1';
                             const items = kpiData.ccOn ? (kpiData.ccItems || []).filter(it => it.cnt !== null) : [];
                             const total = kpiData.ccOn ? (kpiData.ccTotal || 0) : kpiData.total;
@@ -5906,24 +5906,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <div className="relative">
                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none z-10 transition-colors" size={13}
                                 style={{ color: searchTerm ? '#d97706' : '#8f8b84' }}/>
-                            <input type="text" placeholder="전체 검색..." value={searchTerm}
+                            {/* 폭: 초안([저장 N칸]/[취소] 131px) 등장 시만 64px로 축소 — FHD 헤더 한 줄 유지(여유 81px 실측, 2026-09-01) */}
+                            <input type="text" placeholder="전체 검색..." value={searchTerm} title="전체 검색"
                                 onChange={e => setSearchTerm(e.target.value)}
                                 style={{ borderRadius: 8 }}
-                                className="bg-white border border-[#d8d4cf] hover:border-[#b9b3ab] focus:border-[#1e7ac8] py-1.5 pl-7 pr-2 text-xs text-[#37352f] outline-none w-32 focus:w-48 transition-all placeholder-[#a4a097]"/>
+                                className={`bg-white border border-[#d8d4cf] hover:border-[#b9b3ab] focus:border-[#1e7ac8] py-1.5 pl-7 pr-2 text-xs text-[#37352f] outline-none transition-all placeholder-[#a4a097] ${dataSource === 'firebase' && draftCellCount > 0 ? 'w-[72px]' : 'w-32 focus:w-48'}`}/>
                         </div>
                     </div>
 
 
                     {/* ★ 임시 편집 저장 (2026-08-27 팀장님): 메인표 키인·드롭다운은 노란 칸(초안)으로 모아 두었다가 여기서 행별 1회 저장 (Ctrl+S) */}
                     {dataSource === 'firebase' && draftCellCount > 0 && (
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-0.5 shrink-0">
                             <button onClick={() => saveDraft()} disabled={draftSaving} title="임시 편집을 서버에 저장 (Ctrl+S)"
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-bold shrink-0"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded border text-xs font-bold shrink-0"
                                 style={{ backgroundColor: draftSaving ? '#9ca3af' : '#16a34a', borderColor: draftSaving ? '#9ca3af' : '#15803d', color: '#fff', animation: draftSaving ? 'none' : 'pmsDraftPulse 1.6s ease-in-out infinite' }}>
                                 <Save size={13}/> {draftSaving ? '저장 중…' : `저장 ${draftCellCount}칸`}
                             </button>
                             <button onClick={discardDraft} disabled={draftSaving} title="임시 편집 전부 되돌리기 (서버 값으로)"
-                                className="px-2 py-1.5 rounded border text-xs font-bold shrink-0"
+                                className="px-1.5 py-1.5 rounded border text-xs font-bold shrink-0"
                                 style={{ backgroundColor: '#fff', borderColor: '#d8d4cf', color: '#b91c1c' }}>취소</button>
                         </div>
                     )}
