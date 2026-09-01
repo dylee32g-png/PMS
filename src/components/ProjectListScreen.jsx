@@ -3388,8 +3388,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     const deleteRow = async id => {
-        // ★ 관리자 전용 (2026-07-14): 되돌릴 수 없는 완전 삭제
-        if (dataSource === 'firebase' && !isAdmin) { setAlertMsg('프로젝트 삭제는 관리자만 할 수 있습니다.'); return; }
+        // 전 직원 허용 (2026-09-01 팀장님: 담당자가 직접 추가·삭제 — 구 2026-07-14 관리자 전용 해제. 확인창+백로그 기록은 그대로)
         if (dataSource !== 'firebase') {
             const updater = rows => rows.filter(r => r._id !== id);
             if (dataSource === 'pending') setPendingData(p => ({ ...p, rows: updater(p.rows) }));
@@ -4802,13 +4801,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </>
                         )}
                         {/* 진행실적 초기화(백지) — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
-                        {isAdmin && (<>
                         <div className="border-t border-[#e5eaf3] my-1"/>
+                        {isAdmin && (
                         <button onClick={() => { handleResetProgress(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-[#dc2626] transition-colors">
                             <Trash2 size={16}/> 진행실적 초기화 (백지)
                         </button>
-                        {/* ★ 프로젝트 완전 삭제 — 관리자 전용 (2026-07-14 신설).
+                        )}
+                        {/* ★ 프로젝트 완전 삭제 — 전 직원 허용 (2026-09-01 팀장님: 담당자 직접 추가·삭제. 구 2026-07-14 관리자 전용).
                             deleteRow()는 있었으나 호출 버튼이 없어 테스트 행조차 지울 수 없었음.
                             평소 운영은 진행현황을 '삭제'로 바꾸는 방식(soft, 행 보존) 권장 — 이 메뉴는 테스트·오등록 정리용. */}
                         <button onClick={() => {
@@ -4829,7 +4829,6 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         }} className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-black text-[#b91c1c] transition-colors">
                             <Trash2 size={16}/> 프로젝트 완전 삭제
                         </button>
-                        </>)}
                     </div>
                 </>
             )}
