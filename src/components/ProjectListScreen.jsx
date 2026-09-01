@@ -800,7 +800,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const pctCell = (h, val) => {
         const disp = pctDisplay(h, val);
         const s = String(h).replace(/\s/g, '');
-        // 팀 카드 '표시.퍼센트표기열' (2026-09-01 팀장님, 기슠1팀 공정률[%] 전체·전월·금월): 숫자+% 표기
+        // 팀 카드 '표시.퍼센트표기열' (2026-09-01 팀장님, 기술1팀 공정률[%] 전체·전월·금월): 숫자+% 표기
         const pctTxt = teamProfile?.표시?.퍼센트표기열;
         if (Array.isArray(pctTxt) && pctTxt.some(c => String(c).replace(/\s/g, '') === s)) {
             const n0 = parseFloat(String(val ?? '').replace(/%/g, ''));
@@ -813,7 +813,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!(s.includes('시운전') || s.includes('공정률'))) return <span style={{ fontWeight: 600 }}>{disp}</span>;
         const w = Math.max(0, Math.min(100, num));
         const full = num >= 100;
-        // 팀 카드 '표시.막대제거' (2026-09-01 팀장님, 기슠1팀 자체 시운전): 막대 없이 숫자+%만
+        // 팀 카드 '표시.막대제거' (2026-09-01 팀장님, 기술1팀 자체 시운전): 막대 없이 숫자+%만
         const noBar = teamProfile?.표시?.막대제거;
         if (Array.isArray(noBar) && noBar.some(c => String(c).replace(/\s/g, '') === s)) {
             return <span style={{ fontWeight: 600 }}>{disp}</span>;   // PLC·HMI와 동일 표기 (2026-09-01 팀장님)
@@ -1018,7 +1018,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const _reqCols = (po.필수열 ? [].concat(po.필수열) : [])
                 .map(rq => (colDefs.find(c => String(c.name).replace(/\s/g, '') === String(rq).replace(/\s/g, '')) || {}).name)
                 .filter(Boolean);
-            // 값 치환(팀 카드 파서옵션.값치환, 2026-09-01 팀장님): 업로드 시 지정 칸 값 통일 — 기슠1팀 '작업' 준비→추진중
+            // 값 치환(팀 카드 파서옵션.값치환, 2026-09-01 팀장님): 업로드 시 지정 칸 값 통일 — 기술1팀 '작업' 준비→추진중
             const _subst = po.값치환 ? Object.entries(po.값치환).map(([cn, map]) => ({
                 name: (colDefs.find(c => String(c.name).replace(/\s/g, '') === String(cn).replace(/\s/g, '')) || {}).name, map
             })).filter(x => x.name) : [];
@@ -1874,6 +1874,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const dup = execDupOf(srcRow._id, srcRow._year, editingCell.key, patch[editingCell.key]);
             if (dup) { setAlertMsg(execDupMsg(patch[editingCell.key], dup)); setEditingCell({ id: null, key: null, value: '' }); return; }
         }
+        // ★ 프로젝트 번호 중복 차단 (2026-09-01 팀장님): 번호 수동 키인 — 같은 연도 다른 메인 행(초안 포함)과 겹치면(001=01=1) 키인 단계에서 거부
+        if (srcRow && isProjNoCol(editingCell.key) && !isSubListRow(srcRow) && String(patch[editingCell.key] ?? '').trim() !== '') {
+            const dupN = projNoDupOf(patch[editingCell.key], srcRow._year, srcRow._id);
+            if (dupN) { setAlertMsg(projNoDupMsg(patch[editingCell.key], dupN)); setEditingCell({ id: null, key: null, value: '' }); return; }
+        }
         // ★ 수식 재계산 (2026-08-19, 기술1팀): 트리거 칸(PLC·ETOS·HMI·총물량·금월)을 고치면 자동 칸 함께 갱신
         //   (2026-08-20 팀장님: 팝업 자체시운전 = 메인표와 별개 운영 — 금월 키인을 주차장부로 밀어넣던 자동은 폐지, 사람이 팝업에서 직접 키인)
         //   ★ 값이 실제로 바뀐 경우에만 (2026-08-28 팀장님: ETOS 칸을 클릭만 하고 나와도 누적·전체·금월이 0 노란 칸으로 잡히던 버그 —
@@ -1969,12 +1974,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             ids.forEach(id => {
                 const r = activeRowsRef.current.find(x => x._id === id); if (!r || isSubListRow(r)) return;
                 Object.keys(d[id].patch || {}).forEach(k => {
-                    if (!isExecAssignRowCol(r, k)) return;
-                    const dup = execDupOf(id, r._year, k, d[id].patch[k]);
-                    if (dup) dups.push(`· ${nameOf(r)} — '${execNoNorm(d[id].patch[k])}' ↔ ${nameOf(dup)}`);
+                    if (isExecAssignRowCol(r, k)) {
+                        const dup = execDupOf(id, r._year, k, d[id].patch[k]);
+                        if (dup) dups.push(`· ${nameOf(r)} — 수행번호 '${execNoNorm(d[id].patch[k])}' ↔ ${nameOf(dup)}`);
+                    }
+                    // ★ 프로젝트 번호도 최종 중복 검사 (2026-09-01 팀장님, 001=01=1)
+                    if (isProjNoCol(k) && String(d[id].patch[k] ?? '').trim() !== '') {
+                        const dupN = projNoDupOf(d[id].patch[k], r._year, id);
+                        if (dupN) dups.push(`· ${nameOf(r)} — 번호 '${String(d[id].patch[k]).trim()}' ↔ ${nameOf(dupN)}`);
+                    }
                 });
             });
-            if (dups.length) { setAlertMsg(`⛔ 수행번호 중복 — 저장할 수 없습니다!\n\n${dups.slice(0, 8).join('\n')}${dups.length > 8 ? '\n…' : ''}\n\n겹치는 행의 번호를 고치거나(✕ 회수 후 [+]) [취소]로 되돌린 뒤 다시 저장해 주세요.`); return; }
+            if (dups.length) { setAlertMsg(`⛔ 번호 중복 — 저장할 수 없습니다!\n\n${dups.slice(0, 8).join('\n')}${dups.length > 8 ? '\n…' : ''}\n\n겹치는 행의 번호를 고치거나 [취소]로 되돌린 뒤 다시 저장해 주세요.`); return; }
         }
         // 동시수정 검사: 편집 시작 때 서버 값(orig) ≠ 지금 서버 값 → 그 사이 다른 사람이 고침 (내 값과 같으면 무시)
         if (!force) {
@@ -3199,21 +3210,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     };
 
-    // ── 프로젝트 번호 자동 +1 · 중복 차단 (2026-08-25 팀장님) ──────────────────
-    //   번호 열 = '번호'(기술2·3팀) 또는 '순번'(기술1팀) — 둘 다 3자리 패딩 (2026-08-27 통일). 같은 연도 메인 행 기준.
+    // ── 프로젝트 번호 = 수동 키인 · 중복 차단 (2026-09-01 팀장님 — 구 2026-08-25 자동+1 폐지) ──────────
+    //   자동+1 폐지 이유: 삭제된 번호(예: 50)를 다른 이름으로 재사용할지는 담당자가 판단 — 번호는 절대 안 밀림(재정렬 없음).
+    //   번호 열 = '번호'(기술2·3팀) 또는 '순번'(기술1팀). 중복 판정 정규화 = 001=01=1(숫자는 앞 0 제거) 전부 같은 번호.
     const projNoColOf = () => (activeHeaders || []).find(h => ['번호', '순번'].includes(String(h).replace(/\s/g, '')));
     const _cyStr = () => String(new Date().getFullYear());
-    const nextProjNo = (year) => {
-        const c = projNoColOf(); if (!c) return null;
-        let mx = 0;
-        activeRows.forEach(r => {
-            if (isSubListRow(r)) return;
-            if (String(r._year || _cyStr()) !== String(year)) return;
-            const n = Number(String(r[c] ?? '').trim());
-            if (Number.isFinite(n)) mx = Math.max(mx, n);
-        });
-        return padProjectNo(String(mx + 1));   // 번호·순번 모두 3자리 (2026-08-27 통일)
+    const projNoNorm = (v) => { const t = String(v ?? '').trim(); return /^\d+$/.test(t) ? String(Number(t)) : t.replace(/\s+/g, '').toUpperCase(); };
+    const projNoDupOf = (val, year, exceptId) => {
+        const c = projNoColOf(); const key = projNoNorm(val);
+        if (!c || key === '') return null;
+        return activeRowsRef.current.find(r => r._id !== exceptId && !isSubListRow(r)
+            && String(r._year || _cyStr()) === String(year)
+            && projNoNorm(r[c]) === key) || null;
     };
+    const projNoDupMsg = (v, dup) => `⛔ 프로젝트 번호 중복 — 저장할 수 없습니다!\n\n'${String(v ?? '').trim()}'번은 이미 등록돼 있습니다 (001=01=1 같은 번호 취급):\n→ ${String((projectNameCol && dup[projectNameCol]) || '').trim() || '(이름 없음)'}\n\n다른 번호로 키인해 주세요.`;
 
     // ── 새 행 추가 ────────────────────────────────────────────────────────
     const addCopiedRef = useRef(false);   // 추가 팝업이 '행 복사'로 열렸는지 — 팝업 상단 안내 표시용 (2026-08-31)
@@ -3235,10 +3245,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const regDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
         const newRow = { _id: newId, _pid: newPid, _year: newYear, _regDate: regDate };
         activeHeaders.forEach(h => { newRow[h] = baseRow ? (baseRow[h] || '') : ''; });   // 엑셀 항목만 복사(_ 내부필드는 복사 안 됨)
-        // 번호 자동 = 그 연도 최대 번호+1 (2026-08-25 팀장님) — 행 복사 추가여도 번호는 새로 받아 중복 방지
+        // ★ 번호 = 수동 키인 (2026-09-01 팀장님, 구 자동+1 폐지): 빈칸으로 열고 추가하는 사람이 직접 키인 — 복사 추가여도 비움(원본 번호 따라오면 중복)
         const _autoNoC = projNoColOf();
-        const _autoNo = nextProjNo(newYear);
-        if (_autoNoC && _autoNo !== null) newRow[_autoNoC] = _autoNo;
+        if (_autoNoC) newRow[_autoNoC] = '';
         // 수행번호는 복사하지 않음 (2026-08-28): 선택 행의 번호가 그대로 따라오면 중복 — 빈칸으로 두고 저장 후 메인표 [+]로 받는다
         activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; });
         setAddingRow(newRow);
@@ -3313,25 +3322,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const saveAddingRow = async () => {
         if (!addingRow) return;
-        // 번호 3자리 통일 (2026-07-20 팀장님): 웹에서 추가할 때도 1→001 — 업로드·정렬 규칙과 일치
-        const rowToAdd = addingRow['번호'] !== undefined ? { ...addingRow, '번호': padProjectNo(addingRow['번호']) } : addingRow;
-        // ★ 프로젝트 번호 중복 차단 (2026-08-25 팀장님) — 같은 연도 메인 행과 겹치면 저장 금지 (하위(s) 추가는 번호 없음·제외)
+        // 번호 3자리 통일 (2026-07-20 팀장님): 웹에서 추가할 때도 1→001 — '순번'(기술1팀) 포함 (2026-09-01)
+        const _padC0 = projNoColOf();
+        const rowToAdd = _padC0 && addingRow[_padC0] !== undefined ? { ...addingRow, [_padC0]: padProjectNo(String(addingRow[_padC0] ?? '').trim()) } : addingRow;
+        // ★ 프로젝트 번호 = 수동 키인·중복 차단 (2026-09-01 팀장님, 001=01=1 동일 취급) — 하위(s) 추가는 번호 없음·제외
         {
             const _noC = projNoColOf();
             const _isSubAdd = String(rowToAdd['실행번호'] ?? '').trim().toLowerCase() === 's';
             if (_noC && !_isSubAdd) {
-                const _no = padProjectNo(String(rowToAdd[_noC] ?? '').trim());
-                if (_no !== '') {
-                    const _yr = String(rowToAdd._year || _cyStr());
-                    const dup = activeRows.find(r => r._id !== rowToAdd._id && !isSubListRow(r)
-                        && String(r._year || _cyStr()) === _yr
-                        && padProjectNo(String(r[_noC] ?? '').trim()) === _no);
-                    if (dup) {
-                        const _dupNm = String((projectNameCol && dup[projectNameCol]) || '').trim() || '(이름 없음)';
-                        setAlertMsg(`⛔ 프로젝트 번호 중복 — 저장할 수 없습니다!\n\n'${_no}'번은 이미 등록돼 있습니다:\n→ ${_dupNm}\n\n번호를 다른 값으로 바꾼 뒤 다시 저장해 주세요.\n(추가 창을 새로 열면 다음 번호가 자동으로 들어갑니다)`);
-                        return;
-                    }
-                }
+                const _no = String(rowToAdd[_noC] ?? '').trim();
+                if (_no === '') { setAlertMsg('⛔ 프로젝트 번호가 비어 있습니다.\n\n번호는 자동으로 채워지지 않습니다 — 직접 키인해 주세요.\n(삭제된 번호를 다시 쓸지, 새 번호로 할지는 담당자가 정합니다)'); return; }
+                const dup = projNoDupOf(_no, String(rowToAdd._year || _cyStr()), rowToAdd._id);
+                if (dup) { setAlertMsg(projNoDupMsg(_no, dup)); return; }
             }
         }
         // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
@@ -4323,7 +4325,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const TAB = String.fromCharCode(9), NL = String.fromCharCode(10);   // 엑셀 호환 탭 구분 텍스트
         const tsv = rows.map(r => mainVisibleHeaders.map(h => String(r[h] ?? '')).join(TAB)).join(NL);
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tsv).catch(() => {});
-        showExtToast(`${rows.length}행 복사됨 — Ctrl+V = 새 프로젝트로 추가 (번호 자동 +1)`);
+        showExtToast(`${rows.length}행 복사됨 — Ctrl+V = 새 프로젝트로 추가 (번호는 비워짐 — 붙여넣기 후 직접 키인)`);
     };
     const pasteCopiedRows = async () => {
         const clip = rowClipRef.current;
@@ -4333,24 +4335,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         pasteBusyRef.current = true;
         try {
             const yr = String(selectedYear || new Date().getFullYear());
-            const noC = projNoColOf();
-            const baseNo = noC ? Number(nextProjNo(yr)) : NaN;   // 그 연도 마지막 번호+1 (팀장님 확정)
+            const noC = projNoColOf();   // ★ 번호 수동 키인 (2026-09-01 팀장님, 구 자동+1 폐지): 붙여넣은 행은 번호 빈칸 — 더블클릭으로 키인(중복 자동 차단)
             const _d = new Date();
             const regDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
-            const nos = [];
             for (let i = 0; i < clip.rows.length; i++) {
                 const src = clip.rows[i];
                 const newId = `row_manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
                 const newRow = { _id: newId, _pid: generatePid(), _year: yr, _regDate: regDate };
                 activeHeaders.forEach(h => { newRow[h] = src[h] || ''; });                         // 엑셀 항목만 복사(_ 내부필드 제외 = NAS 규칙·이력 안 따라옴)
                 activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; }); // 수행번호는 복사 안 함 — [+]로
-                if (noC && Number.isFinite(baseNo)) { newRow[noC] = padProjectNo(String(baseNo + i)); nos.push(newRow[noC]); }
+                if (noC) newRow[noC] = '';   // 번호 = 수동 키인 (중복 차단은 셀 키인·초안 저장에서)
                 const { _id, ...data } = newRow;
                 await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
                 recordAudit(AUDIT_ACTIONS.ADD, newRow, []);
             }
             clearSelPaint(); selRef.current = null;
-            showExtToast(`${clip.rows.length}건 새 프로젝트로 추가됨` + (nos.length ? ` — 번호 ${nos.join(', ')}` : ''));
+            showExtToast(`${clip.rows.length}건 새 프로젝트로 추가됨 — 번호는 비워 뒀습니다: 번호 칸 더블클릭으로 직접 키인 (중복 자동 차단)`);
         } catch (err) {
             setAlertMsg(`붙여넣기 오류: ${err.message}`);
         } finally { pasteBusyRef.current = false; }
@@ -5935,7 +5935,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <div className="relative">
                             <Search className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none z-10 transition-colors" size={13}
                                 style={{ color: searchTerm ? '#d97706' : '#8f8b84' }}/>
-                            {/* 폭: 초안([저장 N칸]/[취소] 131px) 등장 시만 64px로 축소 — FHD 헤더 한 줄 유지(여유 81px 실측, 2026-09-01) */}
+                            {/* 폭: 초안([저장 N칸]/[취소] 131px) 등장 시만 72px로 축소 — FHD 헤더 한 줄 유지(여유 81px 실측, 2026-09-01) */}
                             <input type="text" placeholder="전체 검색..." value={searchTerm} title="전체 검색"
                                 onChange={e => setSearchTerm(e.target.value)}
                                 style={{ borderRadius: 8 }}
