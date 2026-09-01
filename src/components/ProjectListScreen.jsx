@@ -6,9 +6,9 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check, Copy,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home, Palette
 } from 'lucide-react';
-import { collection, doc, setDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
@@ -264,7 +264,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [clientDropdown, setClientDropdown]       = useState(null); // { rowId, col, top, left, width }
     const [wordDropdown, setWordDropdown]           = useState(null); // 단어(카테고리) 칸 공용 드롭다운 — 팀 카드 '드롭다운열' (2026-08-19)
     const [vendorDropdown, setVendorDropdown]       = useState(null); // { rowId, col, top, left, width }
-    const [contextMenu, setContextMenu]             = useState(null); // { x, y, row }
+    const [contextMenu, setContextMenu]             = useState(null); // { x, y, row, col }
+    const [fmtPop, setFmtPop]                       = useState(null); // 서식 팝업 { x, y, rowId, col, sel, scope } (2026-09-01 팀장님: 엑셀처럼 굵기·색)
     const [highlightedRowId, setHighlightedRowId]   = useState(null); // 외부에서 이동 시 하이라이트
     const appliedHighlightRef = useRef(null); // 중복 하이라이트 방지
     const [detailRow, setDetailRow]                 = useState(null); // 상세 화면용 row 사본
@@ -4236,6 +4237,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return true;
     };
     const onSelMouseDown = (e) => {
+        // 우클릭이 드래그 선택 범위 '안'이면 선택 유지 — 우클릭 메뉴 [서식]을 범위 전체에 적용 (2026-09-01)
+        if (e.button === 2 && selRef.current) {
+            const td0 = e.target.closest && e.target.closest('td');
+            const tr0 = td0 && td0.closest('tr[data-row-id]');
+            if (td0 && tr0) {
+                const ci0 = td0.cellIndex;
+                const ri0 = sortedRowsRef.current.findIndex(r => String(r._id) === tr0.getAttribute('data-row-id'));
+                const s0 = selRef.current;
+                if (ri0 >= s0.r1 && ri0 <= s0.r2 && ci0 >= s0.c1 && ci0 <= s0.c2) return;
+            }
+        }
         clearSelPaint(); selRef.current = null;
         if (e.button !== 0) return;
         const td = e.target.closest && e.target.closest('td');
@@ -4317,6 +4329,59 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
+    // ── 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 우클릭 [서식], 셀/드래그 범위/행 전체) ──
+    //   저장 = 행 문서 _fmt { row:{b,c,bg}, cells:{ [열]:{b,c,bg} } } — 값(글자)은 안 건드리는 웹 화면 전용 꼬리표
+    //   [엑셀 반영](보존 병합)·값 갱신에는 유지 · ⚠관리자 [엑셀 확정 저장](전량 교체)에는 pid처럼 소실
+    const openFmtPop = (m) => {
+        if (dataSource !== 'firebase') { setAlertMsg('서식은 확정 저장된(클라우드) 데이터에서만 사용할 수 있습니다.'); return; }
+        const sel = selRef.current ? { ...selRef.current } : null;
+        const multi = !!sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2);
+        setFmtPop({ x: m.x, y: m.y, rowId: m.row._id, col: m.col, sel: multi ? sel : null, scope: multi ? 'sel' : (m.col ? 'cell' : 'row') });
+    };
+    const fmtTargets = (fp) => {   // [{ row, cols }] — cols=null이면 행 전체
+        if (!fp) return [];
+        if (fp.sel && (fp.scope === 'sel' || fp.scope === 'row')) {
+            const out = [];
+            for (let r = fp.sel.r1; r <= fp.sel.r2; r++) {
+                const row = sortedRowsRef.current[r]; if (!row) continue;
+                out.push({ row, cols: fp.scope === 'sel' ? mainVisibleHeaders.slice(fp.sel.c1, fp.sel.c2 + 1) : null });
+            }
+            return out;
+        }
+        const row = activeRows.find(x => x._id === fp.rowId); if (!row) return [];
+        return [{ row, cols: fp.scope === 'cell' && fp.col ? [fp.col] : null }];
+    };
+    const fmtCurrent = (fp) => {   // 팝업 표시용 현재 서식 (첫 대상 기준)
+        const tg = fmtTargets(fp)[0]; if (!tg) return {};
+        const f = tg.row._fmt || {};
+        return tg.cols ? { ...(f.row || {}), ...((f.cells || {})[tg.cols[0]] || {}) } : (f.row || {});
+    };
+    const applyFmt = async (patch) => {   // patch = {b|c|bg: 값 | null(그 속성 제거)} · 'clear' = 서식 전부 지우기
+        const tg = fmtTargets(fmtPop); if (!tg.length) return;
+        try {
+            for (const { row, cols } of tg) {
+                const cur = row._fmt || {};
+                const mut = (f0) => {
+                    if (patch === 'clear') return {};
+                    const f = { ...f0 };
+                    Object.entries(patch).forEach(([k, v]) => { if (v === null || v === undefined || v === 0) delete f[k]; else f[k] = v; });
+                    return f;
+                };
+                const next = { row: { ...(cur.row || {}) }, cells: { ...(cur.cells || {}) } };
+                if (cols === null) {
+                    next.row = mut(cur.row || {});
+                    if (patch === 'clear') next.cells = {};   // 행 전체 지우기 = 칸 서식도 함께
+                } else cols.forEach(cn => {
+                    const v = mut((cur.cells || {})[cn] || {});
+                    if (Object.keys(v).length) next.cells[cn] = v; else delete next.cells[cn];
+                });
+                if (!Object.keys(next.row || {}).length) delete next.row;
+                if (!Object.keys(next.cells || {}).length) delete next.cells;
+                // updateDoc = _fmt 통째 교체 (setDoc merge는 깊은 병합이라 지운 칸 서식이 남음)
+                await updateDoc(rowDocRef(currentTeam, row._id), { ...stampSave({}), _fmt: Object.keys(next).length ? next : deleteField() });
+            }
+        } catch (err) { setAlertMsg('서식 저장 오류: ' + err.message); }
+    };
     // ── 행 복사(Ctrl+C) → 새 프로젝트로 붙여넣기(Ctrl+V) (2026-08-31 팀장님: 엑셀처럼) ──
     //   번호 칸 클릭 = 행 전체 선택(Shift+클릭 = 여러 행) → Ctrl+C = 내부 보관 + 엑셀용 텍스트도 클립보드에
     //   → Ctrl+V = 즉시 새 프로젝트로 추가(번호 = 그 연도 마지막+1 연속 부여 · 수행번호 빈칸 · 새 ID/등록일)
@@ -4753,7 +4818,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <>
                     <div className="fixed inset-0 z-[8000]" onClick={() => setContextMenu(null)}/>
                     <div className="fixed z-[8001] bg-white border border-[#c4ccd8] shadow-2xl rounded-lg py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
-                        style={{ top: Math.min(contextMenu.y, window.innerHeight-330), left: Math.min(contextMenu.x, window.innerWidth-200) }}
+                        style={{ top: Math.min(contextMenu.y, window.innerHeight-370), left: Math.min(contextMenu.x, window.innerWidth-200) }}
                         onClick={e => e.stopPropagation()}>
                         <div className="px-3 py-1.5 border-b border-[#e5eaf3] mb-1">
                             <p className="text-[10px] font-black text-[#888] uppercase tracking-wider truncate">
@@ -4771,6 +4836,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <button onClick={() => { openGraphForRow(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
+                        </button>
+                        {/* ★ 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경) — 우클릭한 칸/드래그 범위/행 전체 */}
+                        <button onClick={() => { const m = contextMenu; setContextMenu(null); openFmtPop(m); }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <Palette size={16} className="text-[#d97706]"/> 서식 (색·굵기)
                         </button>
                         {/* ★ 이 행 복사해서 추가 (2026-08-31 팀장님: 행 복/붙 — 값을 초기값으로 복사한 추가 팝업. 번호=새 번호·수행번호=빈칸) */}
                         {!isSubListRow(contextMenu.row) && (
@@ -4838,6 +4908,68 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     </div>
                 </>
             )}
+
+            {/* ── 서식 팝업 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 누르는 즉시 저장) ── */}
+            {fmtPop && (() => {
+                const cur = fmtCurrent(fmtPop);
+                const nSel = fmtPop.sel ? (fmtPop.sel.r2 - fmtPop.sel.r1 + 1) * (fmtPop.sel.c2 - fmtPop.sel.c1 + 1) : 0;
+                const scopeBtn = (sc, label) => (
+                    <button key={sc} onClick={() => setFmtPop(p => ({ ...p, scope: sc }))}
+                        style={{ flex: 1, padding: '5px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
+                            border: fmtPop.scope === sc ? '1.5px solid var(--brand)' : '1px solid #dde3ea',
+                            background: fmtPop.scope === sc ? '#eaf2fb' : '#fff', color: fmtPop.scope === sc ? 'var(--brand)' : '#64748b' }}>{label}</button>
+                );
+                const FC = ['#37352f', '#dc2626', '#ea580c', '#16a34a', '#2563eb', '#7c3aed', '#6b7280'];
+                const BG = ['#fef9c3', '#fee2e2', '#ffedd5', '#dcfce7', '#dbeafe', '#ede9fe', '#f1f5f9'];
+                return (
+                    <>
+                        <div className="fixed inset-0 z-[8100]" onClick={() => setFmtPop(null)}/>
+                        <div className="fixed z-[8101] bg-white border border-[#c4ccd8] shadow-2xl rounded-xl p-3"
+                            style={{ top: Math.min(fmtPop.y, window.innerHeight - 330), left: Math.min(fmtPop.x, window.innerWidth - 285), width: 262 }}
+                            onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: 6 }}><Palette size={14} color="#d97706"/> 서식</span>
+                                <button onClick={() => setFmtPop(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}><X size={14}/></button>
+                            </div>
+                            <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
+                                {fmtPop.sel ? scopeBtn('sel', `선택 ${nSel}칸`) : (fmtPop.col ? scopeBtn('cell', `이 칸 (${dispHeader(fmtPop.col)})`) : null)}
+                                {scopeBtn('row', fmtPop.sel ? `행 전체 ×${fmtPop.sel.r2 - fmtPop.sel.r1 + 1}` : '행 전체')}
+                            </div>
+                            <button onClick={() => applyFmt({ b: cur.b ? null : 1 })}
+                                style={{ width: '100%', padding: '6px 0', borderRadius: 8, marginBottom: 9, cursor: 'pointer', fontSize: 12.5, fontWeight: 900,
+                                    border: cur.b ? '1.5px solid var(--brand)' : '1px solid #dde3ea', background: cur.b ? '#eaf2fb' : '#fff', color: '#1a1a1a' }}>
+                                가　굵게 {cur.b ? '켜짐' : ''}
+                            </button>
+                            <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>글자색</div>
+                            <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
+                                {FC.map(c => (
+                                    <button key={c} onClick={() => applyFmt({ c: c === '#37352f' ? null : c })} title={c === '#37352f' ? '기본' : ''}
+                                        style={{ width: 27, height: 27, borderRadius: 7, cursor: 'pointer', background: '#fff',
+                                            border: (cur.c || '#37352f') === c ? '2px solid var(--brand)' : '1px solid #dde3ea',
+                                            color: c, fontWeight: 900, fontSize: 12, padding: 0 }}>가</button>
+                                ))}
+                            </div>
+                            <div style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b', marginBottom: 4 }}>배경색</div>
+                            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
+                                <button onClick={() => applyFmt({ bg: null })} title="없음"
+                                    style={{ width: 27, height: 27, borderRadius: 7, cursor: 'pointer', background: '#fff',
+                                        border: !cur.bg ? '2px solid var(--brand)' : '1px solid #dde3ea', color: '#94a3b8', fontSize: 11, padding: 0 }}>✕</button>
+                                {BG.map(c => (
+                                    <button key={c} onClick={() => applyFmt({ bg: c })}
+                                        style={{ width: 27, height: 27, borderRadius: 7, cursor: 'pointer', background: c,
+                                            border: cur.bg === c ? '2px solid var(--brand)' : '1px solid #dde3ea', padding: 0 }}/>
+                                ))}
+                            </div>
+                            <button onClick={() => applyFmt('clear')}
+                                style={{ width: '100%', padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontSize: 11.5, fontWeight: 800,
+                                    border: '1px solid #fca5a5', background: '#fff5f5', color: '#dc2626' }}>서식 지우기</button>
+                            <div style={{ marginTop: 7, fontSize: 9.5, color: '#94a3b8', lineHeight: 1.4 }}>
+                                누르는 즉시 저장 — 전 직원 화면에 똑같이 보입니다.<br/>관리자 [엑셀 확정 저장](전량 교체) 때는 사라집니다.
+                            </div>
+                        </div>
+                    </>
+                );
+            })()}
 
             {/* ── 실행번호 등록 모달 ── */}
             {execNoModal && (
@@ -6585,13 +6717,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         style={isHlRow ? { backgroundColor: 'rgba(251,191,36,0.18)' } : {}}
                                         onClick={() => setSelectedRowId(prev => prev === row._id ? null : row._id)}
                                         /* 행 더블클릭 → 상세 팝업 제거 (2026-08-28 팀장님: 셀 편집 중 더블클릭에 팝업이 튀어 혼란) — 상세 팝업은 우클릭 메뉴 [상세 보기/수정]으로만 */
-                                        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, row }); }}>
+                                        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); const _td = e.target.closest && e.target.closest('td'); const _ci = _td ? _td.cellIndex : -1; setContextMenu({ x: e.clientX, y: e.clientY, row, col: (_ci >= 0 && _ci < mainVisibleHeaders.length) ? mainVisibleHeaders[_ci] : null }); }}>
                                         {/* No. 칸 제거 — 엑셀 '번호'와 중복 (2026-06-26) */}
                                         {mainVisibleHeaders.map(h => {
+                                            // 서식 (2026-09-01): 행 서식 위에 칸 서식 덮어쓰기 — CSS 변수+클래스 (index.css !important를 이기려면 클래스 필수)
+                                            const _ff = row._fmt ? { ...(row._fmt.row || {}), ...((row._fmt.cells || {})[h] || {}) } : null;
+                                            const _ffCls = _ff ? `${_ff.b ? ' fmt-w' : ''}${_ff.c ? ' fmt-c' : ''}${_ff.bg ? ' fmt-b' : ''}` : '';
+                                            const _ffSty = _ff ? { ...(_ff.c ? { '--fmc': _ff.c } : {}), ...(_ff.bg ? { '--fmb': _ff.bg } : {}) } : {};
                                             // 실행번호 — 전용 셀
                                             if (h === EXEC_NO_COL) return (
-                                                <td key={h} className={`${tdPx} text-center text-[11px] border-r border-cyan-800/30`}
-                                                    style={{background: isHlRow ? 'rgba(251,191,36,0.28)' : row[EXEC_NO_COL] ? '#f0f9ff' : rowBg, color: isHlRow ? '#92400e' : row[EXEC_NO_COL] ? '#1a1a1a' : '#64748b', width: getW(h)||90, minWidth: getW(h)||90}}>
+                                                <td key={h} className={`${tdPx} text-center text-[11px] border-r border-cyan-800/30${_ffCls}`}
+                                                    style={{background: isHlRow ? 'rgba(251,191,36,0.28)' : row[EXEC_NO_COL] ? '#f0f9ff' : rowBg, color: isHlRow ? '#92400e' : row[EXEC_NO_COL] ? '#1a1a1a' : '#64748b', width: getW(h)||90, minWidth: getW(h)||90, ..._ffSty}}>
                                                     {row[EXEC_NO_COL] || '—'}
                                                 </td>
                                             );
@@ -6637,8 +6773,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${(!isHl && !autoTip && isGrayEmptyCol(h) && !String(val ?? '').trim() && !isNaItemCell(row, h) && !nasX) ? 'cell-empty' : ''}
                                                         ${isFrz(h)?'z-10':''}
                                                         ${(colWidths[h]||fitWidths[h])?'col-clip':''}
-                                                        ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}`}
-                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{})}}
+                                                        ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}${_ffCls}`}
+                                                    style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{}), ..._ffSty}}
                                                     title={autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
                                                     onDoubleClick={e => {   // 번호 칸: 클릭=행 선택이라 편집은 더블클릭 (2026-08-31)
                                                         if (!isProjNoCol(h) || isNaItemCell(row, h)) return;
