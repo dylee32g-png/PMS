@@ -320,7 +320,7 @@ tbody td:first-child {
    ========================================================= */
 .progress-modal-table thead th,
 .progress-modal-table thead td {
-  border-right: none !important;
+  border-right: 1px solid #dde3ea !important;   /* 주차 칸막이 세로선 (2026-09-01 팀장님: 시인성) */
   border-bottom: 1px solid var(--line) !important;
   border-top: none !important;
   border-left: none !important;
@@ -337,7 +337,7 @@ tbody td:first-child {
   border-bottom: 1px solid var(--line) !important;
 }
 .progress-modal-table tbody td {
-  border-right: none !important;
+  border-right: 1px solid #dde3ea !important;   /* 주차 칸막이 세로선 (2026-09-01 팀장님: 시인성) */
   border-bottom: 1px solid var(--line) !important;
   border-top: none !important;
   border-left: none !important;
@@ -362,6 +362,10 @@ tbody td:first-child {
 .progress-modal-table td input:focus {
   border: none !important;
   box-shadow: inset 0 0 0 2px #6366f1 !important;
+}
+/* 월 경계(그 달의 마지막 주) — 주차선보다 살짝 진하게. pw-end(주황 3px)가 겹치면 아래 규칙이 이김 */
+.progress-modal-table .pw-msep {
+  border-right: 2px solid #b9c4d2 !important;
 }
 /* 시작일 컬럼 */
 .progress-modal-table .pw-start {

@@ -669,6 +669,14 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const startWKey = dateToWKey(pmsData?.startDate);
     const endWKey   = dateToWKey(pmsData?.endDate);
 
+    // ★ 주차 칸 세로 구분선 (2026-09-01 팀장님: 칸막이가 없어 시인성 저하 — 전 팀 공통 팝업):
+    //   모든 주차 칸에 1px 세로선(index.css .progress-modal-table), 달의 마지막 주는 pw-msep(살짝 진한 선)로 월 경계 구분
+    const monthEndKeys = new Set(DISP_WEEKS.filter((w, i) => {
+        const n = DISP_WEEKS[i + 1];
+        return !n || n.month !== w.month || n.year !== w.year;
+    }).map(w => w.key));
+    const wkCls = (key) => `${key === startWKey ? 'pw-start' : key === endWKey ? 'pw-end' : ''} ${monthEndKeys.has(key) ? 'pw-msep' : ''}`.trim();
+
     // (가) 합계 기준점: 기준월의 마지막 주 — 누적 % '최신값'을 읽는 기준 (그 달 입력 없으면 직전 값 이월)
     const [refY, refM] = (baseDate && baseDate.includes('-')) ? baseDate.split('-').map(Number) : [cy0, cm0];
     const refWeeks = weeksInMonth(refY, refM);
@@ -904,7 +912,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     // #8 이전값: 공정 항목(useMax=누적%)의 빈 칸에 직전 값(이월)을 흐린 힌트로 표시 (참고용·저장 안 됨)
                     const prevVal  = useMax ? (cumByKey[itemKey]?.[wKey] || 0) : 0;
                     const showPrev = useMax && !hasVal && prevVal > 0;
-                    const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
+                    const extraCls = wkCls(wKey);
                     return (
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
                             <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey)} value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
@@ -931,7 +939,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                 const [ry, rm] = String(refWKey).split('-').map(Number);
                                 return monthSumOf(itemKey, ry, rm);
                             })() : total)))
-                        : (useMax ? '' : 0)}
+                        : ''}
                 </td>
             </tr>
         );
@@ -949,7 +957,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             const val    = dataObj[wKey];
             const isCur  = isCurrentWeek(year, month, week);
             const hasVal = val !== undefined && val !== '';
-            const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
+            const extraCls = wkCls(wKey);
             return (
                 <td key={wKey} className={extraCls} style={{ ...TD, background: isCur ? '#fef9e7' : bgColor }}>
                     <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
@@ -1036,7 +1044,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const weekSum = subRows.reduce((s, _, i) =>
                         s + (Number((weeklyData[`sub_${i}_${subKey}`]||{})[wKey]) || 0), 0);
                     const isCur = isCurrentWeek(year, month, week);
-                    const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
+                    const extraCls = wkCls(wKey);
                     return <td key={wKey} className={extraCls} style={{ ...TD, fontWeight:800, fontSize: cellFontFit(weekSum > 0 ? weekSum : ''),
                         color: weekSum>0?color:'var(--line)', background: isCur?'#fef9e7':bgCell,
                         height:38, verticalAlign:'middle' }}>
@@ -1447,7 +1455,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                     <tr>
                                         {DISP_WEEKS.map(({ key, year, month, week }) => {
                                             const isCur = isCurrentWeek(year, month, week);
-                                            const extraCls = key === startWKey ? 'pw-start' : key === endWKey ? 'pw-end' : '';
+                                            const extraCls = wkCls(key);
                                             // 주차는 '날짜로 자른' 구간이라 달력 주(월~일)와 다르다 → 날짜 범위를 같이 보여줘 혼동 제거 (2026-07-27 팀장님)
                                             const dayR = ['1~7', '8~14', '15~21', '22~28', '29~'][week - 1] || '';
                                             return <th key={key} className={extraCls}
@@ -1514,7 +1522,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                                                       (intOn  && (Number((weeklyData[`sub_${i}_intCommissioning`]||{})[wKey])||0) > 0))
                                                 : [...SECONDARY_ON, ...WEEKLY_ON].some(({ key }) => (Number((weeklyData[key]||{})[wKey])||0) > 0);
                                             const isCur = isCurrentWeek(year, month, week);
-                                            const extraCls = wKey === startWKey ? 'pw-start' : wKey === endWKey ? 'pw-end' : '';
+                                            const extraCls = wkCls(wKey);
                                             const show = hasData && pct > 0;
                                             // ★ '%' 기호 제거 (2026-07-14): 셀 폭 44px에 '68.9%'(5글자)는 안 들어가 옆 칸과 붙었음.
                                             //    헤더가 이미 '진척률(%)'이라 단위는 명확 → 숫자만. 소수부는 작게 써서 정수부가 먼저 읽히게.
