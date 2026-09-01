@@ -612,7 +612,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         const scale = Math.max(0, W - fixed) / flex;
         const next = {};
-        cols.forEach(h => { if (colWidths[h]) return; const w = nat[h] || getW(h) || 40; next[h] = Math.max(28, Math.floor(w * scale)); });
+        // %표기 칸('35%')은 압축돼도 안 잘리게 최소 44px (2026-09-01 팀장님 — 표시.퍼센트표기열·막대제거)
+        const pctMinCols = [...(teamProfile?.표시?.퍼센트표기열 || []), ...(teamProfile?.표시?.막대제거 || [])].map(c => String(c).replace(/\s+/g, ''));
+        cols.forEach(h => { if (colWidths[h]) return; const w = nat[h] || getW(h) || 40; const mn = pctMinCols.includes(String(h).replace(/\s+/g, '')) ? 44 : 28; next[h] = Math.max(mn, Math.floor(w * scale)); });
         const sameFit = Object.keys(next).length === Object.keys(fitWidths).length && Object.keys(next).every(k => fitWidths[k] === next[k]);
         if (sameFit) return;   // 결과 동일 → 재렌더 생략
         setFitWidths(next);
@@ -797,13 +799,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   표시 전용: 셀 편집·저장·엑셀 생성은 원래 숫자 값 그대로. PLC·ETOS·HMI 등 세부 %는 숫자만 굵게.
     const pctCell = (h, val) => {
         const disp = pctDisplay(h, val);
+        const s = String(h).replace(/\s/g, '');
+        // 팀 카드 '표시.퍼센트표기열' (2026-09-01 팀장님, 기슠1팀 공정률[%] 전체·전월·금월): 숫자+% 표기
+        const pctTxt = teamProfile?.표시?.퍼센트표기열;
+        if (Array.isArray(pctTxt) && pctTxt.some(c => String(c).replace(/\s/g, '') === s)) {
+            const n0 = parseFloat(String(val ?? '').replace(/%/g, ''));
+            if (!isFinite(n0)) return disp;
+            return <span style={{ fontWeight: 600 }}>{n0}<span style={{ fontSize: '10px', fontWeight: 700, color: '#a4a097' }}>%</span></span>;
+        }
         if (!isPctCol(h)) return disp;
         const num = parseFloat(String(val ?? '').replace(/%/g, ''));
         if (!isFinite(num)) return disp;
-        const s = String(h).replace(/\s/g, '');
         if (!(s.includes('시운전') || s.includes('공정률'))) return <span style={{ fontWeight: 600 }}>{disp}</span>;
         const w = Math.max(0, Math.min(100, num));
         const full = num >= 100;
+        // 팀 카드 '표시.막대제거' (2026-09-01 팀장님, 기슠1팀 자체 시운전): 막대 없이 숫자+%만
+        const noBar = teamProfile?.표시?.막대제거;
+        if (Array.isArray(noBar) && noBar.some(c => String(c).replace(/\s/g, '') === s)) {
+            return <span style={{ fontWeight: 800, fontSize: '12.5px', color: full ? '#047857' : '#1e5f9e' }}>{num}<span style={{ fontSize: '10px', fontWeight: 700, color: '#a4a097' }}>%</span></span>;
+        }
         return (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
                 <span style={{ position: 'relative', width: 44, height: 7, background: '#edeae6', borderRadius: 9999, overflow: 'hidden', flex: 'none' }}>
