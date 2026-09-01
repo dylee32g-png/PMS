@@ -2417,9 +2417,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         if (dkP) {
                             const snapP = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkP));
                             const wkP = snapP.exists() ? ((snapP.data() || {}).weekly || {}) : {};
-                            const nowP = new Date(); const wKeyP = `${nowP.getFullYear()}-${nowP.getMonth() + 1}-${Math.min(5, Math.max(1, Math.ceil(nowP.getDate() / 7)))}`;
                             const extraSubP = Object.keys(wkP).some(k => { const m = k.match(/^sub_(\d+)_(commissioning|intCommissioning)$/); return m && Number(m[1]) >= res2.rows.length; });   // 유령 칸(재등록 잔재 sub_6 등) 감지 — 그래프만 부풀리는 원인 (2026-08-05)
-                            const diffP = extraSubP || res2.rows.some((exr, i) => Number(((wkP[`sub_${i}_intCommissioning`] || {})[wKeyP]) || 0) !== Number(exr.acc || 0));
+                            const sumWkP = (m2) => Object.values(m2 || {}).reduce((s2, v2) => s2 + (Number(v2) || 0), 0);
+                            const diffP = extraSubP || res2.rows.some((exr, i) => Math.abs(sumWkP(wkP[`sub_${i}_intCommissioning`]) - Number(exr.acc || 0)) > 0.005);   // ★주차 '전체 합' vs 누적 (2026-09-01) — 현재 주차만 보면 주가 바뀔 때 값이 그대로여도 거짓 '변경 감지'
                             if (diffP) out.push({ rowId: row._id, kind: 'subLedger', target: '팝업 하위별 통합', from: '—', to: res2.rows.map(exr => `${exr.name} ${exr.acc || 0}`).join(' · '), fileName: picked2.name, fileRel: picked2.rel, projectName: pickProjectName(row), _ints: res2.rows.map(exr => Number(exr.acc || 0)) });
                         }
                     } catch (eP) {}
@@ -2497,6 +2497,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { if (e && e.name !== 'AbortError') setAlertMsg('공용 폴더 지정 실패: ' + e.message); }
     };
 
+    // ★ 누적값의 주간 장부 배치 = 이번 주 '증분' (2026-09-01): 이번 주 칸 = 누적 − 다른 주차 합.
+    //   누적 전체를 현재 주차에 그대로 쓰면 주차가 바뀔 때마다 이전 주차와 이중 합산(팝업 합계·그래프 부풀기 — 8/25 의심 확정).
+    //   Σ주차 == 누적 불변 유지. NAS 값이 줄면 이번 주가 음수일 수 있음(원본이 정답 — 합계는 정확).
+    const placeAccIntoWeek = (weekMap, wKey, acc) => {
+        const others = Object.entries(weekMap || {}).reduce((s, [k, v]) => (k === wKey ? s : s + (Number(v) || 0)), 0);
+        return Math.round(((Number(acc) || 0) - others) * 100) / 100;
+    };
+
     // 통합시운전 주간장부 심기(현재 주차, 재실행 안전) — NAS 자동 반영 공용 (2026-07-22)
     const extSeedIntLedger = async (row, pts) => { try {
         const dk = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
@@ -2507,7 +2515,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const weekly = { ...(data.weekly || {}) };
         const now = new Date(); const cy = now.getFullYear(), cm = now.getMonth() + 1, cw = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
         const iw = { ...(weekly.intCommissioning || {}) };
-        iw[`${cy}-${cm}-${cw}`] = Number(pts) || 0;
+        const wkKey = `${cy}-${cm}-${cw}`;
+        iw[wkKey] = placeAccIntoWeek(iw, wkKey, pts);   // ★누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
         weekly.intCommissioning = iw;
         await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
     } catch (e) {} };
@@ -2543,8 +2552,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         p._ints.forEach((pts, i) => {
                             const k = `sub_${i}_intCommissioning`;
                             const iw = { ...(weeklyP[k] || {}) };
-                            iw[wKeyP] = pts;
-                            weeklyP[k] = iw;
+                            const incP = placeAccIntoWeek(iw, wKeyP, pts);   // ★누적→이번 주 증분 (2026-09-01, 주차 넘어가도 Σ=누적 — 이중 합산 방지)
+                            if (incP !== 0 || iw[wKeyP] !== undefined) { iw[wKeyP] = incP; weeklyP[k] = iw; }
                         });
                         // 유령 칸 정리 (2026-08-05): 하위 개수 밖의 sub_i 키 삭제.
                         //   재등록 과정에서 다른 프로젝트 공종표가 남긴 잔재(예: 010 문서의 sub_6=FFU 3027)가
@@ -2648,7 +2657,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         const _weekly2 = { ...(_data2.weekly || {}) };
                         const now2 = new Date(); const cy2 = now2.getFullYear(), cm2 = now2.getMonth() + 1, cw2 = Math.min(5, Math.max(1, Math.ceil(now2.getDate() / 7)));
                         const _iw2 = { ...(_weekly2.intCommissioning || {}) };
-                        _iw2[`${cy2}-${cm2}-${cw2}`] = Number(p.to) || 0;
+                        const _wk2 = `${cy2}-${cm2}-${cw2}`;
+                        _iw2[_wk2] = placeAccIntoWeek(_iw2, _wk2, p.to);   // ★누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
                         _weekly2.intCommissioning = _iw2;
                         await setDoc(_ref2, { ..._data2, weekly: _weekly2, updatedAt: new Date().toISOString() });
                     }
@@ -2836,7 +2846,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         const _data = _snap.exists() ? _snap.data() : { docKey: _dk, execNo: (r['실행번호'] || r.execNo || '') };
                         const _weekly = { ...(_data.weekly || {}) };
                         const _iw = { ...(_weekly.intCommissioning || {}) };
-                        _iw[`${cy}-${cm}-${cw}`] = seedInt.pts;
+                        const _wkS = `${cy}-${cm}-${cw}`;
+                        _iw[_wkS] = placeAccIntoWeek(_iw, _wkS, seedInt.pts);   // ★누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
                         _weekly.intCommissioning = _iw;
                         await setDoc(_ref, { ..._data, weekly: _weekly, updatedAt: new Date().toISOString() });
                         const _pct = Math.min(100, Math.round(seedInt.pts / seedInt.tot * 100));
