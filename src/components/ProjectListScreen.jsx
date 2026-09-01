@@ -265,7 +265,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [wordDropdown, setWordDropdown]           = useState(null); // 단어(카테고리) 칸 공용 드롭다운 — 팀 카드 '드롭다운열' (2026-08-19)
     const [vendorDropdown, setVendorDropdown]       = useState(null); // { rowId, col, top, left, width }
     const [contextMenu, setContextMenu]             = useState(null); // { x, y, row, col }
-    const [fmtPop, setFmtPop]                       = useState(null); // 서식 팝업 { x, y, rowId, col, sel, scope } (2026-09-01 팀장님: 엑셀처럼 굵기·색)
+    const [fmtBar, setFmtBar]                       = useState(null); // 서식 팔레트 위치 {x,y} | null=닫힘 — 항상 떠서 작업·드래그 이동 (2026-09-01 팀장님)
+    const fmtBarRef = useRef(false);                                  // 행 클로저(셀 onClick)는 상태 대신 ref로 읽어야 최신 (MemoRow가 재렌더 안 해도 동작)
+    const fmtBarPosRef = useRef(null);
+    const [fmtScope, setFmtScope]                   = useState('cells'); // 'cells'=선택 칸 | 'row'=행 전체
+    const [fmtSelTick, setFmtSelTick]               = useState(0);    // 선택 변경 → 팔레트 표시(N칸) 갱신
     const [highlightedRowId, setHighlightedRowId]   = useState(null); // 외부에서 이동 시 하이라이트
     const appliedHighlightRef = useRef(null); // 중복 하이라이트 방지
     const [detailRow, setDetailRow]                 = useState(null); // 상세 화면용 row 사본
@@ -4278,6 +4282,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu);
             document.body.classList.remove('sel-noselect');
             if (!dragging) { selRef.current = null; clearSelPaint(); }
+            if (fmtBarRef.current) setFmtSelTick(k => k + 1);   // 서식 팔레트 '선택 N칸' 갱신 (2026-09-01)
         };
         document.addEventListener('mousemove', mm);
         document.addEventListener('mouseup', mu);
@@ -4329,35 +4334,58 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
-    // ── 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 우클릭 [서식], 셀/드래그 범위/행 전체) ──
+    // ── 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 떠 있는 팔레트, 칸 클릭/드래그 선택 → 원클릭) ──
     //   저장 = 행 문서 _fmt { row:{b,c,bg}, cells:{ [열]:{b,c,bg} } } — 값(글자)은 안 건드리는 웹 화면 전용 꼬리표
     //   [엑셀 반영](보존 병합)·값 갱신에는 유지 · ⚠관리자 [엑셀 확정 저장](전량 교체)에는 pid처럼 소실
-    const openFmtPop = (m) => {
+    const openFmtBar = () => {   // 헤더 팔레트 버튼·우클릭 메뉴 — 위치는 이 PC에 기억
         if (dataSource !== 'firebase') { setAlertMsg('서식은 확정 저장된(클라우드) 데이터에서만 사용할 수 있습니다.'); return; }
-        const sel = selRef.current ? { ...selRef.current } : null;
-        const multi = !!sel && (sel.r1 !== sel.r2 || sel.c1 !== sel.c2);
-        setFmtPop({ x: m.x, y: m.y, rowId: m.row._id, col: m.col, sel: multi ? sel : null, scope: multi ? 'sel' : (m.col ? 'cell' : 'row') });
+        let pos = null;
+        try { pos = JSON.parse(localStorage.getItem('pms_fmtbar_pos') || 'null'); } catch (e) { pos = null; }
+        if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) pos = { x: window.innerWidth - 300, y: 110 };
+        pos = { x: Math.min(Math.max(0, pos.x), window.innerWidth - 140), y: Math.min(Math.max(0, pos.y), window.innerHeight - 140) };
+        fmtBarPosRef.current = pos; fmtBarRef.current = true; setFmtBar(pos);
     };
-    const fmtTargets = (fp) => {   // [{ row, cols }] — cols=null이면 행 전체
-        if (!fp) return [];
-        if (fp.sel && (fp.scope === 'sel' || fp.scope === 'row')) {
-            const out = [];
-            for (let r = fp.sel.r1; r <= fp.sel.r2; r++) {
-                const row = sortedRowsRef.current[r]; if (!row) continue;
-                out.push({ row, cols: fp.scope === 'sel' ? mainVisibleHeaders.slice(fp.sel.c1, fp.sel.c2 + 1) : null });
-            }
-            return out;
+    const closeFmtBar = () => { fmtBarRef.current = false; setFmtBar(null); };
+    const fmtSelectCell = (rowId, h) => {   // 팔레트 켠 동안 셀 클릭 = 편집 대신 '서식 대상 선택' (엑셀 감각)
+        const ri = sortedRowsRef.current.findIndex(r => String(r._id) === String(rowId));
+        const ci = mainVisibleHeaders.indexOf(h);
+        if (ri < 0 || ci < 0) return;
+        selRef.current = { r1: ri, r2: ri, c1: ci, c2: ci };
+        paintSel(); setFmtSelTick(k => k + 1);
+    };
+    const fmtBarDragStart = (e) => {   // 제목줄 잡고 이동
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY, p0 = fmtBarPosRef.current || { x: 0, y: 0 };
+        const mm = (ev) => {
+            const np = { x: Math.min(Math.max(0, p0.x + ev.clientX - sx), window.innerWidth - 140),
+                         y: Math.min(Math.max(0, p0.y + ev.clientY - sy), window.innerHeight - 60) };
+            fmtBarPosRef.current = np; setFmtBar(np);
+        };
+        const mu = () => {
+            document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu);
+            try { localStorage.setItem('pms_fmtbar_pos', JSON.stringify(fmtBarPosRef.current)); } catch (e2) {}
+        };
+        document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+    };
+    // 팀이 바뀌면 선택(행 번호 기반)은 무효 — 엉뚱한 행에 서식이 가지 않게 비움
+    useEffect(() => { selRef.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); }, [currentTeam]);   // eslint-disable-line react-hooks/exhaustive-deps
+    const fmtTargets = () => {   // [{ row, cols }] — cols=null이면 행 전체. 대상 = 클릭/드래그 선택(selRef)
+        const sel = selRef.current; if (!sel) return [];
+        const out = [];
+        for (let r = sel.r1; r <= sel.r2; r++) {
+            const row = sortedRowsRef.current[r]; if (!row) continue;
+            out.push({ row, cols: fmtScope === 'row' ? null : mainVisibleHeaders.slice(sel.c1, sel.c2 + 1) });
         }
-        const row = activeRows.find(x => x._id === fp.rowId); if (!row) return [];
-        return [{ row, cols: fp.scope === 'cell' && fp.col ? [fp.col] : null }];
+        return out;
     };
-    const fmtCurrent = (fp) => {   // 팝업 표시용 현재 서식 (첫 대상 기준)
-        const tg = fmtTargets(fp)[0]; if (!tg) return {};
+    const fmtCurrent = () => {   // 팔레트 표시용 현재 서식 (첫 대상 기준)
+        const tg = fmtTargets()[0]; if (!tg) return {};
         const f = tg.row._fmt || {};
         return tg.cols ? { ...(f.row || {}), ...((f.cells || {})[tg.cols[0]] || {}) } : (f.row || {});
     };
     const applyFmt = async (patch) => {   // patch = {b|c|bg: 값 | null(그 속성 제거)} · 'clear' = 서식 전부 지우기
-        const tg = fmtTargets(fmtPop); if (!tg.length) return;
+        const tg = fmtTargets();
+        if (!tg.length) { showExtToast('먼저 표에서 칸을 클릭하거나 드래그로 범위를 고르세요'); return; }
         try {
             for (const { row, cols } of tg) {
                 const cur = row._fmt || {};
@@ -4378,7 +4406,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (!Object.keys(next.row || {}).length) delete next.row;
                 if (!Object.keys(next.cells || {}).length) delete next.cells;
                 // updateDoc = _fmt 통째 교체 (setDoc merge는 깊은 병합이라 지운 칸 서식이 남음)
-                await updateDoc(rowDocRef(currentTeam, row._id), { ...stampSave({}), _fmt: Object.keys(next).length ? next : deleteField() });
+                // ★ 서버 확인(ack)은 기다리지 않음 (2026-09-01 실측): ack가 수 초씩 걸려 원클릭 반응을 막았음 —
+                //   화면은 로컬 반영(잠정 스냅샷)이 바로 그려 주고, 실패했을 때만 알림창
+                updateDoc(rowDocRef(currentTeam, row._id), { ...stampSave({}), _fmt: Object.keys(next).length ? next : deleteField() })
+                    .catch(e3 => setAlertMsg('서식 저장 오류: ' + (e3 && e3.message)));
             }
         } catch (err) { setAlertMsg('서식 저장 오류: ' + err.message); }
     };
@@ -4430,7 +4461,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const pasteRowsRef = useRef(() => {}); pasteRowsRef.current = pasteCopiedRows;
     useEffect(() => {
         const onKey = (e) => {
-            if (e.key === 'Escape') { if (selRef.current) { selRef.current = null; clearSelPaint(); } return; }
+            if (e.key === 'Escape') { if (selRef.current) { selRef.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); } return; }
             const t = e.target;
             const inEdit = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);   // 편집창 안 키는 원래대로
             const k = String(e.key).toLowerCase();
@@ -4837,8 +4868,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
-                        {/* ★ 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경) — 우클릭한 칸/드래그 범위/행 전체 */}
-                        <button onClick={() => { const m = contextMenu; setContextMenu(null); openFmtPop(m); }}
+                        {/* ★ 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경) — 떠 있는 팔레트 열기 (이미 드래그 선택이 있으면 그 범위 유지) */}
+                        <button onClick={() => { const m = contextMenu; setContextMenu(null); if (!selRef.current && m.col) fmtSelectCell(m.row._id, m.col); openFmtBar(); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <Palette size={16} className="text-[#d97706]"/> 서식 (색·굵기)
                         </button>
@@ -4909,31 +4940,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </>
             )}
 
-            {/* ── 서식 팝업 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 누르는 즉시 저장) ── */}
-            {fmtPop && (() => {
-                const cur = fmtCurrent(fmtPop);
-                const nSel = fmtPop.sel ? (fmtPop.sel.r2 - fmtPop.sel.r1 + 1) * (fmtPop.sel.c2 - fmtPop.sel.c1 + 1) : 0;
+            {/* ── 서식 팔레트 (2026-09-01 팀장님: 항상 떠서 작업 — 제목줄 드래그 이동, 오버레이 없음 = 표 그대로 조작) ── */}
+            {fmtBar && (() => {
+                const cur = fmtCurrent();
+                const sel = selRef.current;
+                const nSel = sel ? (sel.r2 - sel.r1 + 1) * (sel.c2 - sel.c1 + 1) : 0;
+                const nRow = sel ? (sel.r2 - sel.r1 + 1) : 0;
                 const scopeBtn = (sc, label) => (
-                    <button key={sc} onClick={() => setFmtPop(p => ({ ...p, scope: sc }))}
+                    <button key={sc} onClick={() => setFmtScope(sc)}
                         style={{ flex: 1, padding: '5px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 800, cursor: 'pointer',
-                            border: fmtPop.scope === sc ? '1.5px solid var(--brand)' : '1px solid #dde3ea',
-                            background: fmtPop.scope === sc ? '#eaf2fb' : '#fff', color: fmtPop.scope === sc ? 'var(--brand)' : '#64748b' }}>{label}</button>
+                            border: fmtScope === sc ? '1.5px solid var(--brand)' : '1px solid #dde3ea',
+                            background: fmtScope === sc ? '#eaf2fb' : '#fff', color: fmtScope === sc ? 'var(--brand)' : '#64748b' }}>{label}</button>
                 );
                 const FC = ['#37352f', '#dc2626', '#ea580c', '#16a34a', '#2563eb', '#7c3aed', '#6b7280'];
                 const BG = ['#fef9c3', '#fee2e2', '#ffedd5', '#dcfce7', '#dbeafe', '#ede9fe', '#f1f5f9'];
                 return (
                     <>
-                        <div className="fixed inset-0 z-[8100]" onClick={() => setFmtPop(null)}/>
-                        <div className="fixed z-[8101] bg-white border border-[#c4ccd8] shadow-2xl rounded-xl p-3"
-                            style={{ top: Math.min(fmtPop.y, window.innerHeight - 330), left: Math.min(fmtPop.x, window.innerWidth - 285), width: 262 }}
+                        <div className="fixed z-[7900] bg-white border border-[#c4ccd8] shadow-2xl rounded-xl" data-tick={fmtSelTick}
+                            style={{ top: fmtBar.y, left: fmtBar.x, width: 262, userSelect: 'none' }}
                             onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: 6 }}><Palette size={14} color="#d97706"/> 서식</span>
-                                <button onClick={() => setFmtPop(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}><X size={14}/></button>
+                            <div onMouseDown={fmtBarDragStart} title="잡고 끌면 이동합니다"
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px 6px', cursor: 'move', borderBottom: '1px solid #eef1f6' }}>
+                                <span style={{ fontSize: 12.5, fontWeight: 800, color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: 6 }}><Palette size={14} color="#d97706"/> 서식 <span style={{ fontSize: 9.5, color: '#b6bcc7', fontWeight: 700 }}>≡ 잡고 이동</span></span>
+                                <button onMouseDown={e => e.stopPropagation()} onClick={closeFmtBar} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 2 }}><X size={14}/></button>
                             </div>
+                            <div style={{ padding: '8px 12px 10px' }}>
                             <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
-                                {fmtPop.sel ? scopeBtn('sel', `선택 ${nSel}칸`) : (fmtPop.col ? scopeBtn('cell', `이 칸 (${dispHeader(fmtPop.col)})`) : null)}
-                                {scopeBtn('row', fmtPop.sel ? `행 전체 ×${fmtPop.sel.r2 - fmtPop.sel.r1 + 1}` : '행 전체')}
+                                {scopeBtn('cells', sel ? `선택 ${nSel}칸` : '선택 칸')}
+                                {scopeBtn('row', sel && nRow > 1 ? `행 전체 ×${nRow}` : '행 전체')}
                             </div>
                             <button onClick={() => applyFmt({ b: cur.b ? null : 1 })}
                                 style={{ width: '100%', padding: '6px 0', borderRadius: 8, marginBottom: 9, cursor: 'pointer', fontSize: 12.5, fontWeight: 900,
@@ -4964,7 +4998,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 style={{ width: '100%', padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontSize: 11.5, fontWeight: 800,
                                     border: '1px solid #fca5a5', background: '#fff5f5', color: '#dc2626' }}>서식 지우기</button>
                             <div style={{ marginTop: 7, fontSize: 9.5, color: '#94a3b8', lineHeight: 1.4 }}>
-                                누르는 즉시 저장 — 전 직원 화면에 똑같이 보입니다.<br/>관리자 [엑셀 확정 저장](전량 교체) 때는 사라집니다.
+                                {sel ? '누르는 즉시 저장 — 전 직원 화면에 똑같이 보입니다.' : '표에서 칸을 클릭하거나 드래그로 범위를 고르세요.'}<br/>
+                                팔레트가 켜진 동안 칸 클릭 = 선택 (내용 편집은 팔레트를 닫고)
+                            </div>
                             </div>
                         </div>
                     </>
@@ -6039,6 +6075,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <Home size={14} style={{ color: '#37352f' }}/>
                     </button>
 
+                    {/* 서식 팔레트 (2026-09-01 팀장님: 항상 띄워 두고 원클릭) */}
+                    <button onClick={() => fmtBar ? closeFmtBar() : openFmtBar()} title="서식 — 칸을 클릭/드래그로 고르고 굵기·색 원클릭 (팔레트는 제목줄을 잡아 이동)"
+                        className="flex items-center justify-center px-2.5 py-1.5 rounded border transition-all shrink-0"
+                        style={{ background: fmtBar ? '#fdf2e3' : '#ffffff', borderColor: fmtBar ? '#d97706' : '#d8d4cf' }}>
+                        <Palette size={14} style={{ color: fmtBar ? '#d97706' : '#37352f' }}/>
+                    </button>
+
                     {/* 표시 모드 — 컴팩트 */}
                     <button
                         onClick={() => setCompactMode(v => { const nv = (v + 1) % 3; try { localStorage.setItem('pms_list_compactMode', String(nv)); } catch (e) {} return nv; })}
@@ -6785,6 +6828,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     }}
                                                     onClick={e=>{
                                                         e.stopPropagation();
+                                                        if (fmtBarRef.current) { fmtSelectCell(row._id, h); return; }   // 서식 팔레트 켜짐 = 클릭은 대상 선택 (편집은 팔레트 닫고, 2026-09-01)
                                                         if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
                                                         // ★ 수행번호(당해 연도) 손 키인 금지 (2026-08-28 팀장님: [+] 옆 빈 곳을 눌러 편집창이 열려 '011' 같은 값이 들어가는 사고) — [+] 자동 부여·✕ 회수만
                                                         if (isExecAssignRowCol(row, h) && !isSubListRow(row)) { showExtToast('수행번호는 손으로 키인할 수 없습니다 — 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수'); return; }
