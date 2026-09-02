@@ -37,6 +37,23 @@ export const toDateInputVal = v => {
     return '';
 };
 
+// 엑셀처럼 자유 타이핑 날짜 해석 (2026-09-02 팀장님: 날짜 칸 키보드 입력) — 인식 못 하면 null
+//   toDateInputVal(YYYY-MM-DD·YYYY.M.D·YYMMDD) + 추가: 2026-1-5 · 26/01/26 · 26-1-5 · 26.1.5 · 20260126(8자리). 빈값은 ''(지우기).
+export const parseDateFlex = v => {
+    const s = String(v ?? '').trim();
+    if (!s) return '';
+    const t = toDateInputVal(s);
+    if (t) return t;
+    const okMD = (mm, dd) => mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
+    let m = s.match(/^(\d{4})[-./ ](\d{1,2})[-./ ](\d{1,2})$/);
+    if (m && okMD(+m[2], +m[3])) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    m = s.match(/^(\d{2})[-./ ](\d{1,2})[-./ ](\d{1,2})$/);
+    if (m && okMD(+m[2], +m[3])) return `${+m[1] < 70 ? 2000 + +m[1] : 1900 + +m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m && okMD(+m[2], +m[3])) return `${m[1]}-${m[2]}-${m[3]}`;
+    return null;
+};
+
 // ─── 메인 테이블 표시 열 키워드 ──────────────────────────────────────────
 // (이 키워드를 포함하는 열만 메인 테이블에 표시; 나머지는 우클릭 → 상세 화면)
 export const MAIN_COL_KEYWORDS = ['번호', '발주처', 'Project', '프로젝트', '공사계약', '공사완료', '공사 계약', '공사 완료', '진행현황', '담당자', '참조', '관리자'];

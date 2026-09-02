@@ -14,7 +14,7 @@ import DetailModal from './DetailModal';
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
-import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
+import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, parseDateFlex, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef } from './projectListData';
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 
@@ -1830,6 +1830,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   (비제어 defaultValue) Enter/이동(blur) 때만 doCommitCell로 넘긴다. 저장 로직은 불변.
     const editWRef = useRef(0);   // 편집 시작 시 칸 내용 폭(px) — 입력창을 이 폭으로 고정해 열 재분배(표 전체 재배치) 방지 (2026-08-26)
     const editValRef = useRef('');
+    const datePickRef = useRef(null);   // 날짜 편집 달력(숨은 date input) — 편집중인 칸은 항상 1개 (2026-09-02)
     useEffect(() => {
         editValRef.current = String(editingCell.value ?? '');   // 편집 시작 값으로 초기화 (타이핑 없이 바로 이동해도 원값 보존)
         if (!editingCell.id || !editingCell.key) { editOrigRef.current = null; return; }
@@ -1875,11 +1876,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             editingCell = { ...editingCell, value: '' };
         }
         const srcRow = activeRows.find(r => r._id === editingCell.id);
-        // 날짜 칸: 입력값이 원본(정규화)과 같으면 = 사용자가 안 바꾼 것 → 저장 스킵.
-        //   비표준 날짜('6/8','5/21' 등)는 toDateInputVal이 ''라, 클릭만 해도 빈칸으로 덮어써지던 버그 방지 (2026-06-29)
-        if (isDateCol(editingCell.key) && String(editingCell.value ?? '') === String(displayDate(srcRow?.[editingCell.key] ?? '', srcRow?._year))) {
-            setEditingCell({ id: null, key: null, value: '' });
-            return;
+        // 날짜 칸 (2026-09-02 팀장님: 엑셀처럼 자유 타이핑·달력·Del 지우기):
+        //   ① 입력을 표준 날짜로 해석(260126·26/01/26·2026-01-26 등, 연도 없는 M/D는 행 연도)
+        //   ② 못 알아보면 안내 후 저장 안 함(오염 방지) ③ 원본과 같으면 스킵 — 비표준 날짜 클릭만 해도 빈칸 덮던 버그 방지(2026-06-29 유지)
+        if (isDateCol(editingCell.key)) {
+            const _rawIn = String(editingCell.value ?? '').trim();
+            const _origD = String(displayDate(srcRow?.[editingCell.key] ?? '', srcRow?._year));
+            let _normD = _rawIn === '' ? '' : parseDateFlex(_rawIn);
+            if (_normD === null) { const _d2 = String(displayDate(_rawIn, srcRow?._year)); _normD = /^\d{4}-\d{2}-\d{2}$/.test(_d2) ? _d2 : null; }   // ★displayDate는 해석 불가 시 원본을 돌려줌(682행) — 진짜 날짜만 인정 (2026-09-02, 실기 테스트가 잡은 버그)
+            if (_normD === null) { setAlertMsg(`날짜를 알아볼 수 없어요: "${_rawIn}"\n예: 260126 · 26/01/26 · 2026-01-26`); setEditingCell({ id: null, key: null, value: '' }); return; }
+            if (_normD === _origD) { setEditingCell({ id: null, key: null, value: '' }); return; }
+            editingCell = { ...editingCell, value: _normD };
         }
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
         // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
@@ -6820,11 +6827,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 <td key={h} className={`${tdPx} align-middle ${isPinH(h)?'border-r-2 border-blue-400/50 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-10':''}`}
                                                     style={{ width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, boxShadow: `inset 0 0 0 2px ${isDateCol(h)?'#3b82f6':'#10b981'}`, background: isDateCol(h)?'#fff':'#ecfdf5', ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h]}:{}) }}>
                                                     {isDateCol(h) ? (
-                                                        <input autoFocus type="date" defaultValue={editingCell.value}
-                                                            onChange={e=>{ editValRef.current = e.target.value; }}
-                                                            onBlur={commitCellEdit}
-                                                            onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
-                                                            style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
+                                                        /* 날짜 편집 = 엑셀식 (2026-09-02 팀장님): 자유 타이핑(260126·26/01/26…) + 달력 버튼 + 전체선택이라 Del 한 번에 지움 */
+                                                        <span style={{ display: 'flex', alignItems: 'center' }}>
+                                                            <input autoFocus type="text" defaultValue={editingCell.value} placeholder="260126"
+                                                                onChange={e=>{ editValRef.current = e.target.value; }}
+                                                                onFocus={e=>e.target.select()} onBlur={commitCellEdit}
+                                                                onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
+                                                                style={{ width: editWRef.current ? `${Math.max(24, editWRef.current - 16)}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
+                                                            <button type="button" title="달력에서 고르기" tabIndex={-1}
+                                                                onMouseDown={e=>e.preventDefault()}
+                                                                onClick={e=>{ e.stopPropagation(); const p = datePickRef.current; if (p) { try { if (p.showPicker) p.showPicker(); else p.click(); } catch (err) {} } }}
+                                                                style={{ border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: 'pointer', fontSize: 12, lineHeight: 1 }}>📅</button>
+                                                            <input ref={datePickRef} type="date" tabIndex={-1}
+                                                                defaultValue={parseDateFlex(String(editingCell.value || '')) || ''}
+                                                                onChange={e=>{ if (e.target.value) { editValRef.current = e.target.value; commitCellEdit(); } }}
+                                                                style={{ width: 0, height: 0, opacity: 0, border: 'none', padding: 0, margin: 0 }}/>
+                                                        </span>
                                                     ) : (
                                                         <input autoFocus type="text" defaultValue={editingCell.value}
                                                             onChange={e=>{ editValRef.current = e.target.value; }}
@@ -6922,7 +6940,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 paintSel();
                                                             }
                                                         } else if (isDateCol(h)) {
-                                                            setEditingCell({id:row._id,key:h,value:displayDate(val, row._year)});
+                                                            setEditingCell({id:row._id,key:h,value:fmtDate(val, row._year)});   // 편집 표기 = 표와 같은 YY/MM/DD (2026-09-02, 좀은 칸에 다 보임)
                                                         } else if (isPointCol(h)) {
                                                             // 포인트 칸 = 엑셀 값 자체 편집 (2026-07-21). 하위(공종) 있으면 Σ 자동합이라 잠금 유지 (2026-07-20 2단계)
                                                             if (getSubPt(row._id)) { setAlertMsg('하위(공종)가 있는 프로젝트는 포인트가 하위 합계로 자동 계산됩니다.\n하위 행에서 수정하세요.'); return; }

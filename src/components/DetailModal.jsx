@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutList, Plus, X, Clock } from 'lucide-react';
-import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, normalizeStatus, isCheckCol, isRefCol, buildUncPath, extractName, normalizeAssignee, toExcelAssignee, splitAssigneeCell } from './projectColumns';
+import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVendorAssCol, STATUS_CHIP_COLORS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, toDateInputVal, parseDateFlex, normalizeStatus, isCheckCol, isRefCol, buildUncPath, extractName, normalizeAssignee, toExcelAssignee, splitAssigneeCell } from './projectColumns';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 프로젝트 List — 상세 보기 / 수정 팝업  +  프로젝트 추가 팝업 (2026-07-13 통합)
@@ -162,9 +162,19 @@ export default function DetailModal({
                             )}
                         </div>
                     ) : isDateCol(h) ? (
-                        <input type="date" value={toDateInputVal(val)}
-                            onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                            style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}/>
+                        /* 날짜 = 엑셀식 (2026-09-02 팀장님): 자유 타이핑(놓으면 자동 정리) + 달력 버튼 + 지우기는 그냥 비우기 */
+                        <div style={{ width:'100%', display:'flex', alignItems:'center' }}>
+                            <input type="text" value={String(val ?? '')} placeholder="예: 260126"
+                                onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                                onBlur={e => { const t = String(e.target.value || '').trim(); if (!t) return; const n = parseDateFlex(t); if (n && n !== t) setDetailRow(p => ({...p, [h]: n})); }}
+                                style={{ flex:1, minWidth:0, border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}/>
+                            <button type="button" title="달력에서 고르기" tabIndex={-1} onMouseDown={e => e.preventDefault()}
+                                onClick={e => { const p = e.currentTarget.nextElementSibling; if (p) { try { if (p.showPicker) p.showPicker(); else p.click(); } catch (err) {} } }}
+                                style={{ border:'none', background:'transparent', cursor:'pointer', fontSize:'13px', padding:'0 6px 0 0', lineHeight:1 }}>📅</button>
+                            <input type="date" tabIndex={-1} value={toDateInputVal(val)}
+                                onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                                style={{ width:0, height:0, opacity:0, border:'none', padding:0, margin:0 }}/>
+                        </div>
                     ) : isPctCol(h) ? (
                         <div style={{ width:'100%', display:'flex', alignItems:'center' }}>
                             <input type="text" inputMode="numeric" value={String(val).replace(/%/g,'')}
