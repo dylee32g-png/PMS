@@ -2857,6 +2857,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   ★ 값이 '90'이든 '90%'(엑셀 퍼센트 서식)든 인식 — 앱 편집 로직과 동일하게 '%' 떼고 숫자만 본다.
     //   ★ 검증된 역방향 동기화(syncProgressCellToLedger) 그대로 재사용 — 메인표 값은 안 건드린다(주간 장부만 씀).
     //   시운전·포인트는 대상 아님(progItemKeyOf가 자동 제외). 관리자·클라우드 상태 전용.
+    //   ★2026-09-02 수리: 하위(공종) 있는 행 = 부모 장부 sub_○_intCommissioning으로 심기(팝업·그래프가 읽는 곳),
+    //   하위 행 자체는 건너뜀(자기 pid 문서는 아무도 안 읽음). 수식 팀(기술1팀)은 시운전 심기 제외.
     const handleSeedProgressFromMain = async () => {
         if (!isAdmin) { setAlertMsg('진행실적 심기는 관리자만 할 수 있습니다.'); return; }
         if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 실행할 수 있습니다.\n(엑셀 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
@@ -2866,24 +2868,38 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const intCol = (activeHeaders || []).find(h => String(h).replace(/\s/g, '') === _intNm3);
         const targets = [];
         let cellCnt = 0, intCnt = 0;
-        for (const r of fbRows) {
+        const accOf = (row) => { const raw = accCol ? String(row[accCol] ?? '').replace(/%/g, '').trim() : ''; return /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : 0; };
+        for (let ri = 0; ri < fbRows.length; ri++) {
+            const r = fbRows[ri];
+            if (isSubListRow(r)) continue;   // ★하위(공종) 행은 건너뜀 (2026-09-02): 하위 pid 문서에 쓰면 팝업·그래프 어디서도 안 읽음 — 부모 장부 sub_○ 키로 심는다
             const cells = [];
             for (const h of progHeaders) {
                 const raw = String(r[h] ?? '').replace(/%/g, '').trim();   // '%'·공백 제거 후 숫자만 (엑셀이 90%로 저장한 경우 대응)
                 if (/^-?\d+(\.\d+)?$/.test(raw)) cells.push({ h, val: raw });
             }
+            // 바로 아래 연속된 하위(실행번호 s/-) 행 — 진행실적 팝업 subRows와 같은 걷기 = 같은 순번 (2026-09-02)
+            const subsArr = [];
+            for (let si = ri + 1; si < fbRows.length; si++) { if (isSubListRow(fbRows[si])) subsArr.push(fbRows[si]); else break; }
             // 누적(진행 포인트) → 통합시운전 심기 (2026-07-21 팀장님: 통합시운전% = 누적÷포인트 자동)
-            const _accRaw = accCol ? String(r[accCol] ?? '').replace(/%/g, '').trim() : '';
-            const _accPts = /^\d+(\.\d+)?$/.test(_accRaw) ? Number(_accRaw) : 0;
+            //   수식 팀(기술1팀 2026)은 '누적' 칸이 포인트가 아니라 공정 수량 누적 — 시운전 심기 제외 (2026-09-02)
             const _tot = effTotalPt(r);
-            const seedInt = (_accPts > 0 && _tot > 0) ? { pts: _accPts, tot: _tot } : null;   // 하위(공종) 행도 포함 — NAS 하위표 누적을 장부로 (2026-07-22)
+            let seedInt = null;
+            if (!fmActive(r)) {
+                if (subsArr.length > 0) {
+                    const ints = subsArr.map(accOf);   // 하위 체제: 부모 장부 sub_○_intCommissioning — NAS '하위별 통합'과 동일 구조 (2026-09-02)
+                    if (ints.some(v => v > 0) && _tot > 0) seedInt = { subInts: ints, pts: ints.reduce((s, v) => s + v, 0), tot: _tot };
+                } else {
+                    const _accPts = accOf(r);
+                    if (_accPts > 0 && _tot > 0) seedInt = { pts: _accPts, tot: _tot };
+                }
+            }
             if (cells.length || seedInt) { targets.push({ r, cells, seedInt }); cellCnt += cells.length; if (seedInt) intCnt++; }
         }
         if (!targets.length) { setAlertMsg('심을 값이 없습니다.\n(공정률 % 또는 누적 포인트가 있는 행이 없음)'); return; }
         const now = new Date();
         const cy = now.getFullYear(), cm = now.getMonth() + 1;
         const cw = Math.min(5, Math.max(1, Math.ceil(now.getDate() / 7)));
-        if (!window.confirm(`[진행실적 심기]\n\n대상 ${targets.length}개 프로젝트 → '${cy}년 ${cm}월 ${cw}주차'에 심습니다.\n\n· 공정률 값 ${cellCnt}개 (PLC·ETOS·HMI 등 — 주간 장부만)\n· 시운전 누적 ${intCnt}건 (통합시운전 장부 + %칸 자동 = 누적÷포인트)\n\n진행할까요?`)) return;
+        if (!window.confirm(`[진행실적 심기]\n\n대상 ${targets.length}개 프로젝트 → '${cy}년 ${cm}월 ${cw}주차'에 심습니다.\n\n· 공정률 값 ${cellCnt}개 (PLC·ETOS·HMI 등 — 주간 장부만)\n· 시운전 누적 ${intCnt}건 (통합시운전 장부 + %칸 자동 = 누적÷포인트 · 하위 공종 있는 행은 부모 팝업 하위별로)\n\n진행할까요?`)) return;
         setIsLoading(true);
         try {
             for (const { r, cells, seedInt } of targets) {
@@ -2896,12 +2912,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         const _snap = await getDoc(_ref);
                         const _data = _snap.exists() ? _snap.data() : { docKey: _dk, execNo: (r['실행번호'] || r.execNo || '') };
                         const _weekly = { ...(_data.weekly || {}) };
-                        const _iw = { ...(_weekly.intCommissioning || {}) };
                         const _wkS = `${cy}-${cm}-${cw}`;
-                        _iw[_wkS] = placeAccIntoWeek(_iw, _wkS, seedInt.pts);   // ★누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
-                        _weekly.intCommissioning = _iw;
+                        if (seedInt.subInts) {
+                            // ★하위 체제 (2026-09-02): 팝업·그래프가 읽는 곳 = 부모 장부의 sub_○_intCommissioning — NAS extApplyProposals 'subLedger'와 동일 규칙
+                            seedInt.subInts.forEach((pts, i) => {
+                                const k = `sub_${i}_intCommissioning`;
+                                const iw = { ...(_weekly[k] || {}) };
+                                const inc = placeAccIntoWeek(iw, _wkS, pts);   // 누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
+                                if (inc !== 0 || iw[_wkS] !== undefined) { iw[_wkS] = inc; _weekly[k] = iw; }
+                            });
+                            delete _weekly.intCommissioning;   // 하위 체제에선 최상위 키를 아무도 안 읽음 — 예전 심기가 여기 쓴 잔재 제거 (2026-09-02)
+                            Object.keys(_weekly).forEach(k => { const m = k.match(/^sub_(\d+)_(commissioning|intCommissioning)$/); if (m && Number(m[1]) >= seedInt.subInts.length) delete _weekly[k]; });   // 유령 칸 정리 (2026-08-05 규칙)
+                        } else {
+                            const _iw = { ...(_weekly.intCommissioning || {}) };
+                            _iw[_wkS] = placeAccIntoWeek(_iw, _wkS, seedInt.pts);   // ★누적→이번 주 증분 (2026-09-01, 이중 합산 방지)
+                            _weekly.intCommissioning = _iw;
+                        }
                         await setDoc(_ref, { ..._data, weekly: _weekly, updatedAt: new Date().toISOString() });
-                        const _pct = Math.min(100, Math.round(seedInt.pts / seedInt.tot * 100));
+                        const _pct = Math.round(seedInt.pts / seedInt.tot * 1000) / 10;   // 진행율% = 팝업 적용(paRecalc)과 동일식, 소수 1자리 (2026-09-02 통일 — 예전엔 정수 반올림)
                         if (intCol && String(r[intCol] ?? '').replace(/%/g, '').trim() !== String(_pct) && !isExtLockedCell(r, intCol)) {   // NAS 자동 칸 보호 (2026-07-22)
                             await setDoc(rowDocRef(currentTeam, r._id), { [intCol]: String(_pct) }, { merge: true });
                         }
