@@ -6046,8 +6046,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         </div>
                         {/* ── 미니 요약 (2026-08-31 팀장님: KPI 카드 줄을 제목 라인으로 — 동일 폭 200px, 그림 포함) ── */}
                         {dataSource === 'firebase' && kpiData.total > 0 && (kpiData.ccOn || !(kpiData.rcOn && selectedYear && selectedYear < String(new Date().getFullYear()))) && (() => {
-                            // 폭 185→172 (2026-09-01 팀장님: 팔레트 버튼 추가로 헤더 2단 재발 — 4칸 −52px로 흡수, FHD 한 줄 복구)
-                            const chip = { display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid #dfe5ee', background: '#fbfdff', borderRadius: 10, padding: '3px 8px 3px 11px', whiteSpace: 'nowrap', width: 172, flex: 'none', height: 46 };
+                            // 폭 185→172(9/1)→152 (2026-09-02 팀장님: '필터 N' 배지+[저장·취소] 겹치면 2단 — 실측 여유 13px→4칸 −80px로 ~93px 확보. ★헤더에 뭐든 추가하면 3팀×필터+초안 상태 실측(hdr_filter_test) 통과 후 완료 보고)
+                            const chip = { display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: '1px solid #dfe5ee', background: '#fbfdff', borderRadius: 10, padding: '3px 8px 3px 11px', whiteSpace: 'nowrap', width: 152, flex: 'none', height: 46 };
                             const colorOf = (nm) => MINI_STATUS_COLORS[nm] || '#cbd5e1';
                             const items = kpiData.ccOn ? (kpiData.ccItems || []).filter(it => it.cnt !== null) : [];
                             const total = kpiData.ccOn ? (kpiData.ccTotal || 0) : kpiData.total;
