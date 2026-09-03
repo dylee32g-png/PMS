@@ -1865,7 +1865,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ── 인라인 셀 편집 ────────────────────────────────────────────────────
     //   onBlur={commitCellEdit} 로도 불리므로(이벤트 객체가 인자로 들어옴) 저장 본체는 doCommitCell로 분리.
-    const commitCellEdit = () => doCommitCell({ ...editingCell, value: editValRef.current }, false);
+    const commitCellEdit = () => {
+        const ec = { ...editingCell, value: editValRef.current };
+        const nav = kbNavRef.current; kbNavRef.current = null;
+        const p = doCommitCell(ec, false);
+        if (nav && ec.id) Promise.resolve(p).then(() => moveCursorFromRef.current(ec, nav));   // 엑셀식: 저장 후 커서 이동 (2026-09-03)
+        return p;
+    };
     const doCommitCell = async (editingCell, isForce) => {
         if (!editingCell.id || !editingCell.key) return;
         // ★ 0 입력 = 지우기(빈칸) 통일 (2026-08-27 팀장님): 팝업 규칙(7/10 '0입력→빈칸·이월유지')을 메인표에도.
@@ -4320,6 +4326,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (key === last) return;
             last = key;
             selRef.current = { r1: Math.min(anchor.r, ri2), r2: Math.max(anchor.r, ri2), c1: Math.min(anchor.c, td2.cellIndex), c2: Math.max(anchor.c, td2.cellIndex) };
+            selAnchor2Ref.current = { r: anchor.r, c: anchor.c }; selActiveRef.current = { r: ri2, c: td2.cellIndex };   // 키보드 확장·이동 기준 (2026-09-03)
             paintSel();
             ev.preventDefault();
         };
@@ -4379,6 +4386,118 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
+    // ── 엑셀식 키보드 (2026-09-03 팀장님: 표를 엑셀처럼 — 직원들이 엑셀에 친숙) ──────────
+    //   셀 커서 = selRef 1×1 재사용(드래그 범위와 같은 파란 칠) · 화살표/Home/End/PageUp·Down 이동 · Shift+화살표=범위 확장
+    //   Enter=아래로 · Shift+Enter=위로 · Tab=오른쪽(편집 중에도 — 저장 후 이동) · 글자 타이핑=바로 편집 시작 · F2=편집 · Esc=취소(커서 유지)
+    //   Ctrl+C: 셀 범위=엑셀 붙여넣기용 TSV / 행 전체 선택(번호 클릭)=기존 행 복사 · Del=기존 일괄 지우기
+    //   ※ 한글 첫 글자 타이핑 시작은 IME 한계로 미지원 — F2나 클릭으로 열고 입력 (영문·숫자는 즉시)
+    const selActiveRef = useRef(null);    // 활성 셀 {r,c} — Shift 확장의 움직이는 쪽
+    const selAnchor2Ref = useRef(null);   // 고정 모서리 {r,c}
+    const kbNavRef = useRef(null);        // 편집 저장 직후 이동 방향
+    const ensureRowVisible = (ri) => {
+        const row = (sortedRowsRef.current || [])[ri]; if (!row) return;
+        const tr = tbodyRef.current && tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(row._id))}"]`);
+        if (tr) { tr.scrollIntoView({ block: 'nearest' }); return; }
+        if (winOnRef.current && winWrapRef.current) {   // 창 렌더 밖 — 위치 계산 스크롤(8/27 하이라이트 점프와 동일) 후 다시 칠하기
+            winWrapRef.current.scrollTop = Math.max(0, ri * (winRowHRef.current || 30) - winWrapRef.current.clientHeight / 2);
+            setTimeout(() => paintSel(), 350);
+        }
+    };
+    const setCellCursor = (ri, ci, extend) => {
+        const rows = sortedRowsRef.current || [];
+        if (!rows.length || !mainVisibleHeaders.length) return;
+        ri = Math.max(0, Math.min(ri, rows.length - 1));
+        ci = Math.max(0, Math.min(ci, mainVisibleHeaders.length - 1));
+        if (!extend || !selAnchor2Ref.current) selAnchor2Ref.current = { r: ri, c: ci };
+        selActiveRef.current = { r: ri, c: ci };
+        const a = selAnchor2Ref.current;
+        selRef.current = { r1: Math.min(a.r, ri), r2: Math.max(a.r, ri), c1: Math.min(a.c, ci), c2: Math.max(a.c, ci) };
+        ensureRowVisible(ri);
+        paintSel();
+        if (fmtBarRef.current) setFmtSelTick(k => k + 1);
+    };
+    const cursorTd = () => {
+        const a = selActiveRef.current; if (!a) return null;
+        const row = (sortedRowsRef.current || [])[a.r]; if (!row) return null;
+        const tr = tbodyRef.current && tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(row._id))}"]`);
+        return (tr && tr.children[a.c]) || null;
+    };
+    // 커서 칸 편집 열기 = 실제 클릭과 동일 경로(잠금 안내·드롭다운·폭 측정 전부 기존 그대로) · seed = 타이핑 시작 글자
+    const openCursorCell = (seed) => {
+        const td = cursorTd(); if (!td) return;
+        td.click();
+        if (seed === undefined) return;
+        let tries = 0;
+        const put = () => {
+            const inp = tbodyRef.current && tbodyRef.current.querySelector('td input[type="text"]');
+            if (inp) {
+                const setV = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setV.call(inp, seed);
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                try { inp.setSelectionRange(seed.length, seed.length); } catch (e2) {}
+                return;
+            }
+            if (++tries < 8) requestAnimationFrame(put);
+        };
+        requestAnimationFrame(put);
+    };
+    // 셀 범위 Ctrl+C — 엑셀에 그대로 붙는 TSV (행 복사와 동일하게 원본 값 기준)
+    const copyCellRange = () => {
+        const sel = selRef.current; if (!sel) return;
+        const TAB = String.fromCharCode(9), NL = String.fromCharCode(10);
+        const lines = [];
+        for (let r = sel.r1; r <= sel.r2; r++) {
+            const row = sortedRowsRef.current[r]; if (!row) continue;
+            const cells = [];
+            for (let c = sel.c1; c <= sel.c2; c++) cells.push(String(row[mainVisibleHeaders[c]] ?? ''));
+            lines.push(cells.join(TAB));
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(lines.join(NL)).catch(() => {});
+        showExtToast(`${sel.r2 - sel.r1 + 1}×${sel.c2 - sel.c1 + 1} 칸 복사됨 — 엑셀·메모장에 Ctrl+V로 붙습니다`);
+    };
+    // 전역 키 → 표 키보드 (편집창·모달·드롭다운 열림이면 통과)
+    const handleGridKey = (e) => {
+        if (!selRef.current || editingCell.id) return false;
+        if (statusDropdown || assigneeDropdown || clientDropdown || vendorDropdown || wordDropdown) return false;
+        if (document.querySelector('div.fixed.inset-0')) return false;   // 모달·오버레이 열림
+        const act = selActiveRef.current || { r: selRef.current.r1, c: selRef.current.c1 };
+        const maxR = (sortedRowsRef.current || []).length - 1;
+        const maxC = mainVisibleHeaders.length - 1;
+        const page = Math.max(5, Math.floor(((winWrapRef.current && winWrapRef.current.clientHeight) || 600) / (winRowHRef.current || 30)) - 2);
+        const mv = (r, c, ext) => { setCellCursor(r, c, ext); return true; };
+        switch (e.key) {
+            case 'ArrowUp':    return mv(e.ctrlKey ? 0 : act.r - 1, act.c, e.shiftKey);
+            case 'ArrowDown':  return mv(e.ctrlKey ? maxR : act.r + 1, act.c, e.shiftKey);
+            case 'ArrowLeft':  return mv(act.r, e.ctrlKey ? 0 : act.c - 1, e.shiftKey);
+            case 'ArrowRight': return mv(act.r, e.ctrlKey ? maxC : act.c + 1, e.shiftKey);
+            case 'Home':       return e.ctrlKey ? mv(0, 0, e.shiftKey) : mv(act.r, 0, e.shiftKey);
+            case 'End':        return e.ctrlKey ? mv(maxR, maxC, e.shiftKey) : mv(act.r, maxC, e.shiftKey);
+            case 'PageUp':     return mv(act.r - page, act.c, e.shiftKey);
+            case 'PageDown':   return mv(act.r + page, act.c, e.shiftKey);
+            case 'Enter':      return mv(e.shiftKey ? act.r - 1 : act.r + 1, act.c, false);   // 엑셀: Enter=아래로
+            case 'F2':         openCursorCell(); return true;
+            default:
+                if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && /[ -~]/.test(e.key)) { openCursorCell(e.key); return true; }   // 영문·숫자·기호 = 바로 입력 시작
+                return false;
+        }
+    };
+    const gridKeyRef = useRef(() => false); gridKeyRef.current = handleGridKey;
+    const copyCellRangeRef = useRef(() => {}); copyCellRangeRef.current = copyCellRange;
+    const isFullRowSel = () => { const s = selRef.current; return !!s && s.c1 === 0 && s.c2 === mainVisibleHeaders.length - 1; };
+    const isFullRowSelRef = useRef(() => false); isFullRowSelRef.current = isFullRowSel;
+    // 편집 저장 후 커서 이동 (Enter=아래·Tab=오른쪽 — commitCellEdit 래퍼에서 사용)
+    const moveCursorFrom = (ec, nav) => {
+        const ri = (sortedRowsRef.current || []).findIndex(r => r._id === ec.id);
+        const ci = mainVisibleHeaders.indexOf(ec.key);
+        if (ri < 0 || ci < 0) return;
+        const d = { down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1], stay: [0, 0] }[nav] || [0, 0];
+        setCellCursor(ri + d[0], ci + d[1], false);
+    };
+    const moveCursorFromRef = useRef(() => {}); moveCursorFromRef.current = moveCursorFrom;
+    // 창 렌더 이동으로 새로 그려진 행에 선택 칠 복원
+    useEffect(() => { if (selRef.current) paintSel(); }, [winStart]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // 편집창이 닫힐 때 그 행이 다시 그려져 칠이 지워짐 — 닫힌 뒤 한 박자 쉬고 다시 칠하기 (2026-09-03 실기 테스트가 잡음)
+    useEffect(() => { if (!editingCell.id && selRef.current) { const t = setTimeout(() => paintSel(), 0); return () => clearTimeout(t); } }, [editingCell.id]);   // eslint-disable-line react-hooks/exhaustive-deps
     // ── 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경 — 떠 있는 팔레트, 칸 클릭/드래그 선택 → 원클릭) ──
     //   저장 = 행 문서 _fmt { row:{b,c,bg}, cells:{ [열]:{b,c,bg} } } — 값(글자)은 안 건드리는 웹 화면 전용 꼬리표
     //   [엑셀 반영](보존 병합)·값 갱신에는 유지 · ⚠관리자 [엑셀 확정 저장](전량 교체)에는 pid처럼 소실
@@ -4506,15 +4625,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const pasteRowsRef = useRef(() => {}); pasteRowsRef.current = pasteCopiedRows;
     useEffect(() => {
         const onKey = (e) => {
-            if (e.key === 'Escape') { if (selRef.current) { selRef.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); } return; }
             const t = e.target;
-            const inEdit = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);   // 편집창 안 키는 원래대로
+            const inEdit = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);   // 편집창 안 키는 원래대로
+            if (e.key === 'Escape') { if (!inEdit && selRef.current) { selRef.current = null; selActiveRef.current = null; selAnchor2Ref.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); } return; }
             const k = String(e.key).toLowerCase();
-            if ((e.ctrlKey || e.metaKey) && k === 'c') {   // 행 복사 (2026-08-31)
+            if ((e.ctrlKey || e.metaKey) && k === 'c') {   // 복사: 행 전체 선택=행 복사(8/31) / 셀 범위=엑셀용 TSV(2026-09-03)
                 if (inEdit || !selRef.current) return;
                 if (window.getSelection && String(window.getSelection())) return;   // 글자 드래그 복사는 원래대로
                 e.preventDefault();
-                copyRowsRef.current();
+                if (isFullRowSelRef.current()) copyRowsRef.current(); else copyCellRangeRef.current();
                 return;
             }
             if ((e.ctrlKey || e.metaKey) && k === 'v') {   // 새 프로젝트로 붙여넣기 (2026-08-31)
@@ -4523,11 +4642,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 pasteRowsRef.current();
                 return;
             }
-            if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (inEdit) return;
+                if (!selRef.current) return;
+                e.preventDefault();
+                clearSelectedCellsRef.current();
+                return;
+            }
+            // 엑셀식 이동·입력 (2026-09-03) — 커서 있을 때만
             if (inEdit) return;
-            if (!selRef.current) return;
-            e.preventDefault();
-            clearSelectedCellsRef.current();
+            if (gridKeyRef.current(e)) e.preventDefault();
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -6832,7 +6956,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                             <input autoFocus type="text" defaultValue={editingCell.value} placeholder="260126"
                                                                 onChange={e=>{ editValRef.current = e.target.value; }}
                                                                 onFocus={e=>e.target.select()} onBlur={commitCellEdit}
-                                                                onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
+                                                                onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
                                                                 style={{ width: editWRef.current ? `${Math.max(24, editWRef.current - 16)}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                             <button type="button" title="달력에서 고르기" tabIndex={-1}
                                                                 onMouseDown={e=>e.preventDefault()}
@@ -6847,7 +6971,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         <input autoFocus type="text" defaultValue={editingCell.value}
                                                             onChange={e=>{ editValRef.current = e.target.value; }}
                                                             onFocus={e=>e.target.select()} onBlur={commitCellEdit}
-                                                            onKeyDown={e=>{if(e.key==='Enter')commitCellEdit();if(e.key==='Escape')setEditingCell({id:null,key:null,value:''}); }}
+                                                            onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
                                                             style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                     )}
                                                 </td>
@@ -6937,6 +7061,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 const prev = selRef.current;
                                                                 if (e.shiftKey && prev && prev.c1 === 0 && prev.c2 === lastC) selRef.current = { r1: Math.min(prev.r1, riNo), r2: Math.max(prev.r2, riNo), c1: 0, c2: lastC };
                                                                 else selRef.current = { r1: riNo, r2: riNo, c1: 0, c2: lastC };
+                                                                selAnchor2Ref.current = { r: selRef.current.r1, c: 0 }; selActiveRef.current = { r: riNo, c: lastC };   // 키보드 이동 기준 (2026-09-03)
                                                                 paintSel();
                                                             }
                                                         } else if (isDateCol(h)) {
