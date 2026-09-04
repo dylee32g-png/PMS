@@ -3491,7 +3491,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     const clearAll = async () => {
         // ★ 관리자 전용 (2026-07-14): 팀의 모든 프로젝트가 통째로 삭제됨
-        if (!isAdmin) { setConfirmClearOpen(false); setAlertMsg('전체 데이터 삭제는 관리자만 할 수 있습니다.'); return; }
+        if (!isAdmin) { setConfirmClearOpen(false); setAlertMsg('데이터 삭제는 관리자만 할 수 있습니다.'); return; }
         setIsLoading(true); setConfirmClearOpen(false);
         try {
             // ★ 삭제 직전 자동 백업 + 백로그 기록 (2026-09-04 팀장님 — 9/1 과거 연도 소실 사고: 이 버튼이 흔적·백업 없이 전 연도를 지워 추적·복구가 어려웠음)
@@ -6598,7 +6598,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {/* 전체 삭제 — ★관리자 전용 (2026-07-14) */}
                                     <button onClick={() => { setSettingsOpen(false); setClearYearSel('ALL'); setConfirmClearOpen(true); }} disabled={!activeRows.length}
                                         className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
-                                        <Trash2 size={14}/> 전체 데이터 삭제
+                                        <Trash2 size={14}/> 데이터 삭제 <span className="text-[10px] text-[#999] font-normal">연도 선택 또는 전체</span>
                                     </button>
                                     </>)}
                                 </div>
