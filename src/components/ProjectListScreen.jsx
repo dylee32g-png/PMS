@@ -6709,7 +6709,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <span style={{ fontSize: '11px', fontWeight: 700, color: '#666' }}>{statusFilterCol}</span>
                             <button onClick={() => setActiveStatusChips(new Set())}
                                 style={{ padding: '3px 10px', fontSize: '11px', fontWeight: activeStatusChips.size === 0 ? 800 : 600, backgroundColor: activeStatusChips.size === 0 ? 'rgba(30,122,200,0.12)' : '#fff', color: activeStatusChips.size === 0 ? '#1358a0' : '#888', border: activeStatusChips.size === 0 ? '1.5px solid #1e7ac8' : '1.5px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                전체 <span style={{ fontSize: '10px', opacity: 0.85 }}>({yearFilteredRows.length})</span>
+                                전체 <span style={{ fontSize: '10px', opacity: 0.85 }}>({monthFilteredRows.filter(r => !isSubListRow(r)).length})</span>
                             </button>
                             {statusChipData.map(([status, count]) => {
                                 const isActive = activeStatusChips.has(status);
@@ -7279,7 +7279,15 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                     </div>
                     <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs shrink-0">
                         <span className="text-slate-600">
-                            전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}
+                            {(() => {   // 칩 연동 카운터 (2026-09-04 팀장님): 선택 칩 이름 + 메인 행만(번호와 일치) + 하위는 별도 표기
+                                const _mains2 = sortedRows.filter(r => !isSubListRow(r));
+                                const _m = _mains2.length;
+                                const _ids2 = new Set(_mains2.map(r => r._id));
+                                const _pids2 = new Set(_mains2.map(r => r._pid).filter(Boolean));   // _subParent = 부모 _pid (2026-07-16)
+                                const _s = monthFilteredRows.filter(r => isSubListRow(r) && (_ids2.has(String(r._id).replace(/_sub\d+$/, '')) || _pids2.has(String(r._subParent || '')))).length;
+                                const _lb = activeStatusChips.size === 0 ? '전체' : [...activeStatusChips].join('·');
+                                return (<>{_lb} <span className="text-slate-300 font-bold">{_m}</span>건{_s > 0 ? <span className="text-slate-600"> (+하위 {_s})</span> : ''}{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}</>);
+                            })()}
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                             {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
                             {sortConfig.key && <span className="ml-3 font-bold" style={{ color: '#1e7ac8' }}>· 정렬: {dispHeader(sortConfig.key)} {sortConfig.dir === 'asc' ? '↑ 오름차순' : '↓ 내림차순'}
