@@ -7279,9 +7279,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                     </div>
                     <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs shrink-0">
                         <span className="text-slate-600">
-                            표시 <span className="text-slate-300 font-bold">{sortedRows.length}</span> /
-                            전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''} ·
-                            주요열 <span className="text-slate-300 font-bold">{mainVisibleHeaders.length}</span> / 전체 {activeHeaders.length}개
+                            전체 <span className="text-slate-300 font-bold">{monthFilteredRows.length}</span>행{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                             {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
                             {sortConfig.key && <span className="ml-3 font-bold" style={{ color: '#1e7ac8' }}>· 정렬: {dispHeader(sortConfig.key)} {sortConfig.dir === 'asc' ? '↑ 오름차순' : '↓ 내림차순'}
