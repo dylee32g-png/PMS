@@ -25,13 +25,19 @@ export default function DetailModal({
     subPtInfo = null,         // 2단계(2026-07-20): 메인 행에 하위(공종)가 있으면 {count, sum} — '포인트' 칸 잠금+합계 표시
     extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
     execLockedCols = [],      // 수행번호(당해 연도) — 손 키인 금지, 메인표 [+]/✕로만 (2026-08-28 팀장님)
+    wordDropOptions = {},     // 팀 카드 '드롭다운열' 칸의 선택 목록 { 열이름: [값들] } — 공사분류·공장 등 (2026-09-04 팀장님)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
+    const [wordEdit, setWordEdit] = React.useState(null); // 드롭다운열 칸 '직접 입력' 모드로 전환한 항목 (2026-09-04)
+    React.useEffect(() => { setWordEdit(null); }, [detailRow && detailRow._id]);   // 다른 행/새 추가로 바뀌면 초기화
     if (!detailRow) return null;
     const isAdd = mode === 'add';
     const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
     const isExecLockedDM = (h) => (execLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 수행번호 자동 부여 칸 (2026-08-28)
+
+    // 드롭다운열 칸 목록 찾기 — 열 이름 공백 무시 비교 (2026-09-04). 목록 없는 칸은 null = 일반 입력
+    const wordOptsOf = (h) => { const k = String(h ?? '').replace(/\s/g, ''); const hit = Object.keys(wordDropOptions || {}).find(c => String(c).replace(/\s/g, '') === k); return hit ? (wordDropOptions[hit] || []) : null; };
 
     // 팀 마스터 목록 우선(진행현황 관리 / 담당자 관리) — 없으면 기본 상수
     const STATUS_OPTS   = (statusOptions && statusOptions.length) ? statusOptions : DEFAULT_STATUS_OPTIONS;
@@ -136,6 +142,27 @@ export default function DetailModal({
                             <option value="">—</option>
                             {withCurrent(STATUS_OPTS, normalizeStatus(val)).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
+                    ) : wordOptsOf(h) ? (
+                        // 드롭다운열 칸(공사분류·공장 등) — 메인표 단어 드롭다운과 같은 목록에서 선택 + 직접 입력 전환 (2026-09-04 팀장님)
+                        wordEdit === h ? (
+                            <div style={{ width:'100%', display:'flex', alignItems:'center' }}>
+                                <input autoFocus type="text" value={val}
+                                    onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
+                                    style={{ flex:1, minWidth:0, border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit' }}
+                                    onFocus={e => e.target.parentElement.style.backgroundColor='#fffde7'}
+                                    onBlur={e => e.target.parentElement.style.backgroundColor='transparent'}/>
+                                <button type="button" onClick={() => setWordEdit(null)} title="목록에서 고르기로 돌아가기"
+                                    style={{ flexShrink:0, marginRight:6, padding:'3px 8px', fontSize:'11px', fontWeight:700, borderRadius:5, border:'1px solid #bcd6f0', background:'#eaf2fb', color:'#1358a0', cursor:'pointer' }}>목록 ▾</button>
+                            </div>
+                        ) : (
+                            <select value={withCurrent(wordOptsOf(h), String(val ?? '').trim()).includes(String(val ?? '').trim()) ? String(val ?? '').trim() : ''}
+                                onChange={e => { if (e.target.value === '__custom__') { setWordEdit(h); return; } setDetailRow(p => ({...p, [h]: e.target.value})); }}
+                                style={{ width:'100%', border:'none', outline:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', cursor:'pointer' }}>
+                                <option value="">—</option>
+                                {withCurrent(wordOptsOf(h), String(val ?? '').trim()).map(s => <option key={s} value={s}>{s}</option>)}
+                                <option value="__custom__">✎ 직접 입력…</option>
+                            </select>
+                        )
                     ) : isAssignee ? (
                         <div style={{ width:'100%' }}>
                             <button type="button" onClick={() => setAsgOpen(asgOpen === h ? null : h)}

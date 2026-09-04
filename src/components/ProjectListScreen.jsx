@@ -118,6 +118,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 단어(카테고리) 칸 드롭다운 대상 — 팀 카드 '드롭다운열'의 열 이름(공백 무시)과 일치하면 그 사전 목록 키를 돌려줌 (2026-08-19 팀장님)
     const wordDropCols = teamProfile?.드롭다운열 || {};
     const wordDropKey = (h) => { const k = String(h).replace(/\s/g, ''); return Object.keys(wordDropCols).find(c => String(c).replace(/\s/g, '') === k || aliasCol(c) === h) || null; };   // 옛 연도 열 이름은 별칭으로 (2026-08-21)
+    // 팝업(상세/추가)용 드롭다운 목록 — 메인표 단어 드롭다운과 같은 규칙: 카드 사전 + 기준연도 실제 사용값(가나다) (2026-09-04 팀장님)
+    const buildWordDropOptions = () => {
+        const out = {};
+        Object.entries(wordDropCols).forEach(([col, preset]) => {
+            const h = aliasCol(col) || col;
+            const used = [...new Set(yearFilteredRows.map(r => String(r[h] || '').trim()).filter(Boolean))];
+            out[h] = [...(preset || []), ...used.filter(v => !(preset || []).includes(v)).sort()];
+        });
+        return out;
+    };
     // 담당자식(다중 선택) 드롭다운 열 — 팀 카드 '담당자식열' (2026-08-21 팀장님: 기술1팀 담당·수행 = 명단 5명+직접 입력+여러 명)
     const asgColCfg = teamProfile?.담당자식열 || null;
     const isCardAsgCol = (h) => !!asgColCfg && (asgColCfg.열 || []).some(c => String(c).replace(/\s/g, '') === String(h).replace(/\s/g, '') || aliasCol(c) === h);
@@ -5318,6 +5328,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
+                    wordDropOptions={buildWordDropOptions()}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
                     execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
@@ -5377,6 +5388,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
+                    wordDropOptions={buildWordDropOptions()}
                     copiedFromRow={addCopiedRef.current}
                 />
             )}
