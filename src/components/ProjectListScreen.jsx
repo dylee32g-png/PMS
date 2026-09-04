@@ -6835,8 +6835,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             );
                                             return (
                                                 <th key={`sg-${gi}`} rowSpan={headRows} data-col={h}
-                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}${grpSep(h)}`}
-                                                    style={{...(isStatusCol(h)?{}:{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
+                                                    className={`${thPx} relative align-middle ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}${grpSep(h)} ${((colWidths[h]||fitWidths[h])&&!isStatusCol(h))?'col-clip':''}`}
+                                                    style={{...(isStatusCol(h)?{}:{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40, '--cw': `${getW(h)||40}px`}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
                                                     onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                                     {isFilterable(h) ? ComboFilter({ h }) : SortHeader({ h })}
                                                     <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
@@ -6862,8 +6862,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         );
                                         return (
                                         <th key={h}
-                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''}`}
-                                            style={isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{}}
+                                            className={`${thPx} relative ${isPinH(h)?'border-r-2 border-blue-400 frz-edge':'border-r border-slate-400'} ${isFrz(h)?'z-40':''} ${(colWidths[h]&&!isStatusCol(h))?'col-clip':''}`}
+                                            style={{...((colWidths[h]&&!isStatusCol(h))?{width:getW(h)||40, minWidth:getW(h)||40, maxWidth:getW(h)||40, '--cw': `${getW(h)||40}px`}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background:'var(--head-bg)'}:{})}}
                                             onDoubleClick={()=>toggleFreeze(h)} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setHeaderMenu({ h, x: e.clientX, y: e.clientY }); }}>
                                             {isFilterable(h) ? ComboFilter({ h }) : SortHeader({ h })}
                                             <div className="absolute -right-[7px] top-0 bottom-0 w-[14px] cursor-col-resize hover:bg-blue-500/50 z-50"
