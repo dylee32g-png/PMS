@@ -1845,8 +1845,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const editValRef = useRef('');
     const datePickRef = useRef(null);   // 날짜 편집 달력(숨은 date input) — 편집중인 칸은 항상 1개 (2026-09-02)
     const editDirtyRef = useRef(false);   // 편집창에서 실제 타이핑했는지 — ←/→를 '칸 이동'으로 쓸지 판단 (2026-09-03 엑셀 입력모드)
+    // 엑셀의 입력/편집 2모드 (2026-09-04 팀장님): 클릭=입력 모드(화살표=칸 이동) / F2·입력창 재클릭=편집 모드(화살표=칸 안 캐럿만)
+    const editNavModeRef = useRef('point');   // 'point'=입력 모드 · 'edit'=편집 모드
+    const editNavNextRef = useRef(null);      // F2로 여는 편집은 effect 리셋 뒤에 'edit'이 되도록 예약
     useEffect(() => {
         editDirtyRef.current = false;
+        editNavModeRef.current = editNavNextRef.current || 'point'; editNavNextRef.current = null;
         editValRef.current = String(editingCell.value ?? '');   // 편집 시작 값으로 초기화 (타이핑 없이 바로 이동해도 원값 보존)
         if (!editingCell.id || !editingCell.key) { editOrigRef.current = null; return; }
         const cur = editOrigRef.current;
@@ -4515,7 +4519,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             case 'PageUp':     return mv(act.r - page, act.c, e.shiftKey);
             case 'PageDown':   return mv(act.r + page, act.c, e.shiftKey);
             case 'Enter':      return mv(e.shiftKey ? act.r - 1 : act.r + 1, act.c, false);   // 엑셀: Enter=아래로
-            case 'F2':         openCursorCell(); return true;
+            case 'F2':         editNavNextRef.current = 'edit'; openCursorCell(); return true;   // 엑셀: F2=편집 모드(화살표=칸 안) (2026-09-04)
             default:
                 if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && /[ -~]/.test(e.key)) { openCursorCell(e.key); return true; }   // 영문·숫자·기호 = 바로 입력 시작
                 return false;
@@ -7007,9 +7011,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         /* 날짜 편집 = 엑셀식 (2026-09-02 팀장님): 자유 타이핑(260126·26/01/26…) + 달력 버튼 + 전체선택이라 Del 한 번에 지움 */
                                                         <span style={{ display: 'flex', alignItems: 'center' }}>
                                                             <input autoFocus type="text" defaultValue={editingCell.value} placeholder="260126"
-                                                                onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; }}
+                                                                onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; }} onMouseDown={()=>{ editNavModeRef.current='edit'; }}
                                                                 onFocus={e=>e.target.select()} onBlur={commitCellEdit}
-                                                                onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ kbNavRef.current=(e.key==='ArrowDown'?'down':'up'); e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!editDirtyRef.current){ kbNavRef.current=(e.key==='ArrowLeft'?'left':'right'); e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
+                                                                onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowDown'?'down':'up'); e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!editDirtyRef.current&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowLeft'?'left':'right'); e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
                                                                 style={{ width: editWRef.current ? `${Math.max(24, editWRef.current - 16)}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                             <button type="button" title="달력에서 고르기" tabIndex={-1}
                                                                 onMouseDown={e=>e.preventDefault()}
@@ -7022,9 +7026,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         </span>
                                                     ) : (
                                                         <input autoFocus type="text" defaultValue={editingCell.value}
-                                                            onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; }}
+                                                            onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; }} onMouseDown={()=>{ editNavModeRef.current='edit'; }}
                                                             onFocus={e=>e.target.select()} onBlur={commitCellEdit}
-                                                            onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ kbNavRef.current=(e.key==='ArrowDown'?'down':'up'); e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!editDirtyRef.current){ kbNavRef.current=(e.key==='ArrowLeft'?'left':'right'); e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
+                                                            onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowDown'?'down':'up'); e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!editDirtyRef.current&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowLeft'?'left':'right'); e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
                                                             style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
                                                     )}
                                                 </td>
