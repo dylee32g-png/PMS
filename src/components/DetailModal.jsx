@@ -26,6 +26,7 @@ export default function DetailModal({
     extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
     execLockedCols = [],      // 수행번호(당해 연도) — 손 키인 금지, 메인표 [+]/✕로만 (2026-08-28 팀장님)
     wordDropOptions = {},     // 팀 카드 '드롭다운열' 칸의 선택 목록 { 열이름: [값들] } — 공사분류·공장 등 (2026-09-04 팀장님)
+    customerAsgCols = [],     // 팀 카드 '고객담당자열' — 발주처(고객사) 담당자 칸: 직원 칩 제외, 일반 입력 (2026-09-04 팀장님)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
@@ -93,7 +94,8 @@ export default function DetailModal({
         const val = detailRow[h] || '';
         const wide = isWideField(h);
         const isStatus = isStatusCol(h);
-        const isAssignee = isAssigneeCol(h) || isManagerCol(h);   // 관리자 = 담당자와 같은 선택 형식 (2026-07-22)
+        const isCustAsg = (customerAsgCols || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 발주처 고객 담당자 = 일반 입력 (2026-09-04)
+        const isAssignee = (isAssigneeCol(h) || isManagerCol(h)) && !isCustAsg;   // 관리자 = 담당자와 같은 선택 형식 (2026-07-22)
         const isCheck = isCheckCol(h);
         const hidden = hiddenCols?.has(h);
         return (

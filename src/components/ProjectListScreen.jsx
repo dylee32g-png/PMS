@@ -131,6 +131,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 담당자식(다중 선택) 드롭다운 열 — 팀 카드 '담당자식열' (2026-08-21 팀장님: 기술1팀 담당·수행 = 명단 5명+직접 입력+여러 명)
     const asgColCfg = teamProfile?.담당자식열 || null;
     const isCardAsgCol = (h) => !!asgColCfg && (asgColCfg.열 || []).some(c => String(c).replace(/\s/g, '') === String(h).replace(/\s/g, '') || aliasCol(c) === h);
+    // 발주처(고객사) 담당자 칸 — 팀 카드 '고객담당자열' (2026-09-04 팀장님: 기술 1팀 '담당자'=고객 이름 — 직원 드롭다운·직책 보정 제외, 일반 입력칸)
+    const isCustAsgCol = (h) => (teamProfile?.고객담당자열 || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
     // ★ 이름만 저장 → 표시할 때 직책 자동 부착 (2026-08-27 팀장님: 기술1팀 심광호 담당·염경록 팀장·나머지 책임).
     //   직책은 팀 명단(ASSIGNEES)에서 찾음 — 저장값·엑셀 표기는 이름만 그대로(원본 엑셀 불변). 명단에 없는 이름은 그대로.
     const asgTitleOf = (token) => { const k = extractName(normalizeAssignee(token)); const hit = k ? ASSIGNEES.find(n => extractName(normalizeAssignee(n)) === k) : null; return hit ? toExcelAssignee(hit) : String(token ?? '').trim(); };
@@ -1894,6 +1896,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             editingCell = { ...editingCell, value: '' };
         }
         const srcRow = activeRows.find(r => r._id === editingCell.id);
+        // ★ 직원 이름 칸 직책 자동 (2026-09-04 팀장님): 담당자·관리자 칸에 이름만 키인해도 팀 명단에서 찾아 '이름 직책'으로 완성
+        //   (기술 1팀 담당자식 칸은 '이름만 저장'이 원칙이라 제외 · 발주처 고객 담당자 칸도 제외 · 명단에 없는 이름은 그대로)
+        if ((isAssigneeCol(editingCell.key) || isManagerCol(editingCell.key)) && !isCustAsgCol(editingCell.key) && !isCardAsgCol(editingCell.key)
+            && String(editingCell.value ?? '').trim() !== '') {
+            const _fixed = splitAssigneeCell(editingCell.value).map(t => asgTitleOf(t)).filter(Boolean).join(' ');
+            if (_fixed && _fixed !== String(editingCell.value)) editingCell = { ...editingCell, value: _fixed };
+        }
         // 날짜 칸 (2026-09-02 팀장님: 엑셀처럼 자유 타이핑·달력·Del 지우기):
         //   ① 입력을 표준 날짜로 해석(260126·26/01/26·2026-01-26 등, 연도 없는 M/D는 행 연도)
         //   ② 못 알아보면 안내 후 저장 안 함(오염 방지) ③ 원본과 같으면 스킵 — 비표준 날짜 클릭만 해도 빈칸 덮던 버그 방지(2026-06-29 유지)
@@ -4298,7 +4307,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const canClearCell = (row, h) => {
         if (isNaItemCell(row, h) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금
-        if (isStatusCol(h) || isAssigneeCol(h) || isManagerCol(h) || isCardAsgCol(h) || isClientCol(h) || isVendorAssCol(h) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
+        if (isStatusCol(h) || (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h))) || isCardAsgCol(h) || isClientCol(h) || isVendorAssCol(h) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
         if (isExecNoCol(h)) return false;                                  // 실행번호 = 하위(s) 구조 마커와 얽힘
         if (isPointCol(h) && getSubPt(row._id)) return false;              // 하위 합계 자동
         return true;
@@ -5329,6 +5338,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
                     wordDropOptions={buildWordDropOptions()}
+                    customerAsgCols={teamProfile?.고객담당자열 || []}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
                     execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
@@ -5389,6 +5399,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     assignees={ASSIGNEES}
                     suggestions={fieldSuggestions}
                     wordDropOptions={buildWordDropOptions()}
+                    customerAsgCols={teamProfile?.고객담당자열 || []}
                     copiedFromRow={addCopiedRef.current}
                 />
             )}
@@ -7049,7 +7060,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setStatusDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 120), ...dropAnchor(rect, e.clientY) });
-                                                        } else if (isAssigneeCol(h) || isManagerCol(h) || isCardAsgCol(h)) {   // 관리자 = 담당자와 같은 드롭다운 (2026-07-22) · 카드 담당자식열 (2026-08-21)
+                                                        } else if (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h) || isCardAsgCol(h))) {   // 관리자 = 담당자와 같은 드롭다운 (2026-07-22) · 카드 담당자식열 (2026-08-21)
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setAssigneeDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 160), ...dropAnchor(rect, e.clientY) });
