@@ -7280,13 +7280,9 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                     <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs shrink-0">
                         <span className="text-slate-600">
                             {(() => {   // 칩 연동 카운터 (2026-09-04 팀장님): 선택 칩 이름 + 메인 행만(번호와 일치) + 하위는 별도 표기
-                                const _mains2 = sortedRows.filter(r => !isSubListRow(r));
-                                const _m = _mains2.length;
-                                const _ids2 = new Set(_mains2.map(r => r._id));
-                                const _pids2 = new Set(_mains2.map(r => r._pid).filter(Boolean));   // _subParent = 부모 _pid (2026-07-16)
-                                const _s = monthFilteredRows.filter(r => isSubListRow(r) && (_ids2.has(String(r._id).replace(/_sub\d+$/, '')) || _pids2.has(String(r._subParent || '')))).length;
+                                const _m = sortedRows.filter(r => !isSubListRow(r)).length;
                                 const _lb = activeStatusChips.size === 0 ? '전체' : [...activeStatusChips].join('·');
-                                return (<>{_lb} <span className="text-slate-300 font-bold">{_m}</span>건{_s > 0 ? <span className="text-slate-600"> (+하위 {_s})</span> : ''}{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}</>);
+                                return (<>{_lb} <span className="text-slate-300 font-bold">{_m}</span>건{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}</>);
                             })()}
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                             {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
