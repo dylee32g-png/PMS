@@ -268,6 +268,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try { const raw = localStorage.getItem('pms_list_compactMode'); const v = Number(raw); return (raw !== null && (v === 0 || v === 1 || v === 2)) ? v : 1; } catch (e) { return 1; }
     }); // 0=기본 1=컴팩트 2=초소형 — 마지막 선택 기억(localStorage) (2026-07-07)
     const [confirmClearOpen, setConfirmClearOpen]   = useState(false);
+    const [clearYearSel, setClearYearSel]           = useState('ALL');   // 삭제 범위: 'ALL' 또는 '2025' 같은 특정 연도 (2026-09-04 팀장님)
     const [confirmDialog, setConfirmDialog]         = useState(null); // { message, onConfirm }
     const [execNoModal, setExecNoModal]             = useState(null); // { row, candidates, selected, loading }
     const [progressRow, setProgressRow]             = useState(null); // 진행실적 등록 대상 row
@@ -3493,16 +3494,34 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (!isAdmin) { setConfirmClearOpen(false); setAlertMsg('전체 데이터 삭제는 관리자만 할 수 있습니다.'); return; }
         setIsLoading(true); setConfirmClearOpen(false);
         try {
+            // ★ 삭제 직전 자동 백업 + 백로그 기록 (2026-09-04 팀장님 — 9/1 과거 연도 소실 사고: 이 버튼이 흔적·백업 없이 전 연도를 지워 추적·복구가 어려웠음)
+            try {
+                await loadFileSaver();
+                const _bs = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+                window.saveAs(new Blob([JSON.stringify({ team: currentTeam, savedAt: new Date().toISOString(), headers: activeHeaders, colGroups: activeColGroups, rows: fbRows }, null, 1)], { type: 'application/json' }), `PMS전체삭제직전백업_${currentTeam}_${_bs}.json`);
+            } catch (e2) {}
+            // 연도 선택식 (2026-09-04 팀장님): 'ALL'=전 연도+헤더 초기화 / 특정 연도=그 해 행만(헤더·다른 연도 무접촉)
+            const _yr = clearYearSel;
+            const _targets = _yr === 'ALL' ? fbRows : fbRows.filter(r => String(r._year || '') === _yr);
+            const _delN = _targets.length;
             let batch = writeBatch(db), cnt = 0;
-            for (const r of fbRows) {
+            for (const r of _targets) {
                 batch.delete(rowDocRef(currentTeam, r._id));
                 if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
             }
             if (cnt > 0) await batch.commit();
-            await setDoc(metaDocRef(currentTeam), { headers: [], colGroups: [], colMids: {}, updatedAt: new Date().toISOString() });
-            setPendingData(null);
-            setLocalData(null);
-            await idbDelete(currentTeam);
+            if (_yr === 'ALL') {
+                await setDoc(metaDocRef(currentTeam), { headers: [], colGroups: [], colMids: {}, updatedAt: new Date().toISOString() });
+                setPendingData(null);
+                setLocalData(null);
+                await idbDelete(currentTeam);
+            }
+            const _scope = _yr === 'ALL' ? '전 연도' : `${_yr}년`;
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.DELETE, projectName: '(데이터 삭제)',
+                note: `데이터 삭제: ${_scope} ${_delN}건${_yr === 'ALL' ? ' + 헤더 초기화' : ' (다른 연도·헤더 무접촉)'}` });
+            addLog(`[데이터 삭제] ${_scope} ${_delN}건`);
+            setAlertMsg(`삭제 완료 — ${_scope} ${_delN}건
+(삭제 직전 백업 JSON이 다운로드되었습니다)`);
         } catch (err) { setAlertMsg(`초기화 오류: ${err.message}`); }
         finally { setIsLoading(false); }
     };
@@ -5370,11 +5389,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4">
                     <div className="bg-white border border-[#c4ccd8] p-8 rounded-lg max-w-sm w-full text-center shadow-2xl">
                         <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto mb-4"/>
-                        <p className="text-[#222] font-bold mb-2">전체 데이터 삭제</p>
-                        <p className="text-rose-600 text-sm mb-6">로컬·Firebase 모든 데이터가 삭제됩니다.</p>
+                        <p className="text-[#222] font-bold mb-2">데이터 삭제</p>
+                        <select value={clearYearSel} onChange={e => setClearYearSel(e.target.value)}
+                            className="w-full mb-3 py-2 px-3 border border-[#c4ccd8] rounded-lg text-sm font-bold text-[#222] bg-white">
+                            <option value="ALL">전체 (모든 연도)</option>
+                            {(() => { const by = {}; fbRows.forEach(r => { const y = String(r._year || '').trim(); if (y) by[y] = (by[y] || 0) + 1; }); return Object.keys(by).sort().reverse().map(y => <option key={y} value={y}>{y}년만 ({by[y]}건)</option>); })()}
+                        </select>
+                        {clearYearSel === 'ALL'
+                            ? <p className="text-rose-600 text-sm mb-2 font-bold">⚠ 2026년만이 아니라 이 팀의 모든 연도 + 헤더가 삭제됩니다.</p>
+                            : <p className="text-rose-600 text-sm mb-2 font-bold">{clearYearSel}년 행만 삭제됩니다 (다른 연도·헤더 무접촉).</p>}
+                        <p className="text-[#475569] text-xs mb-2" style={{lineHeight:1.6}}>{(() => { const by = {}; fbRows.forEach(r => { const y = String(r._year || '?'); by[y] = (by[y] || 0) + 1; }); return Object.keys(by).sort().reverse().map(y => `${y}: ${by[y]}건`).join(' · ') || '(빈 상태)'; })()}</p>
+                        <p className="text-[#94a3b8] text-[11px] mb-6">삭제 직전 백업 JSON이 자동 다운로드됩니다. 과거 연도 복구는 [연도별 1:1 적재]로만 가능합니다.</p>
                         <div className="flex gap-3">
                             <button onClick={() => setConfirmClearOpen(false)} className="flex-1 py-3 bg-[#f1f5f9] border border-[#c4ccd8] rounded-lg font-bold text-[#555]">취소</button>
-                            <button onClick={clearAll} className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-lg font-bold text-white">삭제</button>
+                            <button onClick={clearAll} className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 rounded-lg font-bold text-white">{clearYearSel === 'ALL' ? '전체 삭제' : clearYearSel + '년만 삭제'}</button>
                         </div>
                     </div>
                 </div>
@@ -6568,7 +6596,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     </button>
                                     <div className="border-t border-[#e5eaf3] my-1"/>
                                     {/* 전체 삭제 — ★관리자 전용 (2026-07-14) */}
-                                    <button onClick={() => { setSettingsOpen(false); setConfirmClearOpen(true); }} disabled={!activeRows.length}
+                                    <button onClick={() => { setSettingsOpen(false); setClearYearSel('ALL'); setConfirmClearOpen(true); }} disabled={!activeRows.length}
                                         className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
                                         <Trash2 size={14}/> 전체 데이터 삭제
                                     </button>
