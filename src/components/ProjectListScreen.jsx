@@ -3602,17 +3602,6 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     const MONTHS = ['01','02','03','04','05','06','07','08','09','10','11','12'];
 
-    // 드롭다운에 보여줄 월별 건수 (기준연도 안에서)
-    const monthCountMap = useMemo(() => {
-        const m = { etc: 0 };
-        yearFilteredRows.forEach(r => {
-            if (isSubListRow(r)) return;   // 하위는 부모를 따라가므로 건수는 메인만 (2026-07-16)
-            const mm = contractMonthOf(r);
-            if (mm) m[mm] = (m[mm] || 0) + 1; else m.etc += 1;
-        });
-        return m;
-    }, [yearFilteredRows, contractDateCol, selectedYear]); // eslint-disable-line
-
     const monthFilteredRows = useMemo(() => {
         if (selectedMonth === 'all' || !contractDateCol) return yearFilteredRows;
         if (selectedMonth === 'etc') return yearFilteredRows.filter(r => !contractMonthOf(r));
@@ -3630,6 +3619,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         return activeHeaders.find(h => ['진행현황', '현황', '진행'].some(k => h.includes(k)));
     }, [activeHeaders, teamProfile, selectedYear]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+    // 드롭다운에 보여줄 월별 건수 (기준연도 안에서)
+    //   2026-09-07 팀장님: 진행현황 칩을 고르면 월별 건수도 그 상태 기준으로 — 칩 건수(선택 월 기준)와 상호 연동.
+    //   전체(all)도 같은 기준이라 1~12월 + 기타 = 전체 일치 유지 (메인 행만, 하위 제외)
+    const monthCountMap = useMemo(() => {
+        const chipPass = (r) => {
+            if (activeStatusChips.size === 0 || !statusFilterCol) return true;
+            let v = String(r[statusFilterCol] || '').trim();
+            if (v.toUpperCase() === 'HOLD') v = 'Hold';
+            return v ? activeStatusChips.has(v) : activeStatusChips.has('(빈칸)');
+        };
+        const m = { etc: 0, all: 0 };
+        yearFilteredRows.forEach(r => {
+            if (isSubListRow(r)) return;   // 하위는 부모를 따라가므로 건수는 메인만 (2026-07-16)
+            if (!chipPass(r)) return;
+            m.all += 1;
+            const mm = contractMonthOf(r);
+            if (mm) m[mm] = (m[mm] || 0) + 1; else m.etc += 1;
+        });
+        return m;
+    }, [yearFilteredRows, contractDateCol, selectedYear, activeStatusChips, statusFilterCol]); // eslint-disable-line
 
     const statusChipData = useMemo(() => {
         if (!statusFilterCol) return [];
@@ -6222,7 +6232,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 value={selectedMonth}
                                 onChange={e => setSelectedMonth(e.target.value)}
                                 className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer">
-                                <option value="all">전체 ({yearFilteredRows.length})</option>
+                                <option value="all">전체 ({monthCountMap.all || 0})</option>
                                 {MONTHS.map(mm => <option key={mm} value={mm}>{selectedYear}년 {Number(mm)}월 ({monthCountMap[mm] || 0})</option>)}
                                 <option value="etc">기타 ({monthCountMap.etc || 0})</option>
                             </select>
