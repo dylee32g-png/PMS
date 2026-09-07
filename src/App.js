@@ -419,7 +419,9 @@ const TechTeamPMS = () => {
   //   화면(mode·team)이 바뀔 때마다 브라우저 방문 기록에 한 장씩 남기고, ←/→를 누르면 그 기록의 화면으로 복원.
   //   List의 노란 칸(임시 편집)은 팀별 localStorage에 있어 화면을 떠났다 돌아와도 그대로 남는다(안전).
   const histNavRef = React.useRef(false);
+  const curScrnRef = React.useRef({ mode: null, team: null });   // popstate 가드용 현재 화면 (2026-09-07)
   useEffect(() => {
+    curScrnRef.current = { mode: currentMode, team: currentTeam };
     if (histNavRef.current) { histNavRef.current = false; return; }   // ←/→로 온 변경은 기록 추가 안 함(무한 쌓임 방지)
     const st = window.history.state;
     if (st && st.pmsNav && st.mode === currentMode && st.team === currentTeam) return;
@@ -429,7 +431,12 @@ const TechTeamPMS = () => {
     try { window.history.replaceState({ pmsNav: true, mode: currentMode, team: currentTeam }, ''); } catch (e) {}   // 최초 화면 도장
     const onPop = (e) => {
       const st = e.state;
-      if (!st || !st.pmsNav) return;                                  // 우리 기록이 아니면(사이트 밖) 브라우저에 맡김
+      if (!st || !st.pmsNav) return;
+      // 미저장 임시 편집 가드 (2026-09-07 팀장님): List가 등록한 창구가 막으면 안내창만 띄우고 현재 화면 기록을 다시 얹어 이동 취소
+      if (typeof window.__pmsNavGuard === 'function' && window.__pmsNavGuard() === false) {
+        try { window.history.pushState({ pmsNav: true, mode: curScrnRef.current.mode, team: curScrnRef.current.team }, ''); } catch (e2) {}
+        return;
+      }                                  // 우리 기록이 아니면(사이트 밖) 브라우저에 맡김
       histNavRef.current = true;
       setCurrentTeam(st.team ?? null);
       setCurrentMode(st.mode ?? null);

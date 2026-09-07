@@ -436,6 +436,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftCellCount}칸이 아직 저장되지 않았습니다.\n\n헤더의 [저장 ${draftCellCount}칸] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
     const guardNav = (fn) => () => { if (draftCellCount > 0) { draftNavBlock(); return; } fn && fn(); };
+    // 브라우저 뒤로가기(←/→)도 같은 가드 (2026-09-07 팀장님: 팀 이동은 확인창이 뜨는데 ←는 그냥 나감) — App.js popstate가 이 창구를 먼저 확인
+    useEffect(() => {
+        window.__pmsNavGuard = draftCellCount > 0 ? () => { draftNavBlock(); return false; } : null;
+        return () => { window.__pmsNavGuard = null; };
+    }, [draftCellCount]);   // eslint-disable-line react-hooks/exhaustive-deps
     // 초안 보관 — 이 PC(localStorage) 팀별. F5·재접속해도 노란 칸 유지 (2026-08-27)
     const draftKey = (t) => `pms_list_draft_${t}`;
     useEffect(() => {
