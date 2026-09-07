@@ -26,6 +26,7 @@ import Tech1MonthlyScreen from './components/Tech1MonthlyScreen';   // 기술1�
 import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
 import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
 import { LIST_TEAMS, getTeamProfile } from './teamProfiles';
+import { extractName } from './components/projectColumns';   // 이름↔팀 명단 매칭 (2026-09-07 팀 자동 진입)
 import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
 import WeeklyReportScreen from './components/WeeklyReportScreen';
@@ -809,6 +810,30 @@ const TechTeamPMS = () => {
       setCurrentMode('projectList');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userCheckDone, registeredUser, currentMode, currentTeam]);
+
+  // ── 직원 소속 팀 자동 진입 (2026-09-07 팀장님): 로그인하면 홈 건너뛰고 자기 팀 프로젝트 List로 ──
+  //    팀 결정 = ① 사용자 관리 '소속 팀' 지정 ② 미지정이면 이름(extractName)이 정확히 한 팀 카드 명단에만 있으면 그 팀.
+  //    못 정하면(공용 계정·미배정·두 팀 명단) 종전대로 홈. 딱 1회 — 홈 버튼으로 나가면 다시 끌고 오지 않음.
+  //    휴대폰(모바일 입력)·메인 PC(팀 순환) 자동 진입이 있는 환경에서는 양보.
+  const didTeamRouteRef = useRef(false);
+  useEffect(() => {
+      if (didTeamRouteRef.current) return;
+      if (!userCheckDone || !registeredUser) return;
+      if (currentMode || currentTeam) return;               // 이미 어느 화면에 있으면 건드리지 않음
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return;   // 폰 = 모바일 입력 우선 (2026-07-15)
+      if (mainPcTeams().length) return;                                          // 메인 PC = 팀 순환 우선 (2026-08-07)
+      didTeamRouteRef.current = true;
+      let team = LIST_TEAMS.includes(registeredUser.team) ? registeredUser.team : null;
+      if (!team) {
+          const nm = extractName(registeredUser.displayName || user?.displayName || '');
+          if (nm) {
+              const hits = LIST_TEAMS.filter(t => (getTeamProfile(t)?.담당자목록 || []).some(a => extractName(a) === nm));
+              if (hits.length === 1) team = hits[0];
+          }
+      }
+      if (team) { setCurrentTeam(team); setCurrentMode('projectList'); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userCheckDone, registeredUser, currentMode, currentTeam, user]);
 
   // 팀 순환 — 메인 PC로 자동 진입한 뒤, 지정된 팀이 둘 이상일 때만 돈다(하나면 아무 일도 안 함 = 기존과 동일).
   useEffect(() => {

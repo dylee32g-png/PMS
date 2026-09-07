@@ -4,6 +4,7 @@ import {
     Users, Plus, Trash2, Edit2, X, ChevronLeft,
     Shield, UserCheck, UserX, CheckCircle, AlertCircle, Mail, Lock, Key
 } from 'lucide-react';
+import { LIST_TEAMS } from '../teamProfiles';   // 소속 팀 선택지 (2026-09-07 — 로그인 시 자기 팀 List 직행용)
 
 const accent  = '#1e7ac8';
 const border  = '#c4ccd8';
@@ -20,7 +21,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
     const [loading,      setLoading]      = useState(true);
     const [modal,        setModal]        = useState(null);  // null | { mode:'add'|'edit', data?:{} }
     const [accountType,  setAccountType]  = useState('email'); // 'email' | 'shared'
-    const [form,         setForm]         = useState({ email: '', username: '', password: '', displayName: '', role: 'user', active: true });
+    const [form,         setForm]         = useState({ email: '', username: '', password: '', displayName: '', role: 'user', active: true, team: '' });
     const [newPassword,  setNewPassword]  = useState('');   // 공용 계정 비밀번호 변경용
     const [saving,       setSaving]       = useState(false);
     const [formError,    setFormError]    = useState('');
@@ -46,14 +47,14 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
     }, [db]);
 
     const openAdd = () => {
-        setForm({ email: '', username: '', password: '', displayName: '', role: 'user', active: true });
+        setForm({ email: '', username: '', password: '', displayName: '', role: 'user', active: true, team: '' });
         setFormError('');
         setAccountType('email');
         setModal({ mode: 'add' });
     };
 
     const openEdit = (u) => {
-        setForm({ email: u.email, username: u.username || '', password: '', displayName: u.displayName || '', role: u.role || 'user', active: u.active !== false });
+        setForm({ email: u.email, username: u.username || '', password: '', displayName: u.displayName || '', role: u.role || 'user', active: u.active !== false, team: u.team || '' });
         setNewPassword('');
         setFormError('');
         setModal({ mode: 'edit', data: u });
@@ -86,7 +87,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
                 if (users.find(u => u.email === email)) { setFormError('이미 등록된 이메일입니다.'); return; }
                 setSaving(true);
                 try {
-                    const data = { email, displayName, role: form.role, active: true, createdAt: new Date().toISOString(), addedBy: currentUserEmail || '' };
+                    const data = { email, displayName, role: form.role, active: true, createdAt: new Date().toISOString(), addedBy: currentUserEmail || '', team: form.team || '' };
                     await setDoc(docRef(email), data);
                     setModal(null);
                     showToast('사용자가 등록됐습니다.');
@@ -112,7 +113,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
         }
 
         try {
-            await setDoc(docRef(modal.data.id), { displayName, role: form.role, active: form.active }, { merge: true });
+            await setDoc(docRef(modal.data.id), { displayName, role: form.role, active: form.active, team: form.team || '' }, { merge: true });
             setModal(null);
             showToast(pwTrimmed && modal.data.isSharedAccount ? '사용자 정보 및 비밀번호가 변경됐습니다.' : '사용자 정보가 수정됐습니다.');
         } catch { setFormError('저장 중 오류가 발생했습니다.'); }
@@ -204,7 +205,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
                                     onMouseEnter={e => Array.from(e.currentTarget.cells).forEach(c => c.style.backgroundColor = '#e8f0fe')}
                                     onMouseLeave={e => Array.from(e.currentTarget.cells).forEach(c => c.style.backgroundColor = i % 2 === 1 ? '#f9fafc' : '#fff')}>
                                     <td style={{ ...td, textAlign: 'center', color: '#888', borderLeft: `1px solid ${border}` }}>{i + 1}</td>
-                                    <td style={{ ...td, fontWeight: 600 }}>{u.displayName || '—'}</td>
+                                    <td style={{ ...td, fontWeight: 600 }}>{u.displayName || '—'}{u.team ? <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: accent, backgroundColor: 'rgba(30,122,200,0.08)', border: '1px solid rgba(30,122,200,0.25)', padding: '1px 6px', whiteSpace: 'nowrap' }}>{u.team}</span> : null}</td>
                                     <td style={{ ...td, color: '#555' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                                             {u.isSharedAccount ? <Key size={11} color="#888" /> : <Mail size={11} color="#888" />}
@@ -363,6 +364,17 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
                                     style={{ padding: '8px 10px', border: `1px solid ${border}`, fontSize: 13, color: '#1a1a1a', outline: 'none', boxSizing: 'border-box', width: '100%', backgroundColor: '#fff' }}>
                                     {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                                 </select>
+                            </div>
+
+                            {/* 소속 팀 (2026-09-07) — 지정하면 로그인 시 홈 건너뛰고 그 팀 프로젝트 List로 바로 진입 */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <label style={{ fontSize: 12, fontWeight: 700, color: '#444' }}>소속 팀 (선택)</label>
+                                <select value={form.team} onChange={e => setForm(f => ({ ...f, team: e.target.value }))}
+                                    style={{ padding: '8px 10px', border: `1px solid ${border}`, fontSize: 13, color: '#1a1a1a', outline: 'none', boxSizing: 'border-box', width: '100%', backgroundColor: '#fff' }}>
+                                    <option value="">지정 안 함 (홈 화면으로)</option>
+                                    {LIST_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                                <span style={{ fontSize: 11, color: '#888' }}>지정하면 로그인 직후 그 팀의 프로젝트 List로 바로 들어갑니다</span>
                             </div>
 
                             {/* 활성 상태 (수정 모드) */}
