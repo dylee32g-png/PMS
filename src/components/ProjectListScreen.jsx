@@ -15,7 +15,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, parseDateFlex, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef, backupStatusRef } from './projectListData';
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 
 const VERSION = 'v6.8.7';
@@ -57,6 +57,18 @@ const saveMainPcTeams = (list) => { try {
     if (arr.length) { localStorage.setItem(EXT_MAINPC_KEY, '1'); localStorage.setItem(EXT_MAINPC_TEAM_KEY, arr.join(',')); }
     else           { localStorage.removeItem(EXT_MAINPC_KEY); localStorage.removeItem(EXT_MAINPC_TEAM_KEY); }
 } catch (e) {} };
+// (2026-09-09 팀장님) 메인 PC 자동 전체 백업 — 매일 정해진 시각(기본 06시, 파수꾼 05:30 재시작 뒤) 이후 1회,
+//   3팀 전체 백업 JSON(형식 = [전체 백업]과 동일 PMS-FULL-1)을 이 PC에 지정한 폴더(NAS 백업 폴더)에 직접 써 넣는다.
+//   켜기·폴더는 이 PC 한정(localStorage + IndexedDB 허가증). 실행 결과는 클라우드(pmsBackupStatus/팀)에 남겨 어디서든 확인.
+const BK_AUTO_KEY   = 'pms_backup_auto';        // '1' = 이 PC 자동 백업 켜짐
+const BK_HOUR_KEY   = 'pms_backup_hour';        // 실행 시각(시, 0~23) — 기본 6
+const BK_LAST_KEY   = 'pms_backup_last';        // 마지막 '3팀 전부 성공' 날짜 YYYY-MM-DD (하루 1회 판정)
+const BK_HANDLE_KEY = '__autoBackupFolder__';   // IndexedDB(PmsExtSyncDB.handles) 백업 폴더 허가증 키
+const BK_KEEP_DAYS  = 90;                       // 보관 일수 — 이 기능이 만든 파일만 이보다 오래되면 폴더에서 정리
+const BK_FILE_RE    = /^PMS전체백업_(.+)_(\d{8})_(\d{4})\.json$/;   // 우리 이름 규칙 (정리 대상 판별 — 다른 파일은 절대 안 건드림)
+const bkTodayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const bkLoadOn   = () => { try { return localStorage.getItem(BK_AUTO_KEY) === '1'; } catch (e) { return false; } };
+const bkLoadHour = () => { try { const h = parseInt(localStorage.getItem(BK_HOUR_KEY), 10); return (Number.isFinite(h) && h >= 0 && h <= 23) ? h : 6; } catch (e) { return 6; } };
 const extHHMM = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
 // ── 자동 반영기(NAS Docker 프로그램 pms-reader) 상태 표시 도우미 (2026-07-31) ──
@@ -210,6 +222,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [extToast, setExtToast]         = useState('');           // 자동 반영 알림 — 모달과 달리 화면을 안 막음
     const [extToastWarn, setExtToastWarn] = useState(false);
     const [extLastAuto, setExtLastAuto]   = useState('');           // 마지막 자동 검사 시각 HH:MM (설정 메뉴 표시)
+    // 메인 PC 자동 전체 백업 (2026-09-09)
+    const [bkAutoOn, setBkAutoOn] = useState(bkLoadOn);             // 이 PC 자동 백업 켜짐 (localStorage)
+    const [bkStatus, setBkStatus] = useState(null);                 // 클라우드 상태 문서(pmsBackupStatus/이 팀) — 어느 PC·계정이든 마지막 백업 확인
+    const bkBusyRef = useRef(false);                                // 실행 중 겹침 방지
+    const bkFnRef   = useRef(null);                                 // 타이머가 부를 최신 실행 함수
+    const bkLastTryRef = useRef(0);                                 // 마지막 시도 시각 — 실패해도 1시간에 1번만 재시도 (분마다 파일이 쌓이는 것 방지)
     const extStatusRef   = useRef({});                              // extStatus 즉시 읽기용 (setState 지연 회피)
     const extAutoFnRef   = useRef(null);                            // 타이머가 부를 '최신' 실행 함수
     const extLastRunRef  = useRef(0);                               // 마지막 자동 실행 시각(벽시계)
@@ -1706,19 +1724,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             teamSettings: tsDoc.exists() ? (tsDoc.data()[currentTeam] || null) : null,
         };
     };
-    const downloadFullBackup = async (payload, prefix) => {
+    const downloadFullBackup = async (payload, prefix, team = currentTeam) => {
         await loadFileSaver();
         const _bs = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
-        window.saveAs(new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' }), `${prefix}_${currentTeam}_${_bs}.json`);
+        window.saveAs(new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' }), `${prefix}_${team}_${_bs}.json`);
     };
     const handleFullBackup = async () => {
         if (!isAdmin) { setAlertMsg('전체 백업은 관리자만 할 수 있습니다.'); return; }
         if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 백업할 수 있습니다.'); return; }
+        // (2026-09-09 팀장님) 화면 팀 하나가 아니라 3팀(LIST_TEAMS) 전부를 파일 3개로 — 월요일 수동 루틴 1클릭.
+        //   서버에서 직접 읽는 buildFullBackupFor 재사용(자동 백업과 같은 내용). 크롬이 '여러 파일 다운로드 허용'을 1번 물을 수 있음.
         setIsLoading(true);
         try {
-            const payload = await buildFullBackup();
-            await downloadFullBackup(payload, 'PMS전체백업');
-            setAlertMsg(`전체 백업 완료!\n\n프로젝트 행 ${payload.rows.length}건 · 진행실적 장부 ${Object.keys(payload.progressRecords).length}건\n백로그 ${Object.keys(payload.auditLog).length}건 · 월간마감본 ${Object.keys(payload.snapshots).length}건 · 월간보고 ${Object.keys(payload.monthlyReport).length}건 · 팀설정 ${payload.teamSettings ? '포함' : '없음'}\n\n★ 내려받은 파일을 NAS 백업 폴더에 옮겨 두세요 (주 1회 권장)`);
+            const lines = [];
+            for (const team of LIST_TEAMS) {
+                const payload = await buildFullBackupFor(team);
+                await downloadFullBackup(payload, 'PMS전체백업', team);
+                lines.push(`· ${team}: 행 ${payload.rows.length}건 · 장부 ${Object.keys(payload.progressRecords).length}건 · 백로그 ${Object.keys(payload.auditLog).length}건 · 마감본 ${Object.keys(payload.snapshots).length}건 · 월간보고 ${Object.keys(payload.monthlyReport).length}건 · 팀설정 ${payload.teamSettings ? '포함' : '없음'}`);
+            }
+            setAlertMsg(`전체 백업 완료 — ${LIST_TEAMS.length}팀 파일 ${LIST_TEAMS.length}개 다운로드\n\n${lines.join('\n')}\n\n★ 내려받은 파일을 NAS 백업 폴더에 옮겨 두세요 (주 1회 권장)\n(크롬이 '여러 파일 다운로드 허용'을 물으면 허용)`);
         } catch (err) { setAlertMsg(`전체 백업 오류: ${err.message}`); }
         finally { setIsLoading(false); }
     };
@@ -1765,6 +1789,129 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setAlertMsg(`백업 복원 완료!\n\n${String(bk.savedAt).slice(0, 16).replace('T', ' ')} 시점으로 되돌렸습니다.\n행 ${bkRows.length}건 · 장부 ${Object.keys(bkLedger).length}건 · 마감본 ${Object.keys(bkSnaps).length}건\n(복원 직전 상태도 백업 파일로 내려받아졌으니, 잘못 복원했다면 그 파일로 다시 복원하면 됩니다)`);
         } catch (err) { setAlertMsg(`백업 복원 오류: ${err.message}`); }
         finally { setIsLoading(false); }
+    };
+
+    // ── 메인 PC 자동 전체 백업 (2026-09-09 팀장님: "사람이 안 눌러도 매일 새벽 NAS에") ─────────────
+    //   · 파일 내용·형식 = [전체 백업]과 100% 동일(PMS-FULL-1) → 그대로 [백업 복원]에 넣을 수 있다.
+    //   · 켜기/폴더 지정은 관리자 메뉴. ★실행 자체엔 isAdmin 가드 없음 (7/27 원칙: 플래그가 PC 단위라 공용 PC를 일반 계정으로 두어도 돌아야 함)
+    //   · 화면 팀과 무관하게 LIST_TEAMS 전부(팀 순환 중이어도 3팀 다) · 서버에서 직접 읽음(fbRows 의존 X)
+    //   · 1분 심장박동+벽시계(절전·백그라운드 지연 따라잡기 — NAS 자동 반영과 같은 방식) · 하루 1회(마지막 성공 날짜)
+    //   · 결과를 클라우드 pmsBackupStatus/<팀>에 남김 — 9/2 NAS 멈춤을 6일간 몰랐던 교훈: 상태를 어디서든 보이게
+    //   · 보관 정리: 이 기능이 만든 이름(PMS전체백업_팀_YYYYMMDD_HHMM.json)만 90일 지나면 삭제. 다른 파일은 절대 안 건드림
+    const buildFullBackupFor = async (team) => {   // 화면 상태가 아니라 서버에서 팀 전체를 읽어 만든다 (자동 백업용)
+        const rowsSnap = await getDocs(rowsColRef(team));
+        const rows = rowsSnap.docs.map(d => ({ _id: d.id, ...d.data() }));
+        const metaSnap = await getDoc(metaDocRef(team));
+        const m = metaSnap.exists() ? metaSnap.data() : {};
+        const [ledger, audit, snaps, monthly] = await Promise.all([
+            collDump(`progressRecords_${team}`), collDump(`auditLog_${team}`),
+            collDump(`projectListSnapshots_${team}`), collDump(`monthlyReport_${team}`),
+        ]);
+        const tsDoc = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'));
+        return {
+            format: 'PMS-FULL-1', team, savedAt: new Date().toISOString(), auto: true,
+            meta: { headers: m.headers || [], colGroups: m.colGroups || [], byYear: m.byYear || {}, colMids: m.colMids || {} },
+            rows, progressRecords: ledger, auditLog: audit, snapshots: snaps, monthlyReport: monthly,
+            teamSettings: tsDoc.exists() ? (tsDoc.data()[team] || null) : null,
+        };
+    };
+    const bkEnsurePerm = async (handle) => {   // 허가증 확인 — [방문할 때마다 허용]을 받아둔 폴더는 창 없이 granted (8/7 NAS 허가증과 동일)
+        let perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'prompt') { try { perm = await handle.requestPermission({ mode: 'readwrite' }); } catch (e) {} }
+        return perm === 'granted';
+    };
+    const bkCleanupOld = async (handle) => {   // 90일 지난 자동 백업 파일 정리 — 우리 이름 규칙 파일만
+        const cutoff = Date.now() - BK_KEEP_DAYS * 86400000;
+        let removed = 0;
+        for await (const entry of handle.values()) {
+            if (entry.kind !== 'file') continue;
+            const mm = BK_FILE_RE.exec(entry.name); if (!mm) continue;
+            const d = new Date(`${mm[2].slice(0, 4)}-${mm[2].slice(4, 6)}-${mm[2].slice(6, 8)}T00:00:00`);
+            if (Number.isFinite(d.getTime()) && d.getTime() < cutoff) { try { await handle.removeEntry(entry.name); removed++; } catch (e) {} }
+        }
+        return removed;
+    };
+    const runAutoBackup = async ({ manual = false } = {}) => {
+        if (bkBusyRef.current) return;
+        bkBusyRef.current = true; bkLastTryRef.current = Date.now();
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+        const nowIso = new Date().toISOString();
+        const results = [];
+        try {
+            const handle = await extIdbGet(BK_HANDLE_KEY).catch(() => null);
+            if (!handle) throw new Error('이 PC에 백업 폴더가 지정되지 않았습니다 (설정 → 자동 백업 폴더 지정)');
+            if (!(await bkEnsurePerm(handle))) throw new Error('백업 폴더 쓰기 허용이 필요합니다 — 설정 → [지금 백업 → 폴더]를 한 번 눌러 허용해 주세요');
+            for (const team of LIST_TEAMS) {
+                try {
+                    const payload = await buildFullBackupFor(team);
+                    const text = JSON.stringify(payload, null, 1);
+                    const fname = `PMS전체백업_${team}_${stamp}.json`;
+                    const fh = await handle.getFileHandle(fname, { create: true });
+                    const w = await fh.createWritable(); await w.write(text); await w.close();
+                    const st = { at: nowIso, ok: true, file: fname, folder: handle.name, rows: payload.rows.length, ledger: Object.keys(payload.progressRecords).length, bytes: text.length, by: user?.email || '', manual };
+                    results.push({ team, ...st });
+                    try { await setDoc(backupStatusRef(team), st); } catch (e) {}
+                } catch (e) {
+                    const st = { at: nowIso, ok: false, msg: e.message || String(e), folder: handle.name, by: user?.email || '', manual };
+                    results.push({ team, ...st });
+                    try { await setDoc(backupStatusRef(team), st); } catch (e2) {}
+                }
+            }
+            const removed = await bkCleanupOld(handle).catch(() => 0);
+            const okCnt = results.filter(r => r.ok).length;
+            if (okCnt === LIST_TEAMS.length) { try { localStorage.setItem(BK_LAST_KEY, bkTodayStr()); } catch (e) {} }
+            const lines = results.map(r => r.ok ? `✓ ${r.team}: 행 ${r.rows}건 · 장부 ${r.ledger}건 (${(r.bytes / 1048576).toFixed(1)}MB)` : `✗ ${r.team}: ${r.msg}`);
+            showExtToast(`자동 백업 ${okCnt === LIST_TEAMS.length ? '완료' : '일부 실패'} → 폴더 '${handle.name}'\n${lines.join('\n')}${removed ? `\n(90일 지난 옛 백업 ${removed}개 정리)` : ''}`, okCnt !== LIST_TEAMS.length);
+        } catch (e) {
+            const st = { at: nowIso, ok: false, msg: e.message || String(e), by: user?.email || '', manual };
+            for (const team of LIST_TEAMS) { try { await setDoc(backupStatusRef(team), st); } catch (e2) {} }
+            showExtToast(`자동 백업 실패\n${st.msg}`, true);
+        } finally { bkBusyRef.current = false; }
+    };
+    bkFnRef.current = runAutoBackup;
+    // 1분 심장박동: 오늘 아직 성공한 적 없고 시각이 설정 시(기본 06시)를 지났으면 1회 실행 (부팅이 늦어도 그날 안에 따라잡음)
+    useEffect(() => {
+        if (!bkAutoOn) return;
+        const tick = () => {
+            try {
+                const now = new Date();
+                if (now.getHours() < bkLoadHour()) return;
+                if (localStorage.getItem(BK_LAST_KEY) === bkTodayStr(now)) return;
+                if (now.getTime() - (bkLastTryRef.current || 0) < 60 * 60 * 1000) return;   // 실패 후 재시도는 1시간 간격
+                bkFnRef.current && bkFnRef.current();
+            } catch (e) {}
+        };
+        const t0 = setTimeout(tick, 5000);
+        const t = setInterval(tick, EXT_TICK_MS);
+        return () => { clearTimeout(t0); clearInterval(t); };
+    }, [bkAutoOn]);
+    // 클라우드 상태 문서 구독 — 이 팀의 마지막 자동 백업 (어느 PC·어느 계정이든 하단 상태줄에 보임)
+    useEffect(() => {
+        if (!db || !currentTeam) return;
+        const unsub = onSnapshot(backupStatusRef(currentTeam), s => setBkStatus(s.exists() ? s.data() : null), () => {});
+        return () => unsub();
+    }, [currentTeam]);
+    const handleBkPickFolder = async () => {   // 관리자: 폴더 지정 + 시각 + 켜기 + 즉시 1회 실행(검증)
+        if (!extSupported) { setAlertMsg('이 브라우저는 폴더 지정을 지원하지 않습니다.\n크롬 또는 엣지(PC)에서 해주세요.'); return; }
+        try {
+            const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            const hStr = window.prompt('매일 몇 시에 자동 백업할까요? (0~23)\n기본 6 = 파수꾼 05:30 재시작 직후.\n그 시각 이후 List 화면이 켜져 있으면 그날 1회 실행됩니다.', String(bkLoadHour()));
+            if (hStr === null) return;
+            const h = parseInt(hStr, 10);
+            if (!Number.isFinite(h) || h < 0 || h > 23) { setAlertMsg('0~23 사이 숫자를 넣어 주세요.'); return; }
+            await extIdbSet(BK_HANDLE_KEY, handle);
+            try { localStorage.setItem(BK_AUTO_KEY, '1'); localStorage.setItem(BK_HOUR_KEY, String(h)); localStorage.removeItem(BK_LAST_KEY); } catch (e) {}
+            setBkAutoOn(true);
+            showExtToast(`자동 백업 폴더 지정: '${handle.name}'\n매일 ${String(h).padStart(2, '0')}:00 이후 1회 · 3팀(${LIST_TEAMS.join(', ')}) 전체 백업\n지금 바로 1회 실행해 확인합니다…`);
+            setTimeout(() => { bkFnRef.current && bkFnRef.current({ manual: true }); }, 600);
+        } catch (e) { if (e && e.name !== 'AbortError') setAlertMsg('폴더 지정 실패: ' + e.message); }
+    };
+    const handleBkOff = async () => {
+        if (!window.confirm('이 PC의 자동 백업을 끕니다.\n(폴더 허가증도 지웁니다 — 다시 켜려면 폴더를 다시 지정)\n\n진행할까요?')) return;
+        try { await extIdbDel(BK_HANDLE_KEY); } catch (e) {}
+        try { localStorage.removeItem(BK_AUTO_KEY); localStorage.removeItem(BK_LAST_KEY); } catch (e) {}
+        setBkAutoOn(false);
+        showExtToast('이 PC의 자동 백업을 껐습니다.');
     };
 
     // ── 로컬 데이터 삭제 ─────────────────────────────────────────────────
@@ -6521,12 +6668,33 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {isAdmin && dataSource === 'firebase' && (<>
                                     <button onClick={() => { setSettingsOpen(false); handleFullBackup(); }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">행+장부+설정 통째</span>
+                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">3팀 한 번에 · 행+장부+설정 통째</span>
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); if (restoreFileRef.current) { restoreFileRef.current.value = ''; restoreFileRef.current.click(); } }}
                                         className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
                                         <Database size={14} className="text-red-500"/> 백업 복원 <span className="text-[10px] text-[#999] font-normal">그 시점으로 되돌림</span>
                                     </button>
+                                    {/* 메인 PC 자동 전체 백업 (2026-09-09 팀장님): 매일 정해진 시각 3팀 전체 백업 → 이 PC에 지정한 NAS 폴더에 직접 저장 */}
+                                    <button onClick={() => { setSettingsOpen(false); handleBkPickFolder(); }}
+                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${bkAutoOn ? 'text-emerald-700' : 'text-[#222]'}`}>
+                                        <Clock size={14} className={bkAutoOn ? 'text-emerald-600' : 'text-sky-600'}/> 자동 백업 폴더 지정 (이 PC · 매일)
+                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{bkAutoOn ? `켜짐 · 매일 ${String(bkLoadHour()).padStart(2, '0')}시 · 3팀` : '꺼짐'}</span>
+                                    </button>
+                                    {bkAutoOn && (<>
+                                    <button onClick={() => { setSettingsOpen(false); bkFnRef.current && bkFnRef.current({ manual: true }); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-emerald-600"/> 지금 백업 → 폴더 <span className="text-[10px] text-[#999] font-normal">3팀 즉시 1회 (확인용)</span>
+                                    </button>
+                                    <button onClick={() => { setSettingsOpen(false); handleBkOff(); }}
+                                        className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
+                                        <Clock size={14} className="text-red-500"/> 자동 백업 끄기 (이 PC)
+                                    </button>
+                                    </>)}
+                                    {bkStatus && bkStatus.at && (
+                                        <div className="px-4 pb-2 text-[10px] leading-relaxed" style={{ color: bkStatus.ok === false ? '#dc2626' : '#64748b' }}>
+                                            마지막 자동 백업({currentTeam}): {rdTimeText(bkStatus.at)} {bkStatus.ok === false ? `✗ ${bkStatus.msg || ''}` : `✓ 행 ${bkStatus.rows}건 · 장부 ${bkStatus.ledger}건 → '${bkStatus.folder || ''}'`}
+                                        </div>
+                                    )}
                                     </>)}
                                     {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
                                     {isAdmin && (<>
@@ -7309,6 +7477,17 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                             {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
                             {sortConfig.key && <span className="ml-3 font-bold" style={{ color: '#1e7ac8' }}>· 정렬: {dispHeader(sortConfig.key)} {sortConfig.dir === 'asc' ? '↑ 오름차순' : '↓ 내림차순'}
                                 <button onClick={() => setSortConfig({ key: null, dir: 'asc' })} title="정렬을 끄고 기본 순서(번호 순)로" style={{ marginLeft: 6, padding: '0 6px', border: '1px solid #7fb3e3', borderRadius: 4, background: '#eaf3fc', color: '#1e7ac8', fontWeight: 800, cursor: 'pointer' }}>해제</button></span>}
+                            {/* 자동 전체 백업 표시 (2026-09-09) — 이 PC가 쓰는지(bkAutoOn) + 클라우드 상태(마지막 성공)로 어느 PC에서든 확인. 26시간 넘게 새 백업 없으면 주황 */}
+                            {(bkAutoOn || (bkStatus && bkStatus.at)) && (() => {
+                                const ok = bkStatus?.ok !== false, at = bkStatus?.at ? rdTimeText(bkStatus.at) : '';
+                                const mins = bkStatus?.at ? rdMinsAgo(bkStatus.at) : null;
+                                const stale = mins == null || mins > 26 * 60;
+                                const color = !bkStatus?.at ? '#94a3b8' : (!ok ? '#dc2626' : (stale ? '#d97706' : '#059669'));
+                                return (<span className="ml-3 font-bold" style={{ color }}
+                                    title={`자동 전체 백업 (NAS 폴더)\n${bkAutoOn ? `이 PC가 매일 ${String(bkLoadHour()).padStart(2, '0')}:00 이후 3팀 전체 백업을 폴더에 씁니다.\n` : ''}${bkStatus?.at ? `마지막 ${at} ${ok ? `정상 · ${bkStatus.file || ''}` : `실패 · ${bkStatus.msg || ''}`}` : '아직 실행 기록 없음'}${stale && bkStatus?.at ? '\n※ 26시간 넘게 새 백업이 없습니다 — 메인 PC 확인' : ''}`}>
+                                    · ● 자동 백업{bkAutoOn ? ' (이 PC)' : ''}{bkStatus?.at ? ` · ${at} ${ok ? '✓' : '✗'}` : ''}
+                                </span>);
+                            })()}
                             {/* 메인 PC 표시 (2026-07-27) — 관리자 메뉴가 안 보이는 일반 계정도 이 PC의 자동 반영 여부를 알 수 있게 */}
                             {/* NAS_SYNC_ENABLED=false 이면 배지도 숨김 (2026-07-30) */}
                             {NAS_SYNC_ENABLED && extMainPc && (

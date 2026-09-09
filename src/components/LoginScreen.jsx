@@ -3,6 +3,7 @@ import { LayoutGrid, Mail, LogIn, AlertCircle, CheckCircle, Users, Lock, Chevron
 
 const LS_LAST_EMAIL = 'pms_last_email';
 const LS_STAY_LOGGED_IN = 'pms_stay_logged_in';   // 지난번 '로그인 유지' 선택 기억 (2026-07-14)
+const ALWAYS_STAY_LOGGED_IN = true;   // (2026-09-09 팀장님) 항상 유지 — App.js 의 같은 스위치와 함께 false 로 바꾸면 체크박스 방식 복귀
 
 // (2026-07-27 팀장님) 구글 로그인 버튼 표시 여부.
 //   직원은 전원 회사 메일 링크로 로그인 → 선택지가 늘면 혼동만 된다. 지금은 숨김.
@@ -25,7 +26,8 @@ const bgHead  = '#dce3ec';
 
 export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin, loading, error }) {
     const [email, setEmail]               = useState(() => localStorage.getItem(LS_LAST_EMAIL) || '');
-    const [stayLoggedIn, setStayLoggedIn] = useState(() => localStorage.getItem(LS_STAY_LOGGED_IN) !== '0');   // 기본 = 유지 (2026-07-14)
+    const [stayLoggedIn, setStayLoggedIn] = useState(() => ALWAYS_STAY_LOGGED_IN || localStorage.getItem(LS_STAY_LOGGED_IN) !== '0');   // 기본 = 유지 (2026-07-14), 2026-09-09부터 항상
+    const [pasteLink, setPasteLink]       = useState('');   // (2026-09-09) 링크가 다른 브라우저로 열렸을 때 — 링크를 이 창에 붙여넣어 로그인
     const [sent, setSent]                 = useState(false);
 
     // 공용 계정 섹션
@@ -39,6 +41,15 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
         if (!email) return;
         const ok = await onEmailLogin(email, stayLoggedIn);
         if (ok) setSent(true);
+    };
+
+    // (2026-09-09) 메일 프로그램이 링크를 다른 브라우저(엣지 등)로 열면 원래 창(이 창)은 로그인되지 않는다.
+    //   링크 주소를 이 창에 붙여넣으면 이 창이 링크 탭이 되어 바로 로그인 — App.js 가 sessionStorage 표식을 보고 '창 닫기' 화면을 건너뛴다.
+    const handlePasteLink = () => {
+        const link = pasteLink.trim();
+        if (!/^https?:\/\//i.test(link) || !(/oobCode=/.test(link) || /__\/auth\/action/.test(link))) { alert('로그인 링크가 아닙니다.\n메일의 [Neconsys_PMS에 로그인] 링크를 마우스 오른쪽 클릭 → 링크 주소 복사 → 여기에 붙여넣으세요.'); return; }
+        try { sessionStorage.setItem('pms_link_pasted', '1'); } catch (e) {}
+        window.location.href = link;
     };
 
     const handleSharedSubmit = async (e) => {
@@ -93,6 +104,21 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
                                     이메일의 링크를 클릭하면 자동으로 로그인됩니다.
                                 </div>
                             </div>
+                            {/* (2026-09-09) 링크가 다른 브라우저로 열린 경우의 구제 — 링크 붙여넣기 로그인 */}
+                            <div style={{ width: '100%', marginTop: '6px', padding: '10px', border: `1px dashed ${border}`, backgroundColor: '#f7f9fc', textAlign: 'left' }}>
+                                <div style={{ fontSize: '11px', color: '#555', lineHeight: 1.6, marginBottom: '6px' }}>
+                                    <b>링크를 눌렀는데 이 창이 그대로인가요?</b> 메일 프로그램이 다른 브라우저로 열면 그렇습니다.<br />
+                                    메일의 링크를 오른쪽 클릭 → 링크 주소 복사 → 아래에 붙여넣고 [이 창에서 로그인]을 누르세요.
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <input value={pasteLink} onChange={e => setPasteLink(e.target.value)} placeholder="https://… 로그인 링크 붙여넣기"
+                                        style={{ flex: 1, minWidth: 0, padding: '7px 8px', fontSize: '11px', border: `1px solid ${border}`, outline: 'none' }} />
+                                    <button type="button" onClick={handlePasteLink} disabled={!pasteLink.trim()}
+                                        style={{ padding: '7px 10px', backgroundColor: pasteLink.trim() ? accent : '#b8c2cf', color: '#fff', fontWeight: 700, fontSize: '11px', border: 'none', cursor: pasteLink.trim() ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                                        이 창에서 로그인
+                                    </button>
+                                </div>
+                            </div>
                             <button type="button" onClick={() => setSent(false)}
                                 style={{ marginTop: '4px', background: 'none', border: 'none', color: accent, fontSize: '12px', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
                                 다른 이메일로 다시 시도
@@ -121,11 +147,19 @@ export default function LoginScreen({ onEmailLogin, onGoogleLogin, onSharedLogin
                                 <div style={{ fontSize: '11px', color: '#888' }}>입력한 이메일로 로그인 링크를 발송합니다.</div>
                             </div>
 
+                            {ALWAYS_STAY_LOGGED_IN ? (
+                                /* (2026-09-09) 항상 유지 — 체크박스 대신 안내만 (한 번 로그인한 PC는 껐다 켜도 재인증 없음) */
+                                <div style={{ fontSize: '11px', color: '#666', lineHeight: 1.6, padding: '8px 10px', backgroundColor: '#f7f9fc', border: `1px solid ${border}` }}>
+                                    <b style={{ color: '#444' }}>이 PC(이 브라우저)에서는 로그인이 유지됩니다.</b> 컴퓨터를 껐다 켜도 다시 인증하지 않습니다.<br />
+                                    <span style={{ color: '#999' }}>공용 PC에서 끝낼 때는 오른쪽 위 [로그아웃]을 눌러 주세요.</span>
+                                </div>
+                            ) : (
                             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                                 <input type="checkbox" checked={stayLoggedIn} onChange={e => setStayLoggedIn(e.target.checked)}
                                     style={{ width: '14px', height: '14px', accentColor: accent, cursor: 'pointer' }} />
                                 <span style={{ fontSize: '12px', color: '#555', fontWeight: 600 }}>이 PC에서 로그인 유지 <span style={{ fontSize: '11px', color: '#999', fontWeight: 500 }}>(다음부터 인증 메일 없이 바로 접속)</span></span>
                             </label>
+                            )}
 
                             <button type="submit" disabled={loading || !email}
                                 style={{ width: '100%', padding: '11px', backgroundColor: (loading || !email) ? '#94b8dc' : accent, color: '#fff', fontWeight: 700, fontSize: '13px', border: 'none', cursor: (loading || !email) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px' }}>

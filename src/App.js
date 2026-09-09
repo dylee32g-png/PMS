@@ -63,6 +63,9 @@ let app, auth, db, storage;
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
+  // (2026-09-09 팀장님) 인증 메일 한국어화 — 언어 미지정이면 Firebase가 영어 기본 템플릿(스팸처럼 보임)으로 보낸다.
+  //   'ko'로 고정하면 로그인 링크·비밀번호 재설정 메일이 Firebase 내장 한국어 템플릿으로 발송된다 (콘솔 설정 불필요).
+  auth.languageCode = 'ko';
   db = getFirestore(app);
   storage = getStorage(app);
 } catch (error) {
@@ -79,6 +82,10 @@ const GUEST_REGISTERED = { email: 'guest@local', displayName: '게스트', role:
 const LS_LAST_EMAIL      = 'pms_last_email';     // 마지막 입력 이메일 기억
 const EMAIL_FOR_SIGN_IN  = 'pms_emailForSignIn'; // 링크 발송한 이메일 임시 보관
 const LS_STAY_LOGGED_IN  = 'pms_stay_logged_in'; // '로그인 유지' 선택값 기억 ('1'=유지, '0'=이 창만) (2026-07-14)
+// (2026-09-09 팀장님) 로그인은 항상 '이 PC에 유지' — 한 번 로그인한 PC는 껐다 켜도 재인증 없음.
+//   종전엔 체크박스를 한 번 끄면 그 브라우저가 '0'을 기억해 이후 로그인이 전부 '이 창만'(세션)으로 저장돼 재부팅 시 풀렸다.
+//   false 로 바꾸면 종전 체크박스 방식으로 복귀 (LoginScreen.jsx 의 같은 이름 스위치와 함께).
+const ALWAYS_STAY_LOGGED_IN = true;
 
 const getLoginErrorMessage = (code) => {
     const map = {
@@ -658,7 +665,10 @@ const TechTeamPMS = () => {
     }
     // ① 이메일 링크 클릭으로 열린 탭: 로그인 완료 처리
     if (!SKIP_LOGIN && isSignInWithEmailLink(auth, window.location.href)) {
-      setIsEmailLinkTab(true); // 이 탭은 "창 닫기" 화면만 표시
+      // (2026-09-09) 원래 로그인 창에 링크를 '붙여넣어' 이 창에서 직접 로그인한 경우 = 이 창이 곧 PMS 창 → '창 닫기' 화면 생략
+      let pastedHere = false;
+      try { pastedHere = sessionStorage.getItem('pms_link_pasted') === '1'; sessionStorage.removeItem('pms_link_pasted'); } catch (e2) {}
+      if (!pastedHere) setIsEmailLinkTab(true); // 이 탭은 "창 닫기" 화면만 표시
       let savedEmail = localStorage.getItem(EMAIL_FOR_SIGN_IN);
       if (!savedEmail) {
         savedEmail = window.prompt('보안을 위해 이메일을 다시 입력해 주세요:');
@@ -666,7 +676,7 @@ const TechTeamPMS = () => {
       if (savedEmail) {
         // ★ 로그인 유지 (2026-07-14): 링크로 열린 이 탭에서 '어디에 로그인 상태를 저장할지'를 먼저 정한다.
         //    browserLocalPersistence = 이 PC(브라우저)에 보관 → 창을 닫았다 켜도 로그인 유지 = 재인증 불필요.
-        const stay = localStorage.getItem(LS_STAY_LOGGED_IN) !== '0';   // 기본값 = 유지
+        const stay = ALWAYS_STAY_LOGGED_IN || localStorage.getItem(LS_STAY_LOGGED_IN) !== '0';   // 기본값 = 유지 (2026-09-09: 항상 유지)
         setPersistence(auth, stay ? browserLocalPersistence : browserSessionPersistence)
           .catch(() => {})   // 저장소 지정 실패해도 로그인 자체는 진행
           .then(() => signInWithEmailLink(auth, savedEmail, window.location.href))
@@ -1978,9 +1988,9 @@ const TechTeamPMS = () => {
       setLoginLoading(true);
       setLoginError('');
       try {
-          const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
+          const persistence = (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? browserLocalPersistence : browserSessionPersistence;   // (2026-09-09 항상 유지)
           await setPersistence(auth, persistence);
-          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // ★ 링크 탭이 같은 방식으로 저장하도록 전달 (2026-07-14)
+          localStorage.setItem(LS_STAY_LOGGED_IN, (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? '1' : '0');   // ★ 링크 탭이 같은 방식으로 저장하도록 전달 (2026-07-14)
           await sendSignInLinkToEmail(auth, email, {
               url: window.location.origin + window.location.pathname,
               handleCodeInApp: true,
@@ -2014,9 +2024,9 @@ const TechTeamPMS = () => {
       setLoginLoading(true);
       setLoginError('');
       try {
-          const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
+          const persistence = (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? browserLocalPersistence : browserSessionPersistence;   // (2026-09-09 항상 유지)
           await setPersistence(auth, persistence);
-          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // (2026-07-14)
+          localStorage.setItem(LS_STAY_LOGGED_IN, (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? '1' : '0');   // (2026-07-14)
           await signInWithPopup(auth, new GoogleAuthProvider());
       } catch (e) {
           setLoginError(getLoginErrorMessage(e.code));
@@ -2039,9 +2049,9 @@ const TechTeamPMS = () => {
       setLoginError('');
       const syntheticEmail = `${username}@pms.shared`;
       try {
-          const persistence = stayLoggedIn ? browserLocalPersistence : browserSessionPersistence;
+          const persistence = (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? browserLocalPersistence : browserSessionPersistence;   // (2026-09-09 항상 유지)
           await setPersistence(auth, persistence);
-          localStorage.setItem(LS_STAY_LOGGED_IN, stayLoggedIn ? '1' : '0');   // (2026-07-14)
+          localStorage.setItem(LS_STAY_LOGGED_IN, (ALWAYS_STAY_LOGGED_IN || stayLoggedIn) ? '1' : '0');   // (2026-07-14)
           try {
               await signInWithEmailAndPassword(auth, syntheticEmail, password);
           } catch (firstErr) {
@@ -5533,11 +5543,18 @@ const TechTeamPMS = () => {
                   </div>
                   <div style={{ fontWeight: 800, fontSize: '16px', color: '#1a1a1a', marginBottom: '8px' }}>로그인이 완료됐습니다</div>
                   <div style={{ fontSize: '13px', color: '#666', marginBottom: '24px', lineHeight: '1.6' }}>
-                      원래 로그인 창에서 PMS가 열렸습니다.<br />이 창은 닫으셔도 됩니다.
+                      원래 로그인 창에서 PMS가 열렸습니다.<br />이 창은 닫으셔도 됩니다.<br />
+                      <span style={{ fontSize: '12px', color: '#999' }}>원래 창이 그대로라면(링크가 다른 브라우저에서 열린 경우) 아래 [이 창에서 계속]을 누르세요.</span>
                   </div>
-                  <button onClick={() => window.close()} style={{ padding: '10px 24px', backgroundColor: '#1e7ac8', color: '#fff', fontWeight: 700, fontSize: '13px', border: 'none', cursor: 'pointer' }}>
-                      이 창 닫기
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => window.close()} style={{ padding: '10px 24px', backgroundColor: '#1e7ac8', color: '#fff', fontWeight: 700, fontSize: '13px', border: 'none', cursor: 'pointer' }}>
+                          이 창 닫기
+                      </button>
+                      {/* (2026-09-09) 링크가 다른 브라우저(메일 프로그램 기본 브라우저)로 열린 경우 — 이 창을 그대로 PMS로 사용 */}
+                      <button onClick={() => setIsEmailLinkTab(false)} style={{ padding: '10px 18px', backgroundColor: '#fff', color: '#1e7ac8', fontWeight: 700, fontSize: '13px', border: '1px solid #1e7ac8', cursor: 'pointer' }}>
+                          이 창에서 계속
+                      </button>
+                  </div>
               </div>
           </div>
       );

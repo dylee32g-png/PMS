@@ -26,6 +26,8 @@ export const readerStatusRef = (t) => doc(db, 'artifacts', appId, 'public', 'dat
 // [지금 확인] 요청 문서 (2026-07-31) — PMS가 쓰고 자동 반영기가 20초마다 읽는다.
 //   여기에 { at, by } 한 줄만 쓰면 리더가 15분을 기다리지 않고 즉시 한 바퀴 돈다.
 export const readerRequestRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'pmsReaderRequest', t);
+// 메인 PC 자동 전체 백업 상태 문서 (2026-09-09) — 자동 백업이 매 회차 끝에 팀별로 한 건 써 넣는다 → 어느 PC에서든 '마지막 백업 언제·정상인지' 확인.
+export const backupStatusRef = (t) => doc(db, 'artifacts', appId, 'public', 'data', 'pmsBackupStatus', t);
 
 // ─── IndexedDB (로컬 임시 저장소) ───────────────────────────────────────────
 const IDB_NAME    = 'ProjectListLocalDB';
