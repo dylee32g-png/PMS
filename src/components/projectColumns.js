@@ -9,7 +9,8 @@ import { getTeamProfile } from '../teamProfiles';   // 팀 프로파일 카드 (
 // ─── 필터/날짜 열 판별 ────────────────────────────────────────────────────
 export const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당자', '담당자', '발주처'];
 export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
-export const isFilterable  = (h) => FILTERABLE.some(k => h.includes(k));
+// (2026-09-10 팀장님) 헤더 ▼ 값 골라보기 = 엑셀 자동필터처럼 모든 열. FILTERABLE 키워드 목록은 참고용으로만 남김
+export const isFilterable  = (h) => !String(h ?? '').startsWith('_');
 export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료'].some(k => s.includes(k)); };
 export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
 export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h)

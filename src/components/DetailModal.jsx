@@ -17,7 +17,8 @@ import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVen
 export default function DetailModal({
     detailRow, setDetailRow, onSave,
     mainVisibleHeaders = [], activeHeaders, activeColGroups,
-    hiddenCols, onToggleCol, currentTeam,
+    cardDefaultOff = [],      // 팀 카드 '기본미적용' 항목(이 행 연도 기준) — 메인표 ×와 스위치 표시 일치 (2026-09-10)
+    currentTeam,
     mode = 'edit',            // 'edit' = 상세 보기/수정, 'add' = 프로젝트 추가
     statusOptions, assignees, // 팀 마스터 목록(없으면 기본값 폴백)
     copiedFromRow = false,    // 추가 모드: 선택 행 복사로 열렸는지
@@ -97,16 +98,31 @@ export default function DetailModal({
         const isCustAsg = (customerAsgCols || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 발주처 고객 담당자 = 일반 입력 (2026-09-04)
         const isAssignee = (isAssigneeCol(h) || isManagerCol(h)) && !isCustAsg;   // 관리자 = 담당자와 같은 선택 형식 (2026-07-22)
         const isCheck = isCheckCol(h);
-        const hidden = hiddenCols?.has(h);
+        // ★ 스위치 (2026-09-10 팀장님): 켜짐 = '값이 있다'. 끄면 그 프로젝트의 이 칸만 메인표 ×(값은 보관) · 빈칸이면 자동 off 표시 · 켜면 입력칸으로 포커스.
+        //   종전 '메인표 열 표시/숨김(팀 공통)' 토글은 폐지 — 열은 항상 다 보이고, 숨김은 설정 메뉴 [열 표시/숨기기]에서만.
+        const off = naItems.includes(h);
+        const hasVal = String(val ?? '').trim() !== '';
+        const swOn = !off && hasVal;
+        const focusField = () => setTimeout(() => {
+            const box = document.querySelector(`[data-dm-field="${CSS.escape(String(h))}"]`);
+            const el = box && box.querySelector('input:not([type=date]), textarea, select, button');
+            if (el) el.focus();
+        }, 0);
+        const onSwitch = () => {
+            if (off) { toggleNa(h); if (!hasVal) focusField(); }       // off → on: 목록에서 빼고, 빈칸이면 바로 키인하도록
+            else if (hasVal) toggleNa(h);                                // on → off: 목록에 추가(메인표 ×, 값 보관)
+            else focusField();                                           // 빈칸(자동 off) → 값을 넣어야 켜짐
+        };
+        const swTip = off ? '스위치 off — 메인표 × (누르면 켬)' : hasVal ? '켜짐 — 누르면 끔 (메인표 ×, 값은 보관)' : '빈칸 — 값을 입력하면 켜집니다';
         return (
-            <div key={h} style={{ gridColumn: wide ? '1 / -1' : undefined, ...fieldBox }}>
+            <div key={h} data-dm-field={h} style={{ gridColumn: wide ? '1 / -1' : undefined, ...fieldBox }}>
                 {/* 라벨(고정폭·한 줄). 메인표 토글은 행 오른쪽 끝 → 라벨이 좁아도 이름이 한 줄에 들어가 행 높이 일정 (2026-07-10) */}
-                <div style={labelBox(hidden)}>
+                <div style={labelBox(off)}>
                     <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', flex:1, minWidth:0 }} title={h}>{h}</span>
                     {isStatus && <span style={{ fontSize:'9px', color:'#1e7ac8', fontWeight:800, flexShrink:0 }}>▼</span>}
                     {isAssignee && <span style={{ fontSize:'9px', color:'#059669', fontWeight:800, flexShrink:0 }}>▼</span>}
                 </div>
-                <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'center' }}>
+                <div style={{ flex:1, minWidth:0, padding:'1px 0', display:'flex', alignItems:'center', opacity: off ? 0.45 : 1 }}>
                     {(subPtInfo && isPointColDM(h)) ? (
                         // 2단계(2026-07-20): 하위(공종) 있는 메인 행의 총점 = 하위 합계 자동 → 이 칸 잠금(읽기전용)
                         <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
@@ -250,24 +266,14 @@ export default function DetailModal({
                             onBlur={e => e.target.style.backgroundColor='transparent'}/>
                     )}
                 </div>
-                {/* 오른쪽 토글: 공정/시운전 9칸 = 이 프로젝트 적용/미적용(_naItems·메인표 ×) · 그 외 = 메인표 표시/숨김(팀 공통) (2026-07-21) */}
-                {isPctCol(h) ? (
+                {/* 오른쪽 스위치 (2026-09-10 팀장님, 모든 항목 공통): 켜짐=값 있음 · 끄면 그 프로젝트 칸만 메인표 × · 열 숨김 없음. 수행번호(자동 부여)는 스위치 없음 */}
+                {!isExecLockedDM(h) ? (
                     <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
-                        <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: naItems.includes(h) ? '#b0b8c4' : '#1e7ac8' }}>{naItems.includes(h) ? '미적용' : '적용'}</span>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); toggleNa(h); }}
-                            title={naItems.includes(h) ? '이 프로젝트엔 미적용 — 누르면 적용' : '이 프로젝트에 적용 중 — 누르면 미적용(메인표 ×)'}
+                        {isPctCol(h) && <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: swOn ? '#1e7ac8' : '#b0b8c4' }}>{off ? '미적용' : hasVal ? '적용' : '빈칸'}</span>}
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onSwitch(); }} title={swTip}
                             style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
-                                backgroundColor: naItems.includes(h) ? '#cbd5e1' : '#1e7ac8' }}>
-                            <span style={{ position:'absolute', top:'2px', left: naItems.includes(h) ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
-                        </button>
-                    </div>
-                ) : onToggleCol ? (
-                    <div style={{ flexShrink:0, display:'flex', alignItems:'center', padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
-                        <button type="button" onClick={(e) => { e.stopPropagation(); onToggleCol(h); }}
-                            title={hidden ? '메인표에서 숨김 — 누르면 표시' : '메인표에 표시 중 — 누르면 숨김'}
-                            style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
-                                backgroundColor: hidden ? '#cbd5e1' : '#1e7ac8' }}>
-                            <span style={{ position:'absolute', top:'2px', left: hidden ? '2px' : '11px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
+                                backgroundColor: swOn ? '#1e7ac8' : '#cbd5e1' }}>
+                            <span style={{ position:'absolute', top:'2px', left: swOn ? '11px' : '2px', width:'9px', height:'9px', borderRadius:'50%', backgroundColor:'#fff' }}/>
                         </button>
                     </div>
                 ) : null}
@@ -312,11 +318,12 @@ export default function DetailModal({
     //   켜면 _naOn(예외 목록)에 저장. 엑셀 열 있는 항목은 기존대로 _naItems(끈 목록)에 저장.
     const _exNa = Array.isArray(detailRow._naItems) ? detailRow._naItems : [];
     const _exOn = Array.isArray(detailRow._naOn) ? detailRow._naOn : [];
-    const naItems = [...new Set([..._exNa, ...missingProgItems.filter(n => !_exOn.includes(n))])];
+    const defOffAll = [...new Set([...missingProgItems, ...(Array.isArray(cardDefaultOff) ? cardDefaultOff : [])])];   // 기본 off = 표에 없는 진행 항목 + 팀 카드 기본미적용 (2026-09-10 일치)
+    const naItems = [...new Set([..._exNa, ...defOffAll.filter(n => !_exOn.includes(n))])];
     const toggleNa = (h) => setDetailRow(p => {
         const ex = Array.isArray(p._naItems) ? p._naItems : [];
         const on = Array.isArray(p._naOn) ? p._naOn : [];
-        const defOff = missingProgItems.includes(h);
+        const defOff = defOffAll.includes(h);
         const isOff = ex.includes(h) || (defOff && !on.includes(h));
         if (isOff) return { ...p, _naItems: ex.filter(x => x !== h), _naOn: defOff ? [...new Set([...on, h])] : on };
         return { ...p, _naItems: defOff ? ex : [...new Set([...ex, h])], _naOn: on.filter(x => x !== h) };

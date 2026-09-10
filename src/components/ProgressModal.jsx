@@ -439,9 +439,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
     const updateWeekly = (itemKey, wKey, val) => {
         if (lockedItems.includes(itemKey)) return;   // NAS 진척자료 자동 항목 — 키인 잠금 (2026-07-22)
-        // 0 입력 = 빈칸으로 처리 (2026-07-10 팀장님 결정): 공정률은 빈칸=직전값 이월(회색 힌트) 유지, 시운전은 0=빈칸 동일이라 무해.
+        // (2026-09-10 팀장님) 숫자 0도 값으로 저장 — 7/10 '0 입력 = 빈칸' 규칙 폐지(메인표 0 허용과 통일). 지우기는 빈칸으로만.
         const n = Number(val);
-        const parsed = (val === '' || n === 0) ? undefined : Math.max(0, n);
+        const parsed = (val === '' || !Number.isFinite(n)) ? undefined : Math.max(0, n);
         setWeeklyData(prev => {
             const next = { ...(prev[itemKey]||{}), [wKey]: parsed };
             if (parsed === undefined) delete next[wKey];

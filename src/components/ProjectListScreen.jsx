@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';   // 헤더 ▼ 드롭다운을 body로 꺼내 그림 — 틀고정(sticky) 칸 뒤로 숨지 않게 (2026-09-10)
 import {
     Upload, Download, Trash2, X, Shuffle,
     AlertTriangle, ListChecks, Search,
@@ -277,6 +278,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [sortConfig, setSortConfig]       = useState({ key: null, dir: 'asc' });
     const [columnFilters, setColumnFilters] = useState({});
     const [openFilter, setOpenFilter]       = useState(null);
+    const [filterSearch, setFilterSearch]   = useState('');   // 헤더 ▼ 드롭다운 검색칸 (2026-09-10, 엑셀 자동필터 검색)
     const [hiddenCols, setHiddenCols]         = useState(() => loadHiddenCols(currentTeam)); // 브라우저 기억 로드 (2026-07-09)
     const [colDropOpen, setColDropOpen]       = useState(false);
     // 기본 활성 상태 칩 = 팀 카드 '상태.기본활성칩' (2026-08-11 — 기술2팀 [진행중·추진중] 그대로, 기술1팀 []=전체)
@@ -695,12 +697,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ── 콤보박스 외부 클릭 닫기 ──────────────────────────────────────────
     useEffect(() => {
         const handler = e => {
+            const pop = document.querySelector('[data-pms-filter-pop]');   // body로 꺼낸 드롭다운 안 클릭은 '안쪽' (2026-09-10)
+            if (pop && pop.contains(e.target)) return;
             if (openFilter && filterRefs.current[openFilter] && !filterRefs.current[openFilter].contains(e.target)) {
                 setOpenFilter(null);
             }
         };
         document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        // 표를 스크롤하면 닫기 — 드롭다운이 고정 좌표라 헤더와 어긋나지 않게 (2026-09-10)
+        const wrap = winWrapRef.current;
+        const onScr = () => setOpenFilter(null);
+        if (openFilter && wrap) wrap.addEventListener('scroll', onScr, { passive: true });
+        return () => { document.removeEventListener('mousedown', handler); if (wrap) wrap.removeEventListener('scroll', onScr); };
     }, [openFilter]);
 
     // 날짜 표시 통일 — 비표준('6/8','5-21' 등)도 기준월 연도를 붙여 YYYY-MM-DD로 표준화.
@@ -888,15 +896,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const defaultNaItems = PROG_NA_ALL.filter(name => !(activeHeaders || []).some(h => !String(h).startsWith('_') && _naNorm(h).includes(_naNorm(name))))
         // 팀 통합열 별칭 (2026-08-25 팀장님: 기술2·3팀 통합시운전 기본 ON) — 통합열('진행율 %')이 표에 있으면 통합시운전은 '열 있음' 취급
         .filter(name => !(name === '통합시운전' && teamProfile?.시운전?.통합열 && (activeHeaders || []).some(h => _naNorm(h) === _naNorm(teamProfile.시운전.통합열))));
+    // 팀 카드 '기본미적용' (2026-08-19 팀장님, 기술1팀 통합 시운전): 지정 연도 행만 기본 off — 켬(_naOn)이 예외. 상세 팝업에도 전달(스위치 표시 일치, 2026-09-10)
+    const cardDefaultOffOf = (row) => {
+        const pf = teamProfile?.기본미적용;
+        return (pf && Array.isArray(pf.항목) && (!Array.isArray(pf.연도) || pf.연도.includes(String(row?._year || '')))) ? pf.항목 : [];
+    };
     const naItemsOf = (row) => {
         const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
         const on = Array.isArray(row && row._naOn) ? row._naOn : [];
-        // 팀 카드 '기본미적용' (2026-08-19 팀장님, 기술1팀 통합 시운전): 지정 연도 행만 기본 off — 켬(_naOn)이 예외
-        const pf = teamProfile?.기본미적용;
-        const pfItems = (pf && Array.isArray(pf.항목) && (!Array.isArray(pf.연도) || pf.연도.includes(String(row?._year || '')))) ? pf.항목 : [];
-        return [...new Set([...ex, ...defaultNaItems.filter(n => !on.includes(n)), ...pfItems.filter(n => !on.includes(n))])];
+        return [...new Set([...ex, ...defaultNaItems.filter(n => !on.includes(n)), ...cardDefaultOffOf(row).filter(n => !on.includes(n))])];
     };
-    const isNaItemCell = (row, h) => isPctCol(h) && naItemsOf(row).includes(h);
+    // ★ 스위치 off 칸 = 모든 열 (2026-09-10 팀장님): 종전 공정/시운전 9칸만 → 상세 팝업 스위치를 끈 어떤 항목이든 그 프로젝트 칸만 × (열 숨김 아님)
+    const isNaItemCell = (row, h) => naItemsOf(row).includes(h);
     // _naItems(헤더명) → progressItems({설정키:false}) — 진행실적 팝업·실적 그래프 계산에서 미적용 항목 제외 (2026-07-21)
     const naToProgressItems = (row) => {
         const na = naItemsOf(row);
@@ -2047,14 +2058,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const doCommitCell = async (editingCell, isForce) => {
         if (!editingCell.id || !editingCell.key) return;
-        // ★ 0 입력 = 지우기(빈칸) 통일 (2026-08-27 팀장님): 팝업 규칙(7/10 '0입력→빈칸·이월유지')을 메인표에도.
-        //   대상 = 팝업과 동기화되는 칸(공정률 7개·Point) + 포인트(총점 — 0 만점은 의미 없음, 2026-08-27 실기 확인).
-        if ((progItemKeyOf(editingCell.key) || isAccPointCol(editingCell.key) || isPointCol(editingCell.key))
-            && String(editingCell.value ?? '').trim() !== ''
-            && Number(String(editingCell.value).replace(/[,%]/g, '')) === 0) {
-            editingCell = { ...editingCell, value: '' };
-        }
+        // (2026-09-10 팀장님) 숫자 0도 값으로 저장 — 8/27 '0 입력 = 지우기' 규칙 폐지. 지우기는 빈칸(Del)으로만.
+        //   주차장부 동기화도 0을 값으로 기록(장부 읽기는 v !== '' 기준이라 0이 최신값으로 인식됨 — ProgressModal 692행·App getRecordMonthlyProgress 확인).
         const srcRow = activeRows.find(r => r._id === editingCell.id);
+        // ★ x 키인 = 이 프로젝트에서 이 항목 사용 안 함 (2026-09-10 팀장님): 값은 비우고 스위치 off(_naItems) → 메인표 ×·팝업 미적용·진척률/그래프 제외.
+        //   Del(빈칸)은 값만 지움(항목은 계속 사용). x·X·×·ㅌ(한글 자판의 x) 인정. 번호·수행번호 칸은 제외. 다시 쓰려면 그 칸에 값을 키인(자동 켜짐).
+        const _xIn = String(editingCell.value ?? '').trim().toLowerCase();
+        const isXOff = !!srcRow && (_xIn === 'x' || _xIn === '×' || _xIn === 'ㅌ') && !isProjNoCol(editingCell.key) && !isExecAssignRowCol(srcRow, editingCell.key);
+        if (isXOff) editingCell = { ...editingCell, value: '' };
         // ★ 직원 이름 칸 직책 자동 (2026-09-04 팀장님): 담당자·관리자 칸에 이름만 키인해도 팀 명단에서 찾아 '이름 직책'으로 완성
         //   (기술 1팀 담당자식 칸은 '이름만 저장'이 원칙이라 제외 · 발주처 고객 담당자 칸도 제외 · 명단에 없는 이름은 그대로)
         if ((isAssigneeCol(editingCell.key) || isManagerCol(editingCell.key)) && !isCustAsgCol(editingCell.key) && !isCardAsgCol(editingCell.key)
@@ -2065,7 +2076,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // 날짜 칸 (2026-09-02 팀장님: 엑셀처럼 자유 타이핑·달력·Del 지우기):
         //   ① 입력을 표준 날짜로 해석(260126·26/01/26·2026-01-26 등, 연도 없는 M/D는 행 연도)
         //   ② 못 알아보면 안내 후 저장 안 함(오염 방지) ③ 원본과 같으면 스킵 — 비표준 날짜 클릭만 해도 빈칸 덮던 버그 방지(2026-06-29 유지)
-        if (isDateCol(editingCell.key)) {
+        if (isDateCol(editingCell.key) && !isXOff) {
             const _rawIn = String(editingCell.value ?? '').trim();
             const _origD = String(displayDate(srcRow?.[editingCell.key] ?? '', srcRow?._year));
             let _normD = _rawIn === '' ? '' : parseDateFlex(_rawIn);
@@ -2077,6 +2088,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
         // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
         const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecAssignRowCol(srcRow, editingCell.key) ? execNoNorm(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN은 당해 연도 실제 수행번호 칸만 (2026-08-24)
+        if (isXOff) {
+            const _ex = Array.isArray(srcRow._naItems) ? srcRow._naItems : [];
+            const _on = Array.isArray(srcRow._naOn) ? srcRow._naOn : [];
+            patch._naItems = [...new Set([..._ex, editingCell.key])];
+            if (_on.includes(editingCell.key)) patch._naOn = _on.filter(x => x !== editingCell.key);
+        }
+        // ★ × 칸 키인 = 활성화 (2026-09-10 팀장님): 스위치 off(_naItems·기본 미적용)였던 칸에 값을 넣으면 off 목록에서 빼서 켬 → 팝업 스위치도 자동 on
+        if (srcRow && String(patch[editingCell.key] ?? '').trim() !== '' && naItemsOf(srcRow).includes(editingCell.key)) {
+            const _ex = Array.isArray(srcRow._naItems) ? srcRow._naItems : [];
+            const _on = Array.isArray(srcRow._naOn) ? srcRow._naOn : [];
+            if (_ex.includes(editingCell.key)) patch._naItems = _ex.filter(x => x !== editingCell.key);
+            if (!_ex.includes(editingCell.key) || defaultNaItems.includes(editingCell.key) || cardDefaultOffOf(srcRow).includes(editingCell.key)) patch._naOn = [...new Set([..._on, editingCell.key])];
+        }
         // ★ 수행번호 중복 차단 (2026-08-28 팀장님): 같은 연도 다른 메인 행(초안 포함)과 겹치면 키인 단계에서 거부
         if (srcRow && isExecAssignRowCol(srcRow, editingCell.key) && !isSubListRow(srcRow)) {
             const dup = execDupOf(srcRow._id, srcRow._year, editingCell.key, patch[editingCell.key]);
@@ -2108,6 +2132,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             .filter(k => !k.startsWith('_'))   // 내부 필드(_accBase 등)는 변경이력·백로그에서 제외 (2026-08-19)
             .map(k => ({ field: k, from: String(srcRow?.[k] ?? ''), to: String(patch[k] ?? '') }))
             .filter(c => c.from !== c.to);
+        if (isXOff && !naItemsOf(srcRow).includes(editingCell.key)) {   // x = 이력에 '× (사용 안 함)'으로 남김 — 값이 원래 빈칸이어도 초안·백로그 생성 (2026-09-10)
+            const _xc = { field: editingCell.key, from: String(srcRow?.[editingCell.key] ?? ''), to: '× (사용 안 함)' };
+            const _xi = changes.findIndex(c => c.field === editingCell.key);
+            if (_xi >= 0) changes[_xi] = _xc; else changes.push(_xc);
+        }
         const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
         // ★ 역방향 동기화(2026-07-10): 공정률 7개 셀이면 진행실적 주차장부에도 반영 → 팝업 합계와 양방향 일치.
         //    (progItemKeyOf가 공정률 7개만 통과시키므로 포인트·시운전·날짜·상태는 자동 제외)
@@ -3972,7 +4001,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (isSubListRow(r)) return;   // 하위 제외 (2026-07-16)
                 let v = String(r[h]||'').trim();
                 if (isStatusCol(h) && v.toUpperCase() === 'HOLD') v = 'Hold';
-                if (v) cm[v] = (cm[v] || 0) + 1;
+                if (!v) { if (isStatusCol(h) || isAssigneeCol(h)) return; v = '(빈칸)'; }   // 엑셀처럼 빈 칸도 골라보기 (2026-09-10) — 상태·담당자는 칩 줄 규칙 그대로
+                cm[v] = (cm[v] || 0) + 1;
             });
             res[h] = cm; // { val: count }
         });
@@ -4023,7 +4053,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 out = out.filter(r => {
                     let v = String(r[col]||'').trim();
                     if (isStatusCol(col) && v.toUpperCase() === 'HOLD') v = 'Hold';
-                    return vals.has(v);
+                    return vals.has(v || '(빈칸)');   // '(빈칸)' 선택 = 빈 칸 행 (2026-09-10)
                 });
             }
         });
@@ -4048,7 +4078,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (av !== '' && bv !== '' && Number.isFinite(an) && Number.isFinite(bn) && an !== bn) {
                 return sortConfig.dir === 'asc' ? an - bn : bn - an;
             }
-            return sortConfig.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+            // 글자 순서 = 엑셀과 동일(숫자 → 영문 → 한글, 안에 든 숫자는 크기순) — 'ko' 기본은 한글이 영문 앞이라 'en' 지정 (2026-09-10 팀장님, ▼ 필터 목록과 같은 순서)
+            return sortConfig.dir === 'asc' ? av.localeCompare(bv, 'en', { numeric: true }) : bv.localeCompare(av, 'en', { numeric: true });
         }));
     }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol, activeManagers, managerFilterCol]); // eslint-disable-line
 
@@ -4248,10 +4279,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         if (bi === -1) return -1;
                         return ai - bi;
                     }
+                    return b[1] - a[1];
                 }
-                return b[1] - a[1];
+                // 일반 열 = 엑셀 자동필터 순서(숫자 → 영문 → 한글, 숫자는 크기순), (빈칸)은 맨 뒤 (2026-09-10) — 'ko' 정렬은 한글이 영문 앞이라 엑셀과 달라 'en' 사용
+                if (a[0] === '(빈칸)') return 1;
+                if (b[0] === '(빈칸)') return -1;
+                return String(a[0]).localeCompare(String(b[0]), 'en', { numeric: true });
             });
         }
+        // 검색칸 (2026-09-10): 값이 많은 열(Project·내용)은 글자 일부로 좁힘 — 엑셀 자동필터 검색과 동일. 목록·전체 선택은 검색 결과 기준
+        const _q = String(filterSearch || '').trim().toLowerCase();
+        const shown = _q ? entries.filter(([v]) => String(v).toLowerCase().includes(_q)) : entries;
+        const selectShown = () => {
+            const vals = shown.map(([v]) => v);
+            if (isStatusH) setActiveStatusChips(new Set(vals));
+            else if (isAssigneeH) setActiveAssignees(new Set(vals));
+            else setColumnFilters(p => ({ ...p, [h]: new Set(vals) }));
+        };
+        // 오른쪽 끝 열은 드롭다운을 왼쪽으로 펼침 (화면 밖으로 잘리지 않게)
+        const _fr = filterRefs.current[h] && filterRefs.current[h].getBoundingClientRect && filterRefs.current[h].getBoundingClientRect();
+        const alignRight = !!_fr && (_fr.left + 330 > window.innerWidth);
 
         const szCls  = compactMode === 0 ? (small ? 'text-[11px]' : 'text-[11px]')
                      : compactMode === 1 ? (small ? 'text-[9px]'  : 'text-[10px]')
@@ -4300,7 +4347,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return (
             <div ref={el => { filterRefs.current[h] = el; }} className="relative w-full flex items-center justify-center gap-0.5">
                 <button
-                    onClick={e => { e.stopPropagation(); requestSort(h); }}
+                    title="클릭 = 정렬·필터 메뉴 (엑셀 자동필터와 동일)"
+                    onClick={e => { e.stopPropagation(); setFilterSearch(''); setOpenFilter(isOpen ? null : h); }}   // (2026-09-10 팀장님) 제목 클릭도 메뉴 — 정렬은 메뉴 안 항목으로
                     className={`flex-1 truncate text-left font-bold transition-colors leading-none py-0 ${szCls}
                         ${isActive ? 'text-[#1e7ac8]' : isSortKey ? 'text-[#1e7ac8]' : 'text-slate-400 hover:text-[#1e7ac8]'}`}
                 >
@@ -4312,7 +4360,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         : <ChevronDown size={iconSz} className="inline ml-0.5"/>)}
                 </button>
                 <button
-                    onClick={e => { e.stopPropagation(); setOpenFilter(isOpen ? null : h); }}
+                    onClick={e => { e.stopPropagation(); setFilterSearch(''); setOpenFilter(isOpen ? null : h); }}
                     className={`shrink-0 flex items-center justify-center rounded px-0.5 py-0 transition-colors
                         ${isActive ? 'text-amber-400 bg-amber-950/50' : isOpen ? 'text-white bg-slate-600' : 'text-slate-500 hover:text-amber-400 hover:bg-slate-700/60'}`}
                 >
@@ -4324,24 +4372,66 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <X size={small?9:11}/>
                     </button>
                 )}
-                {isOpen && (
-                    <div className="absolute top-full left-0 mt-1 z-[9999] shadow-2xl overflow-hidden"
-                        style={{ backgroundColor:'#fff', border:'1.5px solid #9aa8b8', minWidth:180, maxWidth:260 }}
-                        onClick={e => e.stopPropagation()}>
+                {/* 드롭다운은 body에 그림(portal, 화면 고정 좌표): 틀고정 th는 sticky라 자기 stacking context 안에 갇혀 뒤 열·본문 칸이 덮어버림 (2026-09-10 버그) */}
+                {isOpen && createPortal(
+                    <div data-pms-filter-pop className="z-[9999] shadow-2xl overflow-hidden"
+                        style={{ position:'fixed', top: _fr ? _fr.bottom + 3 : 60,
+                                 ...(alignRight ? { right: Math.max(4, window.innerWidth - (_fr ? _fr.right : window.innerWidth)) } : { left: Math.max(4, _fr ? _fr.left : 4) }),
+                                 backgroundColor:'#fff', border:'1.5px solid #9aa8b8', minWidth:200, maxWidth:320, fontWeight:400, textTransform:'none', letterSpacing:0, fontFamily:'inherit' }}
+                        onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
                         {/* 타이틀 바 */}
                         <div style={{ backgroundColor:'#dce3ec', borderBottom:'1px solid #c4ccd8',
-                                      padding:'5px 10px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <span style={{ fontSize:11, fontWeight:800, color:'#1a1a1a' }}>{h} 필터</span>
-                            <button onClick={clear}
-                                style={{ fontSize:11, fontWeight:700, color:'#059669', background:'none', border:'none', cursor:'pointer' }}>
-                                전체
+                                      padding:'5px 10px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                            <span style={{ fontSize:11, fontWeight:800, color:'#1a1a1a', whiteSpace:'nowrap' }}>{dispHeader(h)} 필터{isActive ? ` (${selSet.size})` : ''}</span>
+                            <button onClick={clear} title="이 열의 필터를 풀고 전부 보기"
+                                style={{ fontSize:11, fontWeight:700, color:'#059669', background:'none', border:'none', cursor:'pointer', whiteSpace:'nowrap' }}>
+                                전체 보기
                             </button>
                         </div>
+                        {/* 정렬 (엑셀 자동필터 메뉴 맨 위, 2026-09-10 팀장님): 오름차순 · 내림차순 · 해제 — 누르면 바로 정렬되고 메뉴는 닫힘 */}
+                        <div style={{ borderBottom:'1px solid #dfe5ee', backgroundColor:'#fff' }}>
+                            {[['asc', '↑ 오름차순 정렬', '숫자 → 영문 → 한글 순'], ['desc', '↓ 내림차순 정렬', '반대 순서']].map(([d, lbl, tip]) => {
+                                const on = isSortKey && sortConfig.dir === d;
+                                return (
+                                    <button key={d} type="button" title={tip}
+                                        onClick={() => { setSortConfig({ key: h, dir: d }); setOpenFilter(null); }}
+                                        style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'5px 10px', border:'none', cursor:'pointer',
+                                                 fontSize:12, fontWeight: on ? 800 : 500, color: on ? '#1e7ac8' : '#1e293b', backgroundColor: on ? '#e8f0fe' : 'transparent' }}>
+                                        <span style={{ flex:1 }}>{lbl}</span>{on && <span style={{ fontSize:10, color:'#1e7ac8' }}>적용 중</span>}
+                                    </button>
+                                );
+                            })}
+                            {isSortKey && (
+                                <button type="button" onClick={() => { setSortConfig({ key: null, dir: 'asc' }); setOpenFilter(null); }}
+                                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'5px 10px', border:'none', cursor:'pointer', fontSize:12, fontWeight:500, color:'#b91c1c', backgroundColor:'transparent' }}>
+                                    ✕ 정렬 해제 <span style={{ fontSize:10, color:'#94a3b8' }}>(원래 순서로)</span>
+                                </button>
+                            )}
+                        </div>
+                        {/* 검색칸 (엑셀 자동필터 검색) — 값이 6개 넘는 열만 */}
+                        {entries.length > 6 && (
+                            <div style={{ padding:'5px 8px', borderBottom:'1px solid #e5eaf3', backgroundColor:'#fff' }}>
+                                <input type="text" value={filterSearch} autoFocus placeholder="검색 (글자 일부)…"
+                                    onChange={e => setFilterSearch(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setOpenFilter(null); } if (e.key === 'Enter' && _q) { e.preventDefault(); selectShown(); } }}
+                                    style={{ width:'100%', boxSizing:'border-box', border:'1px solid #c4ccd8', borderRadius:4, padding:'3px 7px', fontSize:12, outline:'none' }}/>
+                            </div>
+                        )}
+                        {/* (모두 선택) — 검색 결과 기준 (엑셀과 동일) */}
+                        {shown.length > 0 && (
+                            <label style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 10px', cursor:'pointer', borderBottom:'1px solid #dfe5ee', backgroundColor:'#f8fafc' }}
+                                title={_q ? '검색된 값 전부 선택 (Enter와 동일)' : '전부 선택 = 필터 해제와 같음'}>
+                                <input type="checkbox" checked={shown.length > 0 && shown.every(([v]) => isSelected(v))}
+                                    onChange={e => { if (e.target.checked) selectShown(); else { if (_q) { const rm = new Set(shown.map(([v]) => v)); if (isStatusH) setActiveStatusChips(p => new Set([...p].filter(v => !rm.has(v)))); else if (isAssigneeH) setActiveAssignees(p => new Set([...p].filter(v => !rm.has(v)))); else setColumnFilters(p => { const n = new Set([...(p[h] instanceof Set ? p[h] : [])].filter(v => !rm.has(v))); const o = { ...p }; if (n.size) o[h] = n; else delete o[h]; return o; }); } else clear(); } }}
+                                    style={{ accentColor:'#1e7ac8', cursor:'pointer', flexShrink:0 }}/>
+                                <span style={{ flex:1, fontSize:12, fontWeight:700, color:'#334155' }}>{_q ? `검색 결과 모두 선택 (${shown.length})` : `(모두 선택) ${entries.length}개`}</span>
+                            </label>
+                        )}
                         {/* 목록 */}
-                        <div style={{ maxHeight:200, overflowY:'auto' }} className="custom-scrollbar">
-                            {entries.length === 0
-                                ? <div style={{ padding:'12px', fontSize:11, color:'#888', textAlign:'center' }}>데이터 없음</div>
-                                : entries.map(([val, cnt]) => {
+                        <div style={{ maxHeight:260, overflowY:'auto' }} className="custom-scrollbar">
+                            {shown.length === 0
+                                ? <div style={{ padding:'12px', fontSize:11, color:'#888', textAlign:'center' }}>{_q ? '검색 결과 없음' : '데이터 없음'}</div>
+                                : shown.map(([val, cnt]) => {
                                     const isSel = isSelected(val);
                                     return (
                                         <label key={val}
@@ -4351,8 +4441,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             <input type="checkbox" checked={isSel} onChange={() => toggle(val)}
                                                 style={{ accentColor:'#1e7ac8', cursor:'pointer', flexShrink:0 }}/>
                                             <span style={{ flex:1, fontSize:12, fontWeight: isSel ? 700 : 400,
-                                                           color: isSel ? '#1e7ac8' : '#1e293b', overflow:'hidden',
-                                                           textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{val}</span>
+                                                           color: val === '(빈칸)' ? '#94a3b8' : isSel ? '#1e7ac8' : '#1e293b', overflow:'hidden',
+                                                           textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={String(val)}>{isDateCol(h) && val !== '(빈칸)' ? displayDate(val) : val}</span>
                                             <span style={{ fontSize:10, color:'#888', fontWeight:600, flexShrink:0 }}>{cnt}</span>
                                         </label>
                                     );
@@ -4367,7 +4457,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 닫기
                             </button>
                         </div>
-                    </div>
+                    </div>,
+                    document.body
                 )}
             </div>
         );
@@ -4481,7 +4572,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   하이라이트는 DOM 클래스(cell-selr)로만 칠함(React 재렌더 0 = 속도 유지) · Del = 초안(노란 칸)으로 일괄 적재
     //   → [저장 N칸]으로 확정, [취소]로 복구. 잠금·자동 계산·드롭다운(진행현황·담당자 등)·실행번호 칸은 건너뜀.
     const selRef = useRef(null);           // { r1, c1, r2, c2 } — sortedRows 인덱스 × 열 인덱스
-    const clearSelPaint = () => { document.querySelectorAll('td.cell-selr').forEach(td => td.classList.remove('cell-selr')); };
+    const clearSelPaint = () => {
+        document.querySelectorAll('td.cell-selr').forEach(td => td.classList.remove('cell-selr'));
+        document.querySelectorAll('tr.row-cur').forEach(tr => tr.classList.remove('row-cur'));   // 커서 행 강조 (2026-09-10)
+    };
     const paintSel = () => {
         clearSelPaint();
         const sel = selRef.current; if (!sel || !tbodyRef.current) return;
@@ -4491,9 +4585,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (!tr) continue;   // 창 렌더 밖 행 — 표시만 생략(범위엔 포함)
             for (let c = sel.c1; c <= sel.c2 && c < tr.children.length; c++) tr.children[c].classList.add('cell-selr');
         }
+        // ★ 커서 행 강조 (2026-09-10 팀장님): 키보드 화살표로 옮겨도 마우스 hover처럼 그 행 전체가 칠해지게 — 활성 셀(움직이는 쪽)의 행
+        const _a = selActiveRef.current;
+        const _cr = sortedRowsRef.current[_a ? _a.r : sel.r2];
+        const _trc = _cr && tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(_cr._id))}"]`);
+        if (_trc) _trc.classList.add('row-cur');
     };
-    const canClearCell = (row, h) => {
-        if (isNaItemCell(row, h) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금
+    const canClearCell = (row, h, ignoreNa) => {
+        if ((!ignoreNa && isNaItemCell(row, h)) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금 (ignoreNa = 범위 x용, 2026-09-10)
         if (isStatusCol(h) || (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h))) || isCardAsgCol(h) || ((isClientCol(h) || isVendorAssCol(h)) && !isPlainKeyinCol(h)) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
         if (isExecNoCol(h)) return false;                                  // 실행번호 = 하위(s) 구조 마커와 얽힘
         if (isPointCol(h) && getSubPt(row._id)) return false;              // 하위 합계 자동
@@ -4547,23 +4646,32 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         document.addEventListener('mousemove', mm);
         document.addEventListener('mouseup', mu);
     };
-    const clearSelectedCells = () => {
+    // mode 'clear' = Del(값만 지움) · 'off' = x(사용 안 함: 값 비움 + 스위치 off, 2026-09-10 팀장님) — 번호·수행번호·잠금·드롭다운 칸은 건너뜀
+    const clearSelectedCells = (mode = 'clear') => {
+        const offMode = mode === 'off';
+        const canOffCell = (row, h) => !isProjNoCol(h) && !isExecAssignRowCol(row, h) && canClearCell(row, h, true);
         const sel = selRef.current; if (!sel) return;
-        if (dataSource !== 'firebase') { setAlertMsg('드래그 지우기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg((offMode ? '범위 x(사용 안 함)' : '드래그 지우기') + '는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
         const rows = sortedRowsRef.current;
         const adds = {}; let cleared = 0, skipped = 0;
         for (let r = sel.r1; r <= sel.r2 && r < rows.length; r++) {
             const row = rows[r];
             const sv = fbRows.find(x => x._id === row._id) || row;
-            const patch = {}, orig = {}, edited = {};
+            const patch = {}, orig = {}, edited = {}; const naAdd = [];
             for (let c = sel.c1; c <= sel.c2 && c < mainVisibleHeaders.length; c++) {
                 const h = mainVisibleHeaders[c];
-                if (String(row[h] ?? '').trim() === '') continue;          // 이미 빈칸
-                if (!canClearCell(row, h)) { skipped++; continue; }
+                if (offMode ? isNaItemCell(row, h) : String(row[h] ?? '').trim() === '') continue;          // 이미 off / 이미 빈칸
+                if (!(offMode ? canOffCell(row, h) : canClearCell(row, h))) { skipped++; continue; }
                 patch[h] = ''; orig[h] = String(sv[h] ?? ''); edited[h] = '';
+                if (offMode) naAdd.push(h);
                 cleared++;
             }
             if (!Object.keys(patch).length) continue;
+            if (offMode && naAdd.length) {   // 스위치 off 목록에 추가 (켬 예외 목록에서는 제거)
+                const _ex = Array.isArray(sv._naItems) ? sv._naItems : [], _on = Array.isArray(sv._naOn) ? sv._naOn : [];
+                patch._naItems = [...new Set([..._ex, ...naAdd])];
+                if (_on.some(x => naAdd.includes(x))) patch._naOn = _on.filter(x => !naAdd.includes(x));
+            }
             // 파생 자동 칸 재계산 — 키인과 동일 규칙 (기술1팀 수식·진행율%)
             if (fmActive(row) && Object.keys(patch).some(k => fmTrigSet.has(fmNorm(k)))) Object.assign(patch, fmRecalc({ ...row, ...patch }, row));
             if (Object.keys(patch).some(k => paTrigger(k))) Object.assign(patch, paRecalc({ ...row, ...patch }));
@@ -4574,13 +4682,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             }
             const changes = Object.keys(patch).filter(k => !k.startsWith('_'))
                 .map(k => ({ field: k, from: String(row[k] ?? ''), to: String(patch[k] ?? '') })).filter(ch => ch.from !== ch.to);
+            if (offMode) naAdd.forEach(h => {   // x = 이력에 '× (사용 안 함)' — 값이 원래 빈칸이어도 기록
+                const _c = { field: h, from: String(row[h] ?? ''), to: '× (사용 안 함)' };
+                const _i = changes.findIndex(ch => ch.field === h); if (_i >= 0) changes[_i] = _c; else changes.push(_c);
+            });
             if (!changes.length) continue;
             const chg = new Set(changes.map(ch => ch.field));   // 노란 칸 = 실제 바뀌는 칸만 (키인 규칙과 동일)
             const p2 = {}; Object.keys(patch).forEach(k => { if (k.startsWith('_') || chg.has(k)) p2[k] = patch[k]; });
             adds[row._id] = { patch: p2, orig, edited, entry: { datetime: new Date().toISOString(), changes } };
         }
         clearSelPaint(); selRef.current = null;
-        if (!Object.keys(adds).length) { if (skipped) setAlertMsg('선택한 칸은 잠금·자동 계산·드롭다운 칸이라 지울 수 없습니다.'); return; }
+        if (!Object.keys(adds).length) { if (skipped) setAlertMsg(offMode ? '선택한 칸은 번호·수행번호·잠금·자동 계산·드롭다운 칸이라 사용 안 함으로 바꿀 수 없습니다.' : '선택한 칸은 잠금·자동 계산·드롭다운 칸이라 지울 수 없습니다.'); return; }
         setDraft(prev => {
             const n = { ...prev };
             Object.keys(adds).forEach(id => {
@@ -4591,7 +4703,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             });
             return n;
         });
-        showExtToast(`${cleared}칸 지움(임시) — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
+        showExtToast(`${cleared}칸 ${offMode ? '사용 안 함(×, 임시)' : '지움(임시)'} — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
     // ── 엑셀식 키보드 (2026-09-03 팀장님: 표를 엑셀처럼 — 직원들이 엑셀에 친숙) ──────────
@@ -4602,6 +4714,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const selActiveRef = useRef(null);    // 활성 셀 {r,c} — Shift 확장의 움직이는 쪽
     const selAnchor2Ref = useRef(null);   // 고정 모서리 {r,c}
     const kbNavRef = useRef(null);        // 편집 저장 직후 이동 방향
+    // ★ 가로 따라가기 (2026-09-10 팀장님): 화살표·Tab으로 화면 밖 열에 가면 표 가로 스크롤이 커서 칸을 따라감.
+    //   왼쪽 경계 = 틀고정(sticky) 칸의 오른쪽 끝(그 밑으로 들어가면 안 보임) · 개인 배율(zoom)은 화면 좌표엔 적용되고 scrollLeft엔 안 되므로 나눠서 보정
+    const ensureColVisible = (ri, ci) => {
+        const wrap = winWrapRef.current; if (!wrap) return;
+        const row = (sortedRowsRef.current || [])[ri]; if (!row) return;
+        const tr = tbodyRef.current && tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(row._id))}"]`);
+        const td = tr && tr.children[ci]; if (!td) return;
+        if (getComputedStyle(td).position === 'sticky') return;   // 틀고정 칸은 항상 보임
+        const z = parseFloat(getComputedStyle(wrap).zoom) || 1;
+        const wr = wrap.getBoundingClientRect(), cr = td.getBoundingClientRect();
+        let frzRight = wr.left;
+        for (let i = 0; i < ci && i < tr.children.length; i++) {
+            const c = tr.children[i];
+            if (getComputedStyle(c).position === 'sticky') frzRight = Math.max(frzRight, c.getBoundingClientRect().right);
+        }
+        const pad = 8, rightEdge = wr.left + wrap.clientWidth * z;   // clientWidth = 세로 스크롤바 제외
+        if (cr.left < frzRight + pad) wrap.scrollLeft -= (frzRight + pad - cr.left) / z;
+        else if (cr.right > rightEdge - pad) wrap.scrollLeft += (cr.right - (rightEdge - pad)) / z;
+    };
     const ensureRowVisible = (ri) => {
         const row = (sortedRowsRef.current || [])[ri]; if (!row) return;
         const tr = tbodyRef.current && tbodyRef.current.querySelector(`tr[data-row-id="${CSS.escape(String(row._id))}"]`);
@@ -4611,7 +4742,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setTimeout(() => paintSel(), 350);
         }
     };
+    // ★ 키보드 이동 중 마우스 hover 끔 (2026-09-10 팀장님: 마우스가 놓인 행 + 커서 행 = 2줄로 헷갈림) — 마우스를 움직이면 바로 복귀
+    const kbNavOn = () => {
+        if (document.body.classList.contains('pms-kbnav')) return;
+        document.body.classList.add('pms-kbnav');
+        window.addEventListener('mousemove', () => document.body.classList.remove('pms-kbnav'), { once: true });
+    };
     const setCellCursor = (ri, ci, extend) => {
+        kbNavOn();
         const rows = sortedRowsRef.current || [];
         if (!rows.length || !mainVisibleHeaders.length) return;
         ri = Math.max(0, Math.min(ri, rows.length - 1));
@@ -4621,6 +4759,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const a = selAnchor2Ref.current;
         selRef.current = { r1: Math.min(a.r, ri), r2: Math.max(a.r, ri), c1: Math.min(a.c, ci), c2: Math.max(a.c, ci) };
         ensureRowVisible(ri);
+        ensureColVisible(ri, ci);   // 가로 따라가기 (2026-09-10)
         paintSel();
         if (fmtBarRef.current) setFmtSelTick(k => k + 1);
     };
@@ -4855,6 +4994,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (!selRef.current) return;
                 e.preventDefault();
                 clearSelectedCellsRef.current();
+                return;
+            }
+            // 범위(2칸 이상) 선택 + x = 사용 안 함 일괄 (2026-09-10 팀장님). 1칸은 아래 '타이핑 시작'으로 편집창에 x → Enter (실수 방지)
+            if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey && !inEdit && selRef.current
+                && !(selRef.current.r1 === selRef.current.r2 && selRef.current.c1 === selRef.current.c2)) {
+                e.preventDefault();
+                clearSelectedCellsRef.current('off');
                 return;
             }
             // 엑셀식 이동·입력 (2026-09-03) — 커서 있을 때만
@@ -5518,8 +5664,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     mainVisibleHeaders={mainVisibleHeaders}
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
-                    hiddenCols={hiddenCols}
-                    onToggleCol={(h) => setHiddenCols(prev => { const n = new Set(prev); n.has(h) ? n.delete(h) : n.add(h); saveHiddenCols(currentTeam, n); return n; })}
+                    cardDefaultOff={cardDefaultOffOf(detailRow)}
                     currentTeam={currentTeam}
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
@@ -5589,7 +5734,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     execLockedCols={addingRow && !isSubListRow(addingRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(addingRow, h)) : []}
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
-                    hiddenCols={hiddenCols}
+                    cardDefaultOff={cardDefaultOffOf(addingRow)}
                     currentTeam={currentTeam}
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
@@ -7228,6 +7373,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             // NAS 연결 행에서 규칙이 안 다루는 PLC·ETOS·HMI = 그 프로젝트 엑셀에 없는 항목 → ×표시 (2026-08-20 팀장님. 값이 남아있으면 값 우선)
                                             const nasX = ['PLC', 'ETOS', 'HMI'].includes(String(h).replace(/\s/g, ''))
                                                 && extRulesOf(row).length > 0 && !isExtLockedCell(row, h) && !String(val || '').trim();
+                                            // ★ 칸 상태 2가지 (2026-09-10 팀장님): 값 있음 = 행 줄무늬 그대로 / off = 짙은 회색 ×.
+                                            //   off = 스위치 off(_naItems·기본 미적용) · NAS 미포함 · 빈칸(카드 빈칸회색). 화면에 값이 보이는 칸(하위 Σ 포인트·하위 마커·수행번호 [+])은 빈칸이어도 제외
+                                            const _dispEmpty = String(val ?? '').trim() === ''
+                                                && !(isPointCol(h) && (getSubPt(row._id)?.sum > 0))
+                                                && !(h === projectNameCol && isSubListRow(row))
+                                                && !(isExecNoCol(h) && !isSubListRow(row));
+                                            const cellOff = isNaItemCell(row, h) || nasX || (isGrayEmptyCol(h) && _dispEmpty);
+                                            const offTip = isNaItemCell(row, h) ? '사용 안 함 (스위치 off · 진척률/그래프 제외) — 값을 키인하면 다시 켜집니다'
+                                                : nasX ? 'NAS 진척자료(엑셀)에 없는 항목 — 이 프로젝트는 대상 아님'
+                                                : '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함';
                                             return (
                                                 <td key={h}
                                                     className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20
@@ -7235,15 +7390,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${isStatusCol(h)?'cursor-pointer':''}
                                                         ${cellSz}
                                                         ${isHl?'bg-amber-100 text-amber-900':''}
-                                                        ${autoTip && !isHl ? 'cell-auto' : ''}
-                                                        ${(!isHl && !autoTip && isGrayEmptyCol(h) && !String(val ?? '').trim() && !isNaItemCell(row, h) && !nasX) ? 'cell-empty' : ''}
+                                                        ${(!isHl && cellOff) ? 'cell-na' : ''}
                                                         ${isFrz(h)?'z-10':''}
                                                         ${(colWidths[h]||fitWidths[h])?'col-clip':''}
                                                         ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}${_ffCls}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{}), ..._ffSty}}
-                                                    title={autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
+                                                    title={cellOff ? offTip : autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
                                                     onDoubleClick={e => {   // 번호 칸: 클릭=행 선택이라 편집은 더블클릭 (2026-08-31)
-                                                        if (!isProjNoCol(h) || isNaItemCell(row, h)) return;
+                                                        if (!isProjNoCol(h)) return;
                                                         e.stopPropagation();
                                                         { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
                                                         clearSelPaint(); selRef.current = null;
@@ -7252,7 +7406,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                     onClick={e=>{
                                                         e.stopPropagation();
                                                         if (fmtBarRef.current) { fmtSelectCell(row._id, h); return; }   // 서식 팔레트 켜짐 = 클릭은 대상 선택 (편집은 팔레트 닫고, 2026-09-01)
-                                                        if (isNaItemCell(row, h)) return;   // 미적용(×) 칸 편집 잠금 (2026-07-21)
+                                                        // (2026-09-10 팀장님) 스위치 off(×) 칸도 클릭·키인 가능 — 값을 넣으면 켜짐 (종전 7/21 편집 잠금 폐지)
                                                         // ★ 수행번호(당해 연도) 손 키인 금지 (2026-08-28 팀장님: [+] 옆 빈 곳을 눌러 편집창이 열려 '011' 같은 값이 들어가는 사고) — [+] 자동 부여·✕ 회수만
                                                         if (isExecAssignRowCol(row, h) && !isSubListRow(row)) { showExtToast('수행번호는 손으로 키인할 수 없습니다 — 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수'); return; }
                                                         { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
@@ -7323,8 +7477,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 style={{ border:'none', background:'transparent', color:'#94a3b8', fontSize:'10px', lineHeight:1, padding:'0 2px', cursor:'pointer' }}>✕</button></span>)
                                                         : (<button title={`다음 수행번호 자동 부여 (${execMaxOf(row._year, h).yy}-${String(execMaxOf(row._year, h).max + 1).padStart(3, '0')})`} onClick={e => { e.stopPropagation(); assignExecNo(row, h); }}
                                                             style={{ border:'1px dashed #94a3b8', background:'#fff', color:'#1e7ac8', fontSize:'11px', fontWeight:800, lineHeight:1, padding:'1px 6px', borderRadius:'4px', cursor:'pointer' }}>+</button>)
-                                                    ) : isNaItemCell(row, h) ? (<span title="이 프로젝트엔 해당 없는 항목 (상세설정에서 적용/미적용)" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>)
-                                                    : nasX ? (<span title="NAS 진척자료(엑셀)에 없는 항목 — 이 프로젝트는 대상 아님" style={{color:'#c0c8d4',fontWeight:700,fontSize:'13px'}}>×</span>)
+                                                    ) : cellOff ? (<span title={offTip} style={{fontWeight:700,fontSize:'13px',color:'#4b5563'}}>×</span>)
                                                     : isStatusCell(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;

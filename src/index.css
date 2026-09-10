@@ -131,14 +131,15 @@ tbody tr td:first-child {
   border-left: none !important;
 }
 
-tbody tr:hover td {
+/* (2026-09-10 팀장님) body.pms-kbnav = 키보드 이동 중: 마우스 hover 행 강조를 끔 — 커서 행(tr.row-cur)만 보이게. 마우스를 움직이면 클래스가 빠져 복귀 */
+body:not(.pms-kbnav) tbody tr:hover td {
   background-color: #e8f0fe !important;
 }
 
 /* ── sticky 고정 컬럼 ── */
 .sticky-col { background-color: #edf1f7 !important; }
 th.sticky-col { background-color: #d4dde8 !important; }
-tr:hover td.sticky-col { background-color: #d8e8fa !important; }
+body:not(.pms-kbnav) tr:hover td.sticky-col { background-color: #d8e8fa !important; }
 .sticky-last { border-right: none !important; box-shadow: 4px 0 6px -2px rgba(0,0,0,0.08) !important; }
 
 /* ── 짝수 행 배경 (엑셀 스타일) ── */
@@ -146,7 +147,7 @@ tbody tr:nth-child(even) td { background-color: #fbfaf8 !important; }   /* 웜�
 
 /* 숫자 세로 정렬 — 자릿수 폭 통일 (Stripe tabular-nums, 2026-08-11 시안) */
 table { font-variant-numeric: tabular-nums !important; }
-tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
+body:not(.pms-kbnav) tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
 
 /* ── 공사 진행 묶음 — 일반 항목과 동일 표시 (2026-06-29, 강조 색·경계 제거) ── */
 
@@ -154,9 +155,11 @@ tbody tr:nth-child(even):hover td { background-color: #e8f0fe !important; }
       어디까지가 한 묶음인지 표시. 헤더 2층·본문 공통. 틀고정 파란 경계는 JSX에서 우선 처리 ── */
 /* ── 자동 칸 표시 (2026-08-20 팀장님) — 수식(기술1팀)·NAS(기술2팀)·하위합 자동 칸.
    인라인 style은 위쪽 흰 배경 !important 규칙에 밀림(2026-06-26 교훈) → 반드시 CSS 클래스로 */
-.list-oneline td.cell-auto { background-color: #e9f1fb !important; }
-/* 빈칸 회색 (2026-08-21 팀장님): 비어 있는 칸은 엑셀처럼 진한 회색 — 값이 들어오면 클래스가 빠져 원래 색. 자동 칸(cell-auto)은 제외해 하늘색 유지 */
-.list-oneline td.cell-empty { background-color: #a7aeb9 !important; color: #4b5563 !important; }
+/* (2026-09-10 팀장님) 자동 칸 하늘색 폐지 — 값 있는 칸은 전부 행 줄무늬(흰/연회청)를 따라야 행 구분이 됨. 툴팁('자동 계산 칸')은 유지 */
+/* ★ 칸 색 규칙 (2026-09-10 팀장님): 값 있음 = 행 줄무늬 그대로 / 값 없음·스위치 off·NAS 미포함 = 짙은 회색 × (cell-na).
+   인라인 style은 위쪽 !important 규칙에 밀리므로 반드시 클래스로 (2026-06-26 교훈) */
+.list-oneline td.cell-na { background-color: #a7aeb9 !important; }
+.list-oneline td.cell-na > span { color: #4b5563 !important; }
 
 .list-oneline th.grp-sep { border-right: 1px solid #c3cad7 !important; }   /* 헤더 2줄만 — 본문(01,02…행)엔 선 없음 (2026-08-19 팀장님). 기본선보다 반 톤만 진하게 */
 
@@ -460,11 +463,20 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .list-oneline td.fmt-b { background-color: var(--fmb) !important; }
 
 .list-oneline td.cell-draft { background-color: #fef9c3 !important; box-shadow: inset 0 -2px 0 #ca8a04; }
-tbody tr:hover td.cell-draft { background-color: #fef3b2 !important; }
+body:not(.pms-kbnav) tbody tr:hover td.cell-draft { background-color: #fef3b2 !important; }
 /* 깜빡임은 opacity만 — box-shadow 애니메이션은 초안이 떠 있는 내내 매 프레임 페인트·레이어 재구성을 일으켜
    키인 지연의 한 원인이었음(2026-08-27 크롬 트레이스 실측: Layerize 1.9s). opacity는 합성기 전용이라 비용 0급 */
 @keyframes pmsDraftPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.72; } }
 
 /* ── 드래그 범위 선택 (2026-08-27) — Del로 일괄 지우기 전 하이라이트. 고정(sticky) 칸의 인라인 배경을 이겨야 해서 !important */
 .list-oneline td.cell-selr { background-color: #d7e8f7 !important; box-shadow: inset 0 0 0 1px rgba(30,122,200,0.55); }
+
+/* ── 행 강조 통일 (2026-09-10 팀장님): 마우스 hover 행 = 키보드 커서 행(tr.row-cur, paintSel이 DOM 클래스로 표시 — 재렌더 0) 같은 색.
+   짙은 회색 × 칸(cell-na)도 함께 한 단계 진해져 행 띠가 끊기지 않음. 초안(노란)·범위 선택(파란) 칸은 그 위에 유지 ── */
+tbody tr.row-cur td { background-color: #e8f0fe !important; }
+tr.row-cur td.sticky-col { background-color: #d8e8fa !important; }
+body:not(.pms-kbnav) tbody tr:hover td.cell-na, tbody tr.row-cur td.cell-na { background-color: #8797b3 !important; }
+body:not(.pms-kbnav) tbody tr:hover td.cell-na > span, tbody tr.row-cur td.cell-na > span { color: #1f2937 !important; }
+tbody tr.row-cur td.cell-draft { background-color: #fef3b2 !important; }
+tbody tr.row-cur td.cell-selr, body:not(.pms-kbnav) tbody tr:hover td.cell-selr { background-color: #c5dcf2 !important; }
 body.sel-noselect, body.sel-noselect * { user-select: none !important; }
