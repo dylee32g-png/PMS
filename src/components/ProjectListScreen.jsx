@@ -66,6 +66,8 @@ const BK_HOUR_KEY   = 'pms_backup_hour';        // 실행 시각(시, 0~23) — 
 const BK_LAST_KEY   = 'pms_backup_last';        // 마지막 '3팀 전부 성공' 날짜 YYYY-MM-DD (하루 1회 판정)
 const BK_HANDLE_KEY = '__autoBackupFolder__';   // IndexedDB(PmsExtSyncDB.handles) 백업 폴더 허가증 키
 const BK_KEEP_DAYS  = 90;                       // 보관 일수 — 이 기능이 만든 파일만 이보다 오래되면 폴더에서 정리
+// 관리 칸(맨 오른쪽 sticky) 폭 고정 (2026-09-10 팀장님: 창 렌더링으로 보이는 행이 바뀌면 내용맞춤 폭이 줄었다 늘었다 함 — NAS 칩 3개(P9·진행·자물쇠)가 들어가는 폭으로 고정)
+const MGR_COL_W = 78;
 const BK_FILE_RE    = /^PMS전체백업_(.+)_(\d{8})_(\d{4})\.json$/;   // 우리 이름 규칙 (정리 대상 판별 — 다른 파일은 절대 안 건드림)
 const bkTodayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const bkLoadOn   = () => { try { return localStorage.getItem(BK_AUTO_KEY) === '1'; } catch (e) { return false; } };
@@ -7121,8 +7123,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <table className="text-left border-collapse list-oneline" style={{ minWidth:'100%' }}>
                             <colgroup>
                                 {/* (2026-06-29) 맨 앞 'No.칸' 잔재 <col width:22> 제거 — 이 빈 col이 모든 칸 너비를 한 칸씩 밀어, 도면입수에 옆 '내용' 칸(210px)이 적용되던 진짜 원인. Chrome 실측 확인(210→60). 칸 너비 = getW(h). */}
-                                {mainVisibleHeaders.map(h => <col key={h} style={{ width: getW(h) || winPinW[h] || 40, minWidth: getW(h) || winPinW[h] || 40 }}/>)}
-                                <col style={{width:120}}/>
+                                {/* 열 폭 우선순위 (2026-09-10 팀장님 수리): 손잡이(colWidths) → 기본맞춤(fitWidths) → 창 렌더 실측 고정(winPinW) → 기본 폭(getW).
+                                    종전엔 getW(항상 값 있음)가 먼저라 실측 고정이 한 번도 안 쓰여, 발주처·공사업체·업체담당자처럼 맞춤 밖 열이 스크롤마다(그려진 행의 최장 글자) 늘었다 줄었다 함 */}
+                                {mainVisibleHeaders.map(h => { const _w = colWidths[h] || fitWidths[h] || winPinW[h] || getW(h) || 40; return <col key={h} style={{ width: _w, minWidth: _w }}/>; })}
+                                <col style={{ width: MGR_COL_W, minWidth: MGR_COL_W }}/>   {/* 관리 칸 폭 고정 (2026-09-10) */}
                             </colgroup>
                             {(() => {
                                 // 헤드 높이 약 20% 축소
@@ -7205,7 +7209,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         </th>
                                         );
                                     })}
-                                    <th rowSpan={hasMainGroups?headRows:1} className={`${actTdPx} text-center text-slate-400 ${mgrSz} font-bold sticky right-0 z-40`} style={{background:'var(--head-bg)'}}>관리</th>
+                                    <th rowSpan={hasMainGroups?headRows:1} className={`${actTdPx} text-center text-slate-400 ${mgrSz} font-bold sticky right-0 z-40`} style={{background:'var(--head-bg)', width: MGR_COL_W, minWidth: MGR_COL_W, maxWidth: MGR_COL_W, boxSizing:'border-box'}}>관리</th>
                                 </tr>
                                 {/* 3층 중간행 (2026-08-24): Total · 진행현황 · 시운전 — 라벨 없는 열(날짜·내용)은 여기서 2층 세로 통합 헤더 */}
                                 {hasMainMids && (
@@ -7503,7 +7507,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                 </td>
                                             );
                                         })}
-                                        <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 shadow-[-2px_0_4px_rgba(0,0,0,0.05)]">
+                                        <td className="px-0.5 py-0 text-left sticky right-0 bg-white group-hover:bg-blue-50 shadow-[-2px_0_4px_rgba(0,0,0,0.05)]" style={{ width: MGR_COL_W, minWidth: MGR_COL_W, maxWidth: MGR_COL_W, boxSizing:'border-box' }}>
                                             {(() => {
                                                 const wKey = row._pid || row['실행번호'] || row.execNo || '';   // 주간보고 연결 키 = pid (실행번호 폐지, 2026-07-21)
                                                 const hasLink = wKey && weeklyLinks?.[wKey];
