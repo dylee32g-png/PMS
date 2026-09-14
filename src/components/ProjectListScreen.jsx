@@ -68,6 +68,10 @@ const BK_HANDLE_KEY = '__autoBackupFolder__';   // IndexedDB(PmsExtSyncDB.handle
 const BK_KEEP_DAYS  = 90;                       // 보관 일수 — 이 기능이 만든 파일만 이보다 오래되면 폴더에서 정리
 // 관리 칸(맨 오른쪽 sticky) 폭 고정 (2026-09-10 팀장님: 창 렌더링으로 보이는 행이 바뀌면 내용맞춤 폭이 줄었다 늘었다 함 — NAS 칩 3개(P9·진행·자물쇠)가 들어가는 폭으로 고정)
 const MGR_COL_W = 78;
+// ⚙ 설정 메뉴 묶음 라벨 (2026-09-14 팀장님: 메뉴를 하는 일별로 묶어 순서 정리)
+const MenuSec = ({ t }) => (
+    <div className="px-4 pt-2 pb-0.5 mt-1 border-t border-[#eef1f5] text-[10px] font-bold text-[#8a94a3] tracking-wider select-none first:border-t-0 first:mt-0">{t}</div>
+);
 const BK_FILE_RE    = /^PMS전체백업_(.+)_(\d{8})_(\d{4})\.json$/;   // 우리 이름 규칙 (정리 대상 판별 — 다른 파일은 절대 안 건드림)
 const bkTodayStr = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const bkLoadOn   = () => { try { return localStorage.getItem(BK_AUTO_KEY) === '1'; } catch (e) { return false; } };
@@ -1676,6 +1680,25 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const handleYearLoad = async (sh) => {
         if (!isAdmin || !sh) return;
         const curRows = fbRows.filter(r => String(r._year || '') === String(sh.year));
+        // ★올해 보호 (2026-09-14 팀장님): 1:1 적재는 그 해를 통째로 교체 → 올해 시트에 실행하면 웹에서만 만든 값
+        //   (수행번호·NAS 규칙·하위 행·이력·pid·포인트 실적)이 전부 사라짐. 올해는 "YYYY 교체"를 직접 타이핑해야만 진행.
+        //   지난 연도는 종전과 동일(아래 일반 확인창만). 올해 갱신은 [엑셀 업로드](보존 병합)가 맞는 길.
+        if (String(sh.year) === String(new Date().getFullYear()) && curRows.length > 0) {
+            const _execCol = execCfg?.열 || '수행번호';
+            const _nExec = curRows.filter(r => String(r[_execCol] ?? '').trim() !== '').length;
+            const _nNas = curRows.filter(r => r._extSync && Object.keys(r._extSync).length > 0).length;
+            const _nSub = curRows.filter(r => isSubListRow(r)).length;
+            const _typed = window.prompt(
+`⛔ 올해(${sh.year}년) 시트를 통째로 교체하려고 합니다!
+
+웹의 ${sh.year}년 ${curRows.length}건이 지워지고, 웹에서만 만든 값이 전부 사라집니다:
+ · 수행번호 ${_nExec}건 · NAS 자동 반영 규칙 ${_nNas}건 · 하위(공종) 행 ${_nSub}건
+ · 변경 이력 · pid · 포인트 실적
+
+올해 값 갱신은 [엑셀 업로드](보존 병합)를 쓰세요.
+그래도 교체하려면 아래에  ${sh.year} 교체  라고 입력하세요.`, '');
+            if (String(_typed ?? '').trim() !== `${sh.year} 교체`) { setAlertMsg(`${sh.year}년 1:1 적재를 취소했습니다 (올해 보호 — 입력이 일치하지 않음).`); return; }
+        }
         if (!window.confirm(`[${sh.year}년 1:1 적재]\n탭: ${sh.name} → 열 ${sh.headers.length}개 · 행 ${sh.rows.length}건${sh.note ? `\n※ ${sh.note}` : ''}\n\n웹의 ${sh.year}년 기존 ${curRows.length}건은 지우고 이 탭 그대로 넣습니다 (다른 연도 무접촉).\n진행할까요?`)) return;
         setIsLoading(true);
         try {
@@ -6718,7 +6741,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         {settingsOpen && (
                             <>
                                 <div className="fixed inset-0 z-[55]" onClick={() => setSettingsOpen(false)}/>
-                                <div className="absolute right-0 mt-2 w-56 bg-white border border-[#c4ccd8] rounded-lg shadow-2xl overflow-hidden z-[60] py-2">
+                                {/* ⚙ 설정 메뉴 — 2026-09-14 팀장님: 하는 일별 6묶음(엑셀 / 마감·백업 / 팀 설정 / 정리 도구 / 내 화면 / 관리자)으로 재배치.
+                                    기능·onClick은 전부 종전 그대로(삭제 0), 이름·부제만 손봄. 겹치던 3쌍은 부제로 구분:
+                                      엑셀 업로드(표 구조까지·관리자) ↔ 엑셀 반영(값만·모두) / 번호 3자리 ↔ 수행번호 3자리 / 전체 백업(내려받기) ↔ 지금 백업(폴더)
+                                    메뉴가 길어 화면보다 크면 안에서 스크롤(max-h) */}
+                                <div className="absolute right-0 mt-2 w-72 bg-white border border-[#c4ccd8] rounded-lg shadow-2xl z-[60] py-1.5 overflow-y-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 120px)' }}>
                                     {/* 데이터 소스 표시 — firebase(정상저장)일 땐 숨김, 미저장(pending/local)일 때만 경고용으로 표시 (2026-06-29) */}
                                     {dataSource !== 'firebase' && (
                                     <div className={`px-4 py-2 border-b border-[#e5eaf3] mb-1 flex items-center gap-2 ${srcBadge.text}`}>
@@ -6727,148 +6754,138 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         <span className="text-[#aaa] text-[10px] ml-auto">{activeRows.length}행</span>
                                     </div>
                                     )}
-                                    {/* 로컬 임시 저장 (pending) — 업로드가 관리자 전용이므로 함께 게이팅 */}
-                                    {isAdmin && dataSource === 'pending' && (
-                                        <button onClick={() => { setSettingsOpen(false); handleSaveToLocal(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-violet-600 flex items-center gap-2 transition-colors">
-                                            <HardDrive size={14}/> 로컬 임시 저장
-                                        </button>
+
+                                    {/* ── ① 엑셀 ── */}
+                                    <MenuSec t="엑셀"/>
+                                    {/* 엑셀 생성 */}
+                                    <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!activeHeaders.length}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성 <span className="text-[10px] text-[#999] font-normal">지금 표 → 파일 내려받기</span>
+                                    </button>
+                                    {/* 엑셀 반영 (추가·수정) — 일반 사용자용 보존 병합 (2026-08-10 팀장님):
+                                        엑셀 적응기 대응. 올리면 웹과 비교해 신규·갱신만 미리보기 → 반영. 삭제 없음, 하위·NAS 칸 보호 */}
+                                    {dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); if (userFileRef.current) { userFileRef.current.value = ''; userFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <CloudUpload size={14} className="text-emerald-600"/> 엑셀 반영 (추가·수정) <span className="text-[10px] text-[#999] font-normal">값만 · 삭제 없음</span>
+                                    </button>
                                     )}
-                                    {/* A-4c 병합 미리보기 (드라이런 · 저장 없음 · 데이터 안 바뀜) */}
+                                    {/* 엑셀 업로드 — ★관리자 전용 (2026-07-14). 엑셀 반영과 다른 점 = 표 구조(헤더)까지 엑셀 기준으로 바꿈 + 표에 미리 띄워 보고 확정 */}
+                                    {isAdmin && (
+                                    <button onClick={() => { setSettingsOpen(false); if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Upload size={14} className="text-cyan-600"/> 엑셀 업로드 <span className="text-[10px] text-[#999] font-normal">표 구조까지 · 확인 후 확정</span>
+                                    </button>
+                                    )}
+                                    {/* ↓ 엑셀 업로드 진행 중(pending/local)에만 나오는 다음 단계 버튼들 — 업로드 바로 아래에 붙임 */}
                                     {isAdmin && dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); handleMergePreview(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-sky-600 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-sky-600 flex items-center gap-2 transition-colors">
                                             <Eye size={14}/> 병합 미리보기 (드라이런)
                                         </button>
                                     )}
                                     {/* Firebase 확정 저장 (pending/local) — ★관리자 전용 (2026-07-14) */}
                                     {isAdmin && (dataSource === 'pending' || dataSource === 'local') && (
                                         <button onClick={() => { setSettingsOpen(false); handleSaveToFirebase(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-emerald-600 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-emerald-600 flex items-center gap-2 transition-colors">
                                             <CloudUpload size={14}/> 엑셀 확정 저장 (보존 병합)
+                                        </button>
+                                    )}
+                                    {/* 로컬 임시 저장 (pending) — 업로드가 관리자 전용이므로 함께 게이팅 */}
+                                    {isAdmin && dataSource === 'pending' && (
+                                        <button onClick={() => { setSettingsOpen(false); handleSaveToLocal(); }}
+                                            className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-violet-600 flex items-center gap-2 transition-colors">
+                                            <HardDrive size={14}/> 로컬 임시 저장
                                         </button>
                                     )}
                                     {/* 로컬 삭제 (local) */}
                                     {isAdmin && dataSource === 'local' && (
                                         <button onClick={() => { setSettingsOpen(false); handleDeleteLocal(); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-amber-600 flex items-center gap-2 transition-colors">
+                                            className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-amber-600 flex items-center gap-2 transition-colors">
                                             <Trash2 size={14}/> 로컬 데이터 삭제
                                         </button>
                                     )}
                                     {/* 업로드 취소 (pending) */}
                                     {isAdmin && dataSource === 'pending' && (
                                         <button onClick={() => { setSettingsOpen(false); setPendingData(null); }}
-                                            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#888] flex items-center gap-2 transition-colors">
+                                            className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#888] flex items-center gap-2 transition-colors">
                                             <X size={14}/> 업로드 취소
                                         </button>
-                                    )}
-                                    {/* 엑셀 업로드 — ★관리자 전용 (2026-07-14) */}
-                                    {isAdmin && (
-                                    <button onClick={() => { setSettingsOpen(false); if(fileInputRef.current){fileInputRef.current.value='';fileInputRef.current.click();} }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Upload size={14} className="text-cyan-600"/> 엑셀 업로드
-                                    </button>
-                                    )}
-                                    {/* 엑셀 생성 */}
-                                    <button onClick={() => { setSettingsOpen(false); handleDownload(); }} disabled={!activeHeaders.length}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                        <FileSpreadsheet size={14} className="text-indigo-600"/> 엑셀 생성
-                                    </button>
-                                    {/* 월간 마감 — 팀 카드 '월간마감' 팀만 (기술1팀, 2026-08-13 b안). 담당자가 값 확인 후 이 달 확정값 저장 */}
-                                    {teamProfile?.월간마감 && (
-                                    <button onClick={handleMonthlyClose} disabled={!activeRows.length}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-xs font-bold text-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
-                                        <Calendar size={14} className="text-emerald-600"/> 월간 마감 (그 달 값 확정)
-                                    </button>
-                                    )}
-
-                                    {/* 엑셀 반영 (추가·수정) — 일반 사용자용 보존 병합 (2026-08-10 팀장님):
-                                        엑셀 적응기 대응. 올리면 웹과 비교해 신규·갱신만 미리보기 → 반영. 삭제 없음, 하위·NAS 칸 보호 */}
-                                    {dataSource === 'firebase' && (
-                                    <button onClick={() => { setSettingsOpen(false); if (userFileRef.current) { userFileRef.current.value = ''; userFileRef.current.click(); } }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <CloudUpload size={14} className="text-emerald-600"/> 엑셀 반영 (추가·수정) <span className="text-[10px] text-[#999] font-normal">삭제 없음</span>
-                                    </button>
-                                    )}
-                                    {/* 과거 연도 추가 적재 — 관리자 + 과거적재 카드 팀만 (2026-08-20): 옛 연도 순수 추가, 올해 무접촉 */}
-                                    {isAdmin && teamProfile?.과거적재 && dataSource === 'firebase' && (
-                                    <button onClick={() => { setSettingsOpen(false); if (histFileRef.current) { histFileRef.current.value = ''; histFileRef.current.click(); } }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Clock size={14} className="text-violet-600"/> 과거 연도 추가 적재 <span className="text-[10px] text-[#999] font-normal">올해 무접촉</span>
-                                    </button>
-                                    )}
-                                    {/* 수행번호 3자리 정리 (2026-08-21 팀장님, 기술1팀): 26-01 → 26-001, 전 연도 한 번에 */}
-                                    {isAdmin && execCfg && dataSource === 'firebase' && (
-                                    <button onClick={() => { setSettingsOpen(false); handleExecNoPad(); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Hash size={14} className="text-indigo-600"/> 수행번호 3자리 정리 <span className="text-[10px] text-[#999] font-normal">26-01 → 26-001</span>
-                                    </button>
                                     )}
                                     {/* 연도별 1:1 적재·검증 (2026-08-21 팀장님, 기술1팀): 시트 1장 = 연도 1개, 열·값 엑셀 그대로 — 연도마다 적재→대조 */}
                                     {isAdmin && teamProfile?.연도별적재 && dataSource === 'firebase' && (
                                     <button onClick={() => { setSettingsOpen(false); if (yearFileRef.current) { yearFileRef.current.value = ''; yearFileRef.current.click(); } }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <LayoutList size={14} className="text-indigo-600"/> 연도별 1:1 적재·검증 <span className="text-[10px] text-[#999] font-normal">시트 1장씩</span>
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <LayoutList size={14} className="text-indigo-600"/> 연도별 1:1 적재·검증 <span className="text-[10px] text-[#999] font-normal">시트 1장 = 연도 1개</span>
+                                    </button>
+                                    )}
+                                    {/* 과거 연도 추가 적재 — 관리자 + 과거적재 카드 팀만 (2026-08-20): 옛 연도 순수 추가, 올해 무접촉.
+                                        ※ 현재 3팀 카드 전부 꺼짐(연도별 1:1로 대체) — 카드 키를 다시 켜면 나타남 */}
+                                    {isAdmin && teamProfile?.과거적재 && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); if (histFileRef.current) { histFileRef.current.value = ''; histFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Clock size={14} className="text-violet-600"/> 과거 연도 추가 적재 <span className="text-[10px] text-[#999] font-normal">올해 무접촉</span>
+                                    </button>
+                                    )}
+
+                                    {/* ── ② 마감 · 백업 ── (월간 마감은 카드 팀 모두 · 백업은 관리자) */}
+                                    {(teamProfile?.월간마감 || (isAdmin && dataSource === 'firebase')) && <MenuSec t="마감 · 백업"/>}
+                                    {/* 월간 마감 — 팀 카드 '월간마감' 팀만 (2026-08-13 b안). 담당자가 값 확인 후 이 달 확정값 저장 */}
+                                    {teamProfile?.월간마감 && (
+                                    <button onClick={handleMonthlyClose} disabled={!activeRows.length}
+                                        className="w-full text-left px-4 py-2 hover:bg-emerald-50 text-xs font-bold text-emerald-700 flex items-center gap-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                                        <Calendar size={14} className="text-emerald-600"/> 월간 마감 <span className="text-[10px] text-[#999] font-normal">그 달 값 확정</span>
                                     </button>
                                     )}
                                     {/* 1층 백업 체계 (2026-08-20 팀장님): 전체 백업 + 복원 — 웹이 원본이 되는 단계 대비 */}
                                     {isAdmin && dataSource === 'firebase' && (<>
                                     <button onClick={() => { setSettingsOpen(false); handleFullBackup(); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">3팀 한 번에 · 행+장부+설정 통째</span>
-                                    </button>
-                                    <button onClick={() => { setSettingsOpen(false); if (restoreFileRef.current) { restoreFileRef.current.value = ''; restoreFileRef.current.click(); } }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-red-500"/> 백업 복원 <span className="text-[10px] text-[#999] font-normal">그 시점으로 되돌림</span>
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">3팀 통째 · 파일 내려받기</span>
                                     </button>
                                     {/* 메인 PC 자동 전체 백업 (2026-09-09 팀장님): 매일 정해진 시각 3팀 전체 백업 → 이 PC에 지정한 NAS 폴더에 직접 저장 */}
                                     <button onClick={() => { setSettingsOpen(false); handleBkPickFolder(); }}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${bkAutoOn ? 'text-emerald-700' : 'text-[#222]'}`}>
+                                        className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${bkAutoOn ? 'text-emerald-700' : 'text-[#222]'}`}>
                                         <Clock size={14} className={bkAutoOn ? 'text-emerald-600' : 'text-sky-600'}/> 자동 백업 폴더 지정 (이 PC · 매일)
                                         <span className="ml-auto text-[10px] font-normal text-[#999]">{bkAutoOn ? `켜짐 · 매일 ${String(bkLoadHour()).padStart(2, '0')}시 · 3팀` : '꺼짐'}</span>
                                     </button>
                                     {bkAutoOn && (<>
                                     <button onClick={() => { setSettingsOpen(false); bkFnRef.current && bkFnRef.current({ manual: true }); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-emerald-600"/> 지금 백업 → 폴더 <span className="text-[10px] text-[#999] font-normal">3팀 즉시 1회 (확인용)</span>
+                                        className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-emerald-600"/> 지금 백업 → 폴더 <span className="text-[10px] text-[#999] font-normal">3팀 즉시 1회</span>
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); handleBkOff(); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
+                                        className="w-full text-left pl-8 pr-4 py-2 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
                                         <Clock size={14} className="text-red-500"/> 자동 백업 끄기 (이 PC)
                                     </button>
                                     </>)}
                                     {bkStatus && bkStatus.at && (
-                                        <div className="px-4 pb-2 text-[10px] leading-relaxed" style={{ color: bkStatus.ok === false ? '#dc2626' : '#64748b' }}>
+                                        <div className="pl-8 pr-4 pb-1.5 text-[10px] leading-relaxed" style={{ color: bkStatus.ok === false ? '#dc2626' : '#64748b' }}>
                                             마지막 자동 백업({currentTeam}): {rdTimeText(bkStatus.at)} {bkStatus.ok === false ? `✗ ${bkStatus.msg || ''}` : `✓ 행 ${bkStatus.rows}건 · 장부 ${bkStatus.ledger}건 → '${bkStatus.folder || ''}'`}
                                         </div>
                                     )}
+                                    <button onClick={() => { setSettingsOpen(false); if (restoreFileRef.current) { restoreFileRef.current.value = ''; restoreFileRef.current.click(); } }}
+                                        className="w-full text-left px-4 py-2 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
+                                        <Database size={14} className="text-red-500"/> 백업 복원 <span className="text-[10px] text-[#999] font-normal">백업 파일 시점으로 되돌림</span>
+                                    </button>
                                     </>)}
-                                    {/* 진행현황·담당자 관리 — ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 */}
+
+                                    {/* ── ③ 팀 설정 ── ★관리자 전용 (2026-07-14): 팀 공통 마스터 목록 + NAS 메인 PC */}
                                     {isAdmin && (<>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 번호 3자리 일괄 정리 (2026-07-20) — 기존 클라우드 데이터의 1·2자리 번호를 001 형태로 */}
-                                    <button onClick={() => { setSettingsOpen(false); handlePadAllNumbers(); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
-                                        <Hash size={14} className="text-[#1e7ac8]"/> 번호 3자리 정리 (1→001)
-                                    </button>
-                                    <button onClick={() => { setSettingsOpen(false); handleSeedProgressFromMain(); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
-                                        <TrendingUp size={14} className="text-emerald-600"/> 진행실적 심기 (표 %→주간)
-                                    </button>
+                                    <MenuSec t="팀 설정 · NAS"/>
                                     <button onClick={() => { setSettingsOpen(false); setStatusMgrOrig([...STATUS_OPTIONS]); setStatusMgr([...STATUS_OPTIONS]); setStatusMgrColors(Object.fromEntries(STATUS_OPTIONS.map(s => [s, STATUS_COLORS[s] || STATUS_COLOR_PRESETS[8]]))); setStatusColorOpenIdx(null); setStatusDelIdx(null); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
-                                        <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <ListChecks size={14} className="text-[#1e7ac8]"/> 진행현황 관리 <span className="text-[10px] text-[#999] font-normal">목록 · 색</span>
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); setManagerMgrOrig([...ASSIGNEES]); setManagerMgr([...ASSIGNEES]); setManagerDelIdx(null); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
-                                        <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Users size={14} className="text-[#1e7ac8]"/> 담당자 관리 <span className="text-[10px] text-[#999] font-normal">명단</span>
                                     </button>
                                     {/* 메인 PC 자동 반영 (2026-07-27) — ★관리자 전용 메뉴.
                                         공용 PC에서 관리자가 한 번 켜두면 설정은 이 PC(localStorage)에 남는다.
                                         → 이후 일반 계정으로 바꿔 로그인해도 자동 반영은 계속 돈다(실행에는 isAdmin 가드 없음).
-                                        2026-07-30: NAS_SYNC_ENABLED=false 이면 메뉴를 숨긴다 (구분선까지 함께) */}
-                                    {NAS_SYNC_ENABLED && (<>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                        2026-07-30: NAS_SYNC_ENABLED=false 이면 메뉴를 숨긴다 */}
+                                    {NAS_SYNC_ENABLED && (
                                     <button onClick={() => {
                                             // (2026-08-07) 켜고 끄기 = 이 PC의 '지켜볼 팀 목록'에 지금 팀을 넣고 빼는 것.
                                             //   팀을 여러 개 넣어두면 창 하나가 번갈아 보므로, 팀마다 창을 따로 띄울 필요가 없다.
@@ -6879,25 +6896,40 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             if (!_has) { showExtToast(`이 PC가 '${currentTeam}' 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.` + (_next.length > 1 ? `\n지켜볼 팀 ${_next.length}개 (${_next.join(', ')}) — 15분마다 화면을 번갈아 엽니다.` : '') + `\n(List 화면을 켜둔 상태여야 합니다)`); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
                                             else showExtToast(`'${currentTeam}' 메인 PC 지정을 해제했습니다.` + (_next.length ? `\n남은 팀: ${_next.join(', ')}` : '\n자동 반영이 멈춥니다.'));
                                         }}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${extMainPc ? 'text-emerald-700' : 'text-[#333]'}`}>
+                                        className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${extMainPc ? 'text-emerald-700' : 'text-[#333]'}`}>
                                         <HardDrive size={14} className={extMainPc ? 'text-emerald-600' : 'text-[#999]'}/>
-                                        이 PC를 메인 PC로 지정
+                                        이 PC를 메인 PC로 지정 (NAS 자동 반영)
                                         <span className="ml-auto text-[10px] font-normal text-[#999]">{extMainPc
                                             ? `켜짐${extMainTeams.length > 1 ? ` · 팀 ${extMainTeams.length}개 번갈아` : ' · 30분마다'}${extLastAuto ? ` · ${extLastAuto} 확인` : ''}`
                                             : (extMainTeams.length ? `꺼짐 (이 PC는 ${extMainTeams.join(', ')} 담당)` : '꺼짐')}</span>
                                     </button>
-                                    </>)}
-                                    </>)}
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
-                                    {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
-                                    <button onClick={() => { setSettingsOpen(false); setTableScale(100); saveScale(100); setColWidths({}); saveColWidths(currentTeam, {}); }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
-                                        <RotateCcw size={14} className="text-[#1e7ac8]"/> 내 화면 설정 초기화 <span className="text-[10px] text-[#999] font-normal">(배율·열너비)</span>
+                                    )}
+
+                                    {/* ── ④ 정리 도구 ── 한 번 돌리는 일괄 정리 (관리자) */}
+                                    <MenuSec t="정리 도구 · 일괄 실행"/>
+                                    {/* 번호 3자리 일괄 정리 (2026-07-20) — 기존 클라우드 데이터의 1·2자리 번호를 001 형태로 */}
+                                    <button onClick={() => { setSettingsOpen(false); handlePadAllNumbers(); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Hash size={14} className="text-[#1e7ac8]"/> 번호 3자리 정리 <span className="text-[10px] text-[#999] font-normal">번호 열 · 1 → 001</span>
                                     </button>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    {/* 수행번호 3자리 정리 (2026-08-21 팀장님, 기술1팀): 26-01 → 26-001, 전 연도 한 번에 */}
+                                    {execCfg && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); handleExecNoPad(); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Hash size={14} className="text-indigo-600"/> 수행번호 3자리 정리 <span className="text-[10px] text-[#999] font-normal">수행번호 열 · 26-01 → 26-001</span>
+                                    </button>
+                                    )}
+                                    <button onClick={() => { setSettingsOpen(false); handleSeedProgressFromMain(); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <TrendingUp size={14} className="text-emerald-600"/> 진행실적 심기 <span className="text-[10px] text-[#999] font-normal">표 % → 주간 장부</span>
+                                    </button>
+                                    </>)}
+
+                                    {/* ── ⑤ 내 화면 (이 PC) ── 모두 */}
+                                    <MenuSec t="내 화면 · 이 PC만"/>
                                     {/* 열 표시/숨기기 */}
                                     <button onClick={() => setColDropOpen(v=>!v)}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenCols.size>0?'text-rose-600':'text-[#333]'}`}>
+                                        className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${hiddenCols.size>0?'text-rose-600':'text-[#333]'}`}>
                                         <Eye size={14} className={hiddenCols.size>0?'text-rose-600':'text-[#999]'}/>
                                         열 표시/숨기기
                                         {hiddenCols.size>0 && <span className="ml-auto text-[10px] bg-rose-500 text-[#222] px-1.5 py-0.5 font-mono">{hiddenCols.size}개 숨김</span>}
@@ -6922,18 +6954,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             </div>
                                         </div>
                                     )}
-                                    {/* 디버그 모드 — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
+                                    {/* 내 화면 설정 초기화 — 배율 100% + 열 너비 기본값 (이 PC만) (2026-07-13) */}
+                                    <button onClick={() => { setSettingsOpen(false); setTableScale(100); saveScale(100); setColWidths({}); saveColWidths(currentTeam, {}); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <RotateCcw size={14} className="text-[#1e7ac8]"/> 내 화면 설정 초기화 <span className="text-[10px] text-[#999] font-normal">배율 100% · 열 너비</span>
+                                    </button>
+
+                                    {/* ── ⑥ 관리자 ── 디버그 + 데이터 삭제(맨 아래 고정) */}
                                     {isAdmin && (<>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    <MenuSec t="관리자"/>
+                                    {/* 디버그 모드 — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
+                                    {/* 2026-09-14 팀장님: 디버그 모드 메뉴 숨김 (false&& — 다시 보이게 하려면 true). 기능·상태(showDebug)는 그대로 */}
+                                    {false && (
                                     <button onClick={() => { setSettingsOpen(false); setShowDebug(v=>!v); }}
-                                        className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors border-b border-[#e5eaf3] ${showDebug?'text-emerald-600':'text-[#333]'}`}>
+                                        className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${showDebug?'text-emerald-600':'text-[#333]'}`}>
                                         <TerminalSquare size={14}/> 디버그 모드
                                         <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded border font-mono ${showDebug?'border-emerald-600 text-emerald-600':'border-[#c4ccd8] text-[#999]'}`}>{showDebug?'ON':'OFF'}</span>
                                     </button>
-                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    )}
                                     {/* 전체 삭제 — ★관리자 전용 (2026-07-14) */}
                                     <button onClick={() => { setSettingsOpen(false); setClearYearSel('ALL'); setConfirmClearOpen(true); }} disabled={!activeRows.length}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
+                                        className="w-full text-left px-4 py-2 hover:bg-rose-50 text-xs font-bold text-rose-600 flex items-center gap-2 transition-colors disabled:opacity-40">
                                         <Trash2 size={14}/> 데이터 삭제 <span className="text-[10px] text-[#999] font-normal">연도 선택 또는 전체</span>
                                     </button>
                                     </>)}
