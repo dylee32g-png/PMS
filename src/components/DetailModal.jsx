@@ -352,7 +352,7 @@ export default function DetailModal({
     };
     return (
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4"
-                     onClick={() => setDetailRow(null)}>
+                     /* 바깥(어두운 배경) 클릭으로 닫지 않음 - 저장·닫기·X 버튼으로만 (2026-09-15 팀장님: 옆 빈 곳 눌러 팝업 사라지는 버그) */>
                     <div className="w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl"
                          style={{ backgroundColor:'#fff', border:'1.5px solid #c4ccd8' }}
                          onClick={e => e.stopPropagation()}>

@@ -5738,7 +5738,7 @@ const TechTeamPMS = () => {
 
                       {/* ── 공지사항 팝업 ── */}
                       {noticeOpen && (
-                          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setNoticeOpen(false)}>
+                          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                               <div className="bg-white border border-[#e5e3df] rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center gap-2.5 px-6 pt-5 pb-4 border-b border-[#f0edea] shrink-0">
                                       <div className="w-9 h-9 rounded-xl bg-[#e3effa] flex items-center justify-center"><Megaphone size={17} className="text-[#1e7ac8]"/></div>
@@ -5774,7 +5774,7 @@ const TechTeamPMS = () => {
 
                       {/* ── 패스워드 모달 ── */}
                       {showEstimateModal && (
-                          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowEstimateModal(false); setEstimatePwInput(''); setEstimatePwError(false); }}>
+                          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                               <div className="bg-white border border-gray-200 rounded-2xl shadow-2xl p-8 w-full max-w-sm animate-in fade-in zoom-in" onClick={e => e.stopPropagation()}>
                                   <div className="flex items-center gap-3 mb-6">
                                       <div className="p-2.5 bg-amber-500/20 rounded-xl border border-amber-500/30">
@@ -7569,7 +7569,7 @@ const TechTeamPMS = () => {
           {/* ★ 엑셀 미리보기 테이블 모달 직접 렌더링 로직 (독립적이고 가장 안전한 형태) ★ */}
           {isExcelPreviewOpen && stagedExcelData && (
               <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-gray-50/80 custom-scrollbar">
-                  <div className="absolute inset-0" onClick={() => {setIsExcelPreviewOpen(false); setStagedExcelData(null);}}></div>
+                  {/* 바깥 클릭 닫힘 없음 (2026-09-15) */}<div className="absolute inset-0"></div>
                   <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
                       <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
                           <div className="flex items-center gap-3">
@@ -7607,7 +7607,7 @@ const TechTeamPMS = () => {
           {/* ★ 프로젝트 List 업로드 미리보기 모달 ★ */}
           {isDynamicPreviewOpen && stagedDynamicData && (
               <div className="fixed inset-0 z-[150] flex justify-center items-start overflow-y-auto p-4 md:p-8 backdrop-blur-md bg-gray-50/80 custom-scrollbar">
-                  <div className="absolute inset-0" onClick={() => {setIsDynamicPreviewOpen(false); setStagedDynamicData([]); setStagedDynamicCols([]);}}></div>
+                  {/* 바깥 클릭 닫힘 없음 (2026-09-15) */}<div className="absolute inset-0"></div>
                   <div className="relative bg-white border border-gray-200 rounded-3xl w-full max-w-[95vw] shadow-2xl flex flex-col mt-10 mb-10 transition-all animate-in h-[85vh] overflow-hidden">
                       <div className="p-6 border-b border-gray-200 bg-white flex justify-between items-center shrink-0">
                           <div className="flex items-center gap-3">
@@ -7677,7 +7677,7 @@ const TechTeamPMS = () => {
 
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
-                  onClick={() => setShowTeamGraph(false)}>
+                  /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                   <div style={{background:'#fff',border:'1px solid var(--line)',boxShadow:'0 8px 32px rgba(0,0,0,0.1)',width:'min(96vw,1100px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
                       onClick={e => e.stopPropagation()}>
 
@@ -7868,7 +7868,7 @@ const TechTeamPMS = () => {
 
           return (
               <div style={{position:'fixed',inset:0,zIndex:700,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}
-                  onClick={() => setGraphProject(null)}>
+                  /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                   <div style={{background:'#fff',border:'1px solid #e8eef5',borderRadius:16,boxShadow:'0 24px 64px rgba(15,40,80,0.16), 0 2px 8px rgba(15,40,80,0.06)',width:'min(94vw,1020px)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}
                       onClick={e => e.stopPropagation()}>
 

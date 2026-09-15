@@ -69,6 +69,8 @@ const BK_KEEP_DAYS  = 90;                       // 보관 일수 — 이 기능�
 // 관리 칸(맨 오른쪽 sticky) 폭 고정 (2026-09-10 팀장님: 창 렌더링으로 보이는 행이 바뀌면 내용맞춤 폭이 줄었다 늘었다 함 — NAS 칩 3개(P9·진행·자물쇠)가 들어가는 폭으로 고정)
 const MGR_COL_W = 78;
 // ⚙ 설정 메뉴 묶음 라벨 (2026-09-14 팀장님: 메뉴를 하는 일별로 묶어 순서 정리)
+// 공사 계약/완료 일자 짝 규칙 스위치 (2026-09-15 팀장님: 해제 - 한쪽만 넣어도 저장. 되살리려면 true)
+const CONTRACT_DATE_PAIR_RULE = false;
 const MenuSec = ({ t }) => (
     <div className="px-4 pt-2 pb-0.5 mt-1 border-t border-[#eef1f5] text-[10px] font-bold text-[#8a94a3] tracking-wider select-none first:border-t-0 first:mt-0">{t}</div>
 );
@@ -3597,6 +3599,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     }, [activeHeaders, teamProfile]);
     const checkContractDates = (rowObj) => {
+        if (!CONTRACT_DATE_PAIR_RULE) return null;               // 2026-09-15 팀장님: 짝 규칙 해제 - 계약/완료 일자 각각 따로 키인 가능
         const [cCol, dCol] = datePairCols;                     // 팀 카드 '열.날짜짝' (2026-08-11 2단계)
         if (!cCol || !dCol) return null;                       // 해당 열이 없는 팀/양식이면 검사 안 함
         const [cName, dName] = teamProfile.열.날짜짝;           // 안내문도 팀 열 이름으로 (기술2팀 = 기존 문구 그대로)
@@ -3632,7 +3635,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (dup) { setAlertMsg(projNoDupMsg(_no, dup)); return; }
             }
         }
-        // ★ 공사 계약/완료는 짝으로만 (2026-07-14)
+        // 공사 계약/완료 짝 규칙 (2026-07-14) - 2026-09-15 해제(CONTRACT_DATE_PAIR_RULE=false), 함수는 보관
         const dateErr = checkContractDates(rowToAdd);
         if (dateErr) { setAlertMsg(dateErr); return; }
         if (dataSource !== 'firebase') {
@@ -3780,10 +3783,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     }, [activeRows]);
 
     // 선택 연도의 행만
+    // ★ 필터·칩 건수·기준월·검색·정렬의 판정은 '서버 저장값'(activeRowsBase)으로 (2026-09-15 팀장님):
+    //   노란 칸(미저장 초안)으로 상태를 바꿔도 행이 그 자리에 그대로 보이고, [저장]을 눌러야 이동·사라진다.
+    //   초안 값은 맨 끝 sortedRows에서 표시용으로만 덧입힘. (종전엔 activeRows(초안 반영)로 판정해 '추진중' 칩에서 진행중으로 바꾸는 즉시 사라짐)
     const yearFilteredRows = useMemo(() => {
-        if (!availableYears.length) return activeRows; // 연도 정보 없음 → 전체
-        return activeRows.filter(r => !r._year || r._year === selectedYear);
-    }, [activeRows, availableYears, selectedYear]);
+        if (!availableYears.length) return activeRowsBase; // 연도 정보 없음 → 전체
+        return activeRowsBase.filter(r => !r._year || r._year === selectedYear);
+    }, [activeRowsBase, availableYears, selectedYear]);
 
     // ── 기준월 필터 (2026-07-13) — 기준 날짜 열 = 팀 카드 '열.기준월기준' (2026-08-11 2단계 연결)
     //    기술2팀 = '공사 계약' 그대로 · 카드 값이 null(기술1팀 미정)이면 기준월 필터 비활성(전체 취급)
@@ -4035,7 +4041,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     }, [monthFilteredRows, activeHeaders]);
 
     // ── 검색·컬럼필터·정렬 (연도 필터 이후 적용) ─────────────────────────
-    const sortedRows = useMemo(() => {
+    const sortedRowsBase = useMemo(() => {
         let out = monthFilteredRows;
         // ★ 하위(공종)는 부모를 따라간다 (2026-07-16) — 필터·칩·기준월·검색·정렬은 '메인 행'만 판정하고,
         //   하위 행은 자기 값(빈 계약일·sub 상태)과 무관하게 보이는 부모 바로 아래에 항상 붙는다 (월간보고와 동일 규칙).
@@ -4043,7 +4049,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const subsByParent = {};
         const orphanSubs = [];
         { let lastMainId = null;
-          activeRows.forEach(r => {
+          activeRowsBase.forEach(r => {
               if (!isSubListRow(r)) { lastMainId = r._id; return; }
               if (lastMainId) { if (!subsByParent[lastMainId]) subsByParent[lastMainId] = []; subsByParent[lastMainId].push(r); }
               else orphanSubs.push(r);
@@ -4106,7 +4112,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             // 글자 순서 = 엑셀과 동일(숫자 → 영문 → 한글, 안에 든 숫자는 크기순) — 'ko' 기본은 한글이 영문 앞이라 'en' 지정 (2026-09-10 팀장님, ▼ 필터 목록과 같은 순서)
             return sortConfig.dir === 'asc' ? av.localeCompare(bv, 'en', { numeric: true }) : bv.localeCompare(av, 'en', { numeric: true });
         }));
-    }, [activeRows, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol, activeManagers, managerFilterCol]); // eslint-disable-line
+    }, [activeRowsBase, monthFilteredRows, activeHeaders, searchTerm, sortConfig, columnFilters, activeStatusChips, statusFilterCol, activeAssignees, assigneeFilterCol, activeManagers, managerFilterCol])   // eslint-disable-line react-hooks/exhaustive-deps
+    // 표시 단계에서만 초안(노란 칸) 덧입힘 — 행 구성·순서는 위(저장값 기준) 그대로, 값만 초안으로 (2026-09-15)
+    const sortedRows = useMemo(() => {
+        if (dataSource !== 'firebase' || !Object.keys(draft).length) return sortedRowsBase;
+        return sortedRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
+    }, [sortedRowsBase, draft, dataSource]); // eslint-disable-line
 
     // ★ 표시 행이 바뀌면(칩·검색·정렬·기준월) 내용맞춤 열 너비가 같이 변함 → 틀고정 오프셋 재실측 신호 (2026-08-18)
     //   frzTick은 sortedRows에 영향을 주지 않으므로 무한루프 없음. ±2px 허용 오차가 2중 장치.
@@ -5280,7 +5291,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
             {/* 연도별 1:1 적재·검증 모달 (2026-08-21 팀장님, 기술1팀) */}
             {yearLoad && (
-                <div className="fixed inset-0 z-[9000] flex items-center justify-center" style={{ backgroundColor:'rgba(15,23,42,0.45)' }} onClick={() => setYearLoad(null)}>
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center" style={{ backgroundColor:'rgba(15,23,42,0.45)' }} /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div onClick={e => e.stopPropagation()} style={{ width:'min(860px, 94vw)', maxHeight:'88vh', overflow:'auto', background:'#fff', borderRadius:'12px', border:'1px solid #dfe5ee', boxShadow:'0 20px 60px rgba(0,0,0,0.25)', padding:'16px 18px' }}>
                         <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px' }}>
                             <LayoutList size={16} color="#4f46e5"/>
@@ -5801,7 +5812,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 const noMatch = p.counts.updates === 0 && p.creates.length > 0;
                 const nothing = um.changedCnt === 0 && p.creates.length === 0;
                 return (
-                <div className="fixed inset-0 z-[9600] flex items-center justify-center bg-black/40" onClick={() => setUserMerge(null)}>
+                <div className="fixed inset-0 z-[9600] flex items-center justify-center bg-black/40" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div className="bg-white rounded-lg shadow-2xl border border-[#c4ccd8] w-[680px] max-w-[94vw] max-h-[86vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="px-5 py-3.5 border-b border-[#e5eaf3] flex items-center gap-2">
                             <CloudUpload size={16} className="text-emerald-600 shrink-0"/>
@@ -5968,7 +5979,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     return DAV_HOST + '/' + [DAV_SHARE, ...parts, ...relParts].map(encodeURIComponent).join('/');
                 };
                 return (
-                    <div className="fixed inset-0 z-[9700] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} onMouseDown={e => { if (e.target === e.currentTarget) closeAllExt(); }}>
+                    <div className="fixed inset-0 z-[9700] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                         <div style={{ background: '#fff', border: '1px solid #c8d4e0', borderRadius: 10, width: 580, maxWidth: '94vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
                             <div style={{ padding: '13px 18px', borderBottom: '1px solid #d0d8e4', background: '#f0f4f8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -6371,7 +6382,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
             {/* 진행현황 관리 모달 (2026-07-06 2단계) */}
             {statusMgr && (
-                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setStatusMgr(null)}>
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div className="bg-white rounded-xl shadow-2xl w-[420px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-5 py-3" style={{background:'#1e7ac8',color:'#fff'}}>
                             <span className="font-bold text-sm flex items-center gap-2"><ListChecks size={16}/> 진행현황 관리</span>
@@ -6447,7 +6458,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             )}
             {/* 담당자 관리 모달 (2026-07-07 3단계) */}
             {managerMgr && (
-                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setManagerMgr(null)}>
+                <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/60 backdrop-blur-sm" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div className="bg-white rounded-xl shadow-2xl w-[420px] max-w-[95vw] max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-5 py-3" style={{background:'#1e7ac8',color:'#fff'}}>
                             <span className="font-bold text-sm flex items-center gap-2"><Users size={16}/> 담당자 관리</span>

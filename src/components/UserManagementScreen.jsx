@@ -263,7 +263,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
             {/* ── 추가/수정 모달 ── */}
             {modal && (
                 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-                    onClick={() => setModal(null)}>
+                    /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div style={{ backgroundColor: '#fff', border: `1px solid ${border}`, boxShadow: '0 8px 32px rgba(0,0,0,0.15)', width: '100%', maxWidth: 420 }}
                         onClick={e => e.stopPropagation()}>
 
@@ -429,7 +429,7 @@ export default function UserManagementScreen({ db, appId, currentUserEmail, onCr
             {/* ── 삭제 확인 모달 ── */}
             {deleteTarget && (
                 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-                    onClick={() => setDeleteTarget(null)}>
+                    /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div style={{ backgroundColor: '#fff', border: `1px solid ${border}`, boxShadow: '0 8px 32px rgba(0,0,0,0.15)', width: '100%', maxWidth: 360, padding: '24px 20px', textAlign: 'center' }}
                         onClick={e => e.stopPropagation()}>
                         <Trash2 size={28} color="#dc2626" style={{ margin: '0 auto 12px' }} />

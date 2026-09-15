@@ -1171,7 +1171,7 @@ const EstimateScreen = ({ onBack }) => {
                 const p = statusHistory.rows.find(r => r.estNo === historyProject);
                 const months = statusHistory.months;
                 return (
-                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4" onClick={() => setHistoryProject(null)}>
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                         <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
                                 <h2 className="text-lg font-bold text-white flex items-center gap-2">📊 변화 현황</h2>
@@ -1214,7 +1214,7 @@ const EstimateScreen = ({ onBack }) => {
 
             {/* 집행금액 변화 팝업 */}
             {execHistProject && execHistory && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4" onClick={() => setExecHistProject(null)}>
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/90 p-4" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
                             <h2 className="text-lg font-bold text-white flex items-center gap-2">💰 집행금액 변화</h2>
@@ -1259,7 +1259,7 @@ const EstimateScreen = ({ onBack }) => {
 
             {/* WebDAV 테스트 도구 — 외부에서 NAS 엑셀이 열리는지 팀장 독립 테스트 */}
             {webdavOpen && (
-                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4" onMouseDown={e => { if (e.target === e.currentTarget) setWebdavOpen(false); }}>
+                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950/80 p-4" /* 바깥 클릭 닫힘 없음 (2026-09-15) */>
                     <div className="bg-white border border-gray-300 rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onMouseDown={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
                             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">🔗 WebDAV 테스트 (외부 접속)</h2>

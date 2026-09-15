@@ -182,7 +182,7 @@ function RowDetail({ rec, month, onClose }) {
     const lbl = { fontSize: 10.5, fontWeight: 700, color: '#8f8b84' };
     const cell = { padding: '6px 8px', fontSize: 12, borderBottom: '1px solid #efedeb', borderRight: '1px solid #f3f1ee', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
     return (
-        <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(30,30,28,0.45)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div /* 바깥 클릭 닫힘 없음 (2026-09-15) */ style={{ position: 'fixed', inset: 0, background: 'rgba(30,30,28,0.45)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', maxWidth: 940, width: '100%', maxHeight: '86vh', overflow: 'auto', boxShadow: '0 18px 50px rgba(0,0,0,0.25)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                     <h3 style={{ fontSize: 15.5, fontWeight: 800, color: '#37352f', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rec.name}</h3>
