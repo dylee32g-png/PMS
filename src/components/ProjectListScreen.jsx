@@ -156,6 +156,59 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const isCustAsgCol = (h) => (teamProfile?.고객담당자열 || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
     // 일반 입력칸 — 팀 카드 '일반입력열' (2026-09-07 팀장님: 기술2·3팀 발주처·업체담당자 = 공사업체처럼 수동 키인, 드롭다운 목록 제거)
     const isPlainKeyinCol = (h) => (teamProfile?.일반입력열 || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
+    // ── 여러 줄 칸 (2026-09-16 팀장님, Software팀 '진행 내용') ───────────────────────────
+    //   메인표 ★한 줄 펼침 불변 기준(CLAUDE.md)은 그대로 두고, 팀 카드 '여러줄열'에 적힌 열만 예외 —
+    //   '- ' 항목마다 줄을 나눠 보여준다(시인성). 편집은 엑셀과 같게 Alt+Enter = 줄 추가.
+    const mlColList = teamProfile?.여러줄열 || [];
+    const isMultiLineCol = (h) => mlColList.some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
+    //   줄 나누기 = 줄바꿈 우선. 줄바꿈 없이 '- '로 이어 적은 자료는 항목 앞에서 자름
+    //   ('32bit -> 64bit'·'9월 2일 ~4일'처럼 뒤에 공백 없는 '-'는 자르지 않음)
+    const mlLines = (v) => {
+        const s = String(v ?? '').replace(/\r\n?/g, '\n').trim();
+        if (!s) return [];
+        let arr = s.split('\n');
+        if (arr.length === 1 && /^[-·•]/.test(s)) arr = s.split(/\s+(?=[-·•]\s)/);
+        return arr.map(t => t.trim()).filter(Boolean);
+    };
+    //   Alt+Enter(·Shift+Enter) = 줄 추가. 앞 줄이 '- '로 시작하면 새 줄에도 '- '를 자동으로 붙임
+    // ── 진행 현황 자동 따라가기 (2026-09-16 팀장님, Software팀) ───────────────────────
+    //   팀 카드 '상태자동' = { 기준열(개발 분류) · 매핑 · 완료{열,이상,값} · 유지[사람이 정한 값] }.
+    //   changedKey를 주면 그 칸이 기준열·공정률일 때만 계산(엉뚱한 칸 수정에 상태가 흔들리지 않게),
+    //   null이면 행 전체 판정(일괄 맞춤 도구용). 바뀔 값이 없으면 빈 객체.
+    const autoStatusPatch = (row, changedKey) => {
+        const cfg = teamProfile?.상태자동;
+        if (!cfg || !row) return {};
+        const _ns = (s) => String(s ?? '').replace(/\s+/g, '');
+        const _find = (nm) => (activeHeaders || []).find(x => _ns(x) === _ns(nm)) || nm;
+        const stCol   = _find(cfg.상태열 || teamProfile?.상태?.칩기준열 || '진행 현황');
+        const baseCol = _find(cfg.기준열);
+        const pctCol  = cfg.완료 ? _find(cfg.완료.열) : null;
+        if (changedKey && ![baseCol, pctCol].filter(Boolean).some(c => _ns(c) === _ns(changedKey))) return {};
+        const cur = String(row[stCol] ?? '').trim();
+        if ((cfg.유지 || []).some(v => _ns(v).toLowerCase() === _ns(cur).toLowerCase())) return {};   // 완료·삭제·Hold = 사람이 정한 값 (자동 무접촉)
+        const pv = pctCol ? parseFloat(String(row[pctCol] ?? '').replace(/[^0-9.-]/g, '')) : NaN;
+        const next = (cfg.완료 && Number.isFinite(pv) && pv >= (cfg.완료.이상 ?? 100))
+            ? (cfg.완료.값 || '완료')
+            : ((cfg.매핑 || {})[String(row[baseCol] ?? '').trim()] || '');
+        return (!next || next === cur) ? {} : { [stCol]: next };
+    };
+    // ── 편집창 제안 목록 (2026-09-16 팀장님) — 카드 '제안입력열'(요청자 등)에 이미 쓴 값들 ──
+    const editSuggest = (h) => {
+        const sg = teamProfile?.제안입력열 || [];
+        if (!sg.some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''))) return [];
+        return [...new Set(yearFilteredRows.map(r => String(r[h] ?? '').trim()).filter(Boolean))].sort();
+    };
+    const mlAddLine = (el) => {
+        const v = el.value, s = el.selectionStart ?? v.length, e2 = el.selectionEnd ?? s;
+        const ls = v.lastIndexOf('\n', s - 1) + 1;
+        const m = v.slice(ls, s).match(/^\s*[-·•]\s*/);
+        const ins = '\n' + (m ? m[0].trim() + ' ' : '');
+        el.value = v.slice(0, s) + ins + v.slice(e2);
+        const p = s + ins.length;
+        el.setSelectionRange(p, p);
+        editValRef.current = el.value; editDirtyRef.current = true;
+        el.style.height = 'auto'; el.style.height = Math.min(240, el.scrollHeight) + 'px';
+    };
     // ★ 이름만 저장 → 표시할 때 직책 자동 부착 (2026-08-27 팀장님: 기술1팀 심광호 담당·염경록 팀장·나머지 책임).
     //   직책은 팀 명단(ASSIGNEES)에서 찾음 — 저장값·엑셀 표기는 이름만 그대로(원본 엑셀 불변). 명단에 없는 이름은 그대로.
     const asgTitleOf = (token) => { const k = extractName(normalizeAssignee(token)); const hit = k ? ASSIGNEES.find(n => extractName(normalizeAssignee(n)) === k) : null; return hit ? toExcelAssignee(hit) : String(token ?? '').trim(); };
@@ -448,10 +501,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const draftRef = useRef(draft); draftRef.current = draft;
     const [draftSaving, setDraftSaving] = useState(false);
     const draftCellCount = useMemo(() => Object.values(draft).reduce((n, d) => n + Object.keys(d.edited || {}).length, 0), [draft]);
+    // ★ 새 행 초안 (2026-09-16 팀장님: 행 복사→붙여넣기가 확인 없이 바로 저장되던 것 — 칸 편집과 같은 노란 칸 → [저장]/[취소]로) ──
+    //   구조 { __new:true, patch:{행 전체 값}, orig:{}, edited:{}, entries:[] } — 저장 전엔 서버에 없고, [취소]하면 그대로 사라진다.
+    //   표에는 맨 아래에 노란 행으로 보인다(칩·건수 판정은 저장된 값 기준 — 2026-09-15 원칙 유지).
+    const draftNewRows = useMemo(() => Object.entries(draft).filter(([, v]) => v && v.__new).map(([id, v]) => ({ _id: id, ...v.patch })), [draft]);
+    const draftNewCount = draftNewRows.length;
+    const draftTotal = draftCellCount + draftNewCount;   // [저장]/[취소]·이동 가드 기준 = 고친 칸 + 새 행
+    const isDraftNew = (id) => !!(draftRef.current[id] && draftRef.current[id].__new);
+    const addDraftRow = (row) => {
+        const { _id, ...rest } = row;
+        setDraft(prev => ({ ...prev, [_id]: { __new: true, patch: rest, orig: {}, edited: {}, entries: [] } }));
+    };
     const activeRows = useMemo(() => {
         if (dataSource !== 'firebase' || !Object.keys(draft).length) return activeRowsBase;
-        return activeRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
-    }, [activeRowsBase, draft, dataSource]);
+        const base = activeRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
+        return draftNewRows.length ? [...base, ...draftNewRows] : base;   // 새 행(붙여넣기)은 맨 아래 (2026-09-16)
+    }, [activeRowsBase, draft, dataSource, draftNewRows]);
     const activeRowsRef = useRef([]); activeRowsRef.current = activeRows;   // 클릭 핸들러(캐시된 행 렌더)에서도 최신 목록 (2026-08-28)
     const hasDraftCell = (rowId, key) => !!(draftRef.current[rowId] && draftRef.current[rowId].orig && Object.prototype.hasOwnProperty.call(draftRef.current[rowId].orig, key));
     const addDraft = (rowId, patch, orig, edited, entry) => {
@@ -459,16 +524,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const d = prev[rowId] || { patch: {}, orig: {}, edited: {}, entries: [] };
             const nOrig = { ...d.orig };
             Object.keys(orig).forEach(k => { if (!Object.prototype.hasOwnProperty.call(nOrig, k)) nOrig[k] = orig[k]; });
-            return { ...prev, [rowId]: { patch: { ...d.patch, ...patch }, orig: nOrig, edited: { ...d.edited, ...edited }, entries: entry ? [...d.entries, entry] : d.entries } };
+            return { ...prev, [rowId]: { ...d, patch: { ...d.patch, ...patch }, orig: nOrig, edited: { ...d.edited, ...edited }, entries: entry ? [...d.entries, entry] : d.entries } };   // ...d = 새 행 표시(__new) 보존 (2026-09-16)
         });
     };
-    const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftCellCount}칸이 아직 저장되지 않았습니다.\n\n헤더의 [저장 ${draftCellCount}칸] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
-    const guardNav = (fn) => () => { if (draftCellCount > 0) { draftNavBlock(); return; } fn && fn(); };
+    const draftLabel = () => `${draftCellCount}칸${draftNewCount ? ` + 새 행 ${draftNewCount}건` : ''}`;
+    const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftLabel()}이 아직 저장되지 않았습니다.\n\n헤더의 [저장] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
+    const guardNav = (fn) => () => { if (draftTotal > 0) { draftNavBlock(); return; } fn && fn(); };
     // 브라우저 뒤로가기(←/→)도 같은 가드 (2026-09-07 팀장님: 팀 이동은 확인창이 뜨는데 ←는 그냥 나감) — App.js popstate가 이 창구를 먼저 확인
     useEffect(() => {
-        window.__pmsNavGuard = draftCellCount > 0 ? () => { draftNavBlock(); return false; } : null;
+        window.__pmsNavGuard = draftTotal > 0 ? () => { draftNavBlock(); return false; } : null;
         return () => { window.__pmsNavGuard = null; };
-    }, [draftCellCount]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [draftTotal]);   // eslint-disable-line react-hooks/exhaustive-deps
     // 초안 보관 — 이 PC(localStorage) 팀별. F5·재접속해도 노란 칸 유지 (2026-08-27)
     const draftKey = (t) => `pms_list_draft_${t}`;
     useEffect(() => {
@@ -478,11 +544,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try { if (Object.keys(draft).length) localStorage.setItem(draftKey(currentTeam), JSON.stringify(draft)); else localStorage.removeItem(draftKey(currentTeam)); } catch (e) {}
     }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
-        if (!draftCellCount) return;
+        if (!draftTotal) return;
         const onBU = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
         window.addEventListener('beforeunload', onBU);
         return () => window.removeEventListener('beforeunload', onBU);
-    }, [draftCellCount]);
+    }, [draftTotal]);
     const saveDraftRef = useRef(() => {});
     useEffect(() => {
         const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 's') { e.preventDefault(); saveDraftRef.current(); } };
@@ -744,7 +810,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
 
     // 공사진행 % 칸(포인트 제외) — 표시: 숫자에 % 자동 / 편집: % 떼고 숫자만. 데이터는 숫자로 저장 (2026-06-29 팀장님)
-    const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전','진행율'].some(k=>s.includes(k)); };   // '진행율' = 기술2팀 260822 (%·막대, 포인트·Point는 위에서 제외)
+    const isPctCol = (h) => { const s = String(h).replace(/\s/g,''); if (s.includes('포인트') || /point/i.test(s)) return false; return ['도면입수','I/OMap','IOMap','화면작성','기준정보','PLC','ETOS','HMI','시운전','진행율','공정률'].some(k=>s.includes(k)); };   // '진행율' = 기술2팀 260822 (%·막대, 포인트·Point는 위에서 제외) · '공정률' = Software팀 '공정률(%)' 단일 열 (2026-09-16)
     const pctDisplay = (h, val) => { if (!isPctCol(h)) return val; const s = String(val ?? '').trim(); if (!s || s.endsWith('%')) return s; return /^-?\d+(\.\d+)?$/.test(s) ? s + '%' : s; };
     // ── 기술1팀 수식 (2026-08-19 팀장님 협의 — 팀 카드 '수식', 지정 연도 행만) ──
     //   자체 시운전 = 금월÷총물량% · 누적 = 지난달까지(_accBase)+금월 · 금월(2) = (PLC+ETOS+HMI+자체)÷4 · 전체 = 지난달까지(_pctBase)+금월(2) [누적]
@@ -944,6 +1010,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const getW = h => {
         if (colWidths[h]) return colWidths[h];
         if (fitWidths[h]) return fitWidths[h];   // 기본 화면 맞춤 (2026-08-21)
+        if (isMultiLineCol(h)) return 380;       // 여러 줄 칸 — 줄로 접어 보이므로 고정 폭 (2026-09-16, 손잡이로 조절 가능)
         // 공사진행 % / O체크 칸들 — 그룹 멤버십 누락과 무관하게 60 통일 (헤더 기준).
         //   도면입수·I/O Map·화면작성·기준정보·PLC·ETOS·HMI·자체/통합시운전·포인트 (2026-06-29 팀장님: 연관 칸 한 번에 통일)
         const _hsw = String(h).replace(/\s/g, '');
@@ -1986,6 +2053,37 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         finally { setIsLoading(false); }
     };
 
+    // ── 진행 현황 규칙 맞춤 (2026-09-16 팀장님, Software팀) ─────────────────────────
+    //   이미 저장된 행의 진행 현황을 카드 규칙(개발 분류 따라감 + 공정률 100% = 완료)에 맞춘다.
+    //   사람이 정한 값(완료·삭제·Hold)과 이미 맞는 행은 건너뜀. 진행 현황 칸만 merge 저장(다른 값·pid·이력 무접촉).
+    const handleAutoStatusFix = async () => {
+        if (!teamProfile?.상태자동) return;
+        if (!isAdmin) { setAlertMsg('관리자만 실행할 수 있습니다.'); return; }
+        if (dataSource !== 'firebase') { setAlertMsg('클라우드 데이터 상태에서만 실행할 수 있습니다.\n(엑셀 업로드 미리보기 중이면 확정 저장 또는 업로드 취소 후 실행하세요)'); return; }
+        const targets = [];
+        fbRows.filter(r => !isSubListRow(r)).forEach(r => {
+            const p = autoStatusPatch(r, null);
+            const k = Object.keys(p)[0];
+            if (k) targets.push({ row: r, col: k, from: String(r[k] ?? '').trim(), to: p[k] });
+        });
+        if (!targets.length) { setAlertMsg('맞출 행이 없습니다 — 전부 규칙대로입니다.'); return; }
+        const sample = targets.slice(0, 5).map(t => `· ${pickProjectName(t.row) || '(이름 없음)'}: ${t.from || '(빈칸)'} → ${t.to}`).join('\n');
+        if (!window.confirm(`[진행 현황 규칙 맞춤]\n\n${targets.length}건을 규칙에 맞춰 바꿉니다.\n· 프로그램 수정 → 수정중 · 프로그램 개발 → 개발중\n· 공정률 100% → 완료\n· 완료·삭제·Hold로 적어 둔 행은 건드리지 않습니다\n\n${sample}${targets.length > 5 ? '\n…' : ''}\n\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let batch = writeBatch(db), cnt = 0;
+            for (const t of targets) {
+                batch.set(rowDocRef(currentTeam, t.row._id), { [t.col]: t.to }, { merge: true });
+                if (++cnt >= 400) { await batch.commit(); batch = writeBatch(db); cnt = 0; }
+            }
+            if (cnt > 0) await batch.commit();
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(진행 현황 규칙 맞춤)', note: `개발 분류·공정률 규칙으로 ${targets.length}건 통일` });
+            addLog(`[진행 현황 맞춤] ${targets.length}건 변경`);
+            setAlertMsg(`진행 현황 규칙 맞춤 완료!\n${targets.length}건 변경`);
+        } catch (err) { setAlertMsg(`진행 현황 맞춤 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+
     // ── 단일 필드 변경 이력 엔트리 생성 ──────────────────────────────────
     const makeChangeEntry = (row, key, newValue) => {
         const from = String(row?.[key] ?? '');
@@ -2148,6 +2246,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         // ★ 진행율% 자동 (2026-08-24): 포인트(Total)·Point를 고치면 진행율% 함께 갱신
         if (cellChanged && srcRow && paTrigger(editingCell.key)) Object.assign(patch, paRecalc({ ...srcRow, ...patch }));
+        // ★ 진행 현황 자동 따라가기 (2026-09-16 팀장님, Software팀): 개발 분류·공정률을 고치면 진행 현황도 규칙대로 같이 바뀜
+        //   (아래 변경 이력·초안이 patch 전체를 보므로 노란 칸·이력·백로그에 함께 잡힌다)
+        if (cellChanged && srcRow) Object.assign(patch, autoStatusPatch({ ...srcRow, ...patch }, editingCell.key));
         const contentChanged = isProgressContentCol(editingCell.key)
             && String(srcRow?.[editingCell.key] ?? '') !== String(editingCell.value ?? '');
         if (contentChanged) {
@@ -2184,11 +2285,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             setEditingCell({ id: null, key: null, value: '' });
             return;
         }
-        const row = fbRows.find(r => r._id === editingCell.id);
+        //   새 행 초안(붙여넣기)은 서버(fbRows)에 아직 없다 — 화면 값(srcRow)을 원본으로 삼아 그대로 편집 (2026-09-16)
+        const row = fbRows.find(r => r._id === editingCell.id) || (isDraftNew(editingCell.id) && srcRow ? srcRow : null);
         if (!row) { setEditingCell({ id: null, key: null, value: '' }); return; }
         // ★ 동시수정 감지 (2026-07-14): 편집을 시작할 때 보던 값 ↔ 서버 최신값 비교
         //   (이미 초안이 있는 칸은 '내 초안값 ≠ 서버값'이 정상이라 여기선 건너뛰고 [저장] 직전 검사에 맡김 — 2026-08-27)
-        if (!isForce && !hasDraftCell(editingCell.id, editingCell.key)) {
+        if (!isForce && !isDraftNew(editingCell.id) && !hasDraftCell(editingCell.id, editingCell.key)) {   // 새 행은 서버에 없어 충돌 검사 대상 아님 (2026-09-16)
             const o = editOrigRef.current;
             const baseVal = (o && o.id === editingCell.id && o.key === editingCell.key)
                 ? o.value : String(srcRow?.[editingCell.key] ?? '');
@@ -2267,12 +2369,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             }
         }
         setDraftSaving(true);
-        let okRows = 0, okCells = 0;
+        let okRows = 0, okCells = 0, okNew = 0;
         try {
             for (const id of ids) {
                 const sv = fbRows.find(r => r._id === id);
-                const { patch = {}, edited = {}, entries = [] } = d[id] || {};
-                if (sv) {
+                const { patch = {}, edited = {}, entries = [], __new } = d[id] || {};
+                if (__new) {
+                    // 새 행(붙여넣기) — 문서 신규 생성. 여기서 처음으로 서버에 올라간다 (2026-09-16)
+                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch }));
+                    recordAudit(AUDIT_ACTIONS.ADD, { _id: id, ...patch }, []);
+                    okNew++;
+                } else if (sv) {
                     let hist = Array.isArray(sv._changeHistory) ? sv._changeHistory : [];
                     entries.forEach(en => { hist = pushChangeHist({ _changeHistory: hist }, en); });
                     await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
@@ -2295,15 +2402,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 // 행 단위로 초안 비움 (중간 오류 시 남은 행만 노란 칸으로 남음 · 사라진 행의 초안은 버림)
                 setDraft(prev => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n; });
             }
-            showExtToast(`저장 완료 — ${okRows}행 ${okCells}칸`);
+            showExtToast(`저장 완료 — ${okRows}행 ${okCells}칸${okNew ? ` · 새 행 ${okNew}건 추가` : ''}`);
         } catch (err) {
             setAlertMsg(`저장 오류: ${err.message}\n\n저장되지 않은 행은 노란 칸으로 남아 있습니다 — 다시 [저장]을 눌러 주세요.`);
         } finally { setDraftSaving(false); }
     };
     saveDraftRef.current = () => saveDraft();
     const discardDraft = () => {
-        const n = draftCellCount; if (!n || draftSaving) return;
-        if (!window.confirm(`임시 편집 ${n}칸을 모두 되돌릴까요? (서버 값으로 복구)`)) return;
+        if (!draftTotal || draftSaving) return;
+        const msg = draftNewCount
+            ? `임시 편집 ${draftLabel()}을 모두 되돌릴까요?\n\n· 고친 칸 → 서버 값으로 복구\n· 붙여넣은 새 행 ${draftNewCount}건 → 사라집니다(저장된 적 없음)`
+            : `임시 편집 ${draftCellCount}칸을 모두 되돌릴까요? (서버 값으로 복구)`;
+        if (!window.confirm(msg)) return;
         setDraft({});
     };
 
@@ -2322,7 +2432,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const srcRow = activeRows.find(r => r._id === id);
         const entry  = makeChangeEntry(srcRow, key, value);
         // ★ 동시수정 감지 (2026-07-14): 드롭다운은 화면에 보이던 값이 곧 '내가 본 원본'
-        if (dataSource === 'firebase' && isForce !== true && !hasDraftCell(id, key)) {   // 초안 칸은 [저장] 직전 검사 (2026-08-27)
+        if (dataSource === 'firebase' && isForce !== true && !isDraftNew(id) && !hasDraftCell(id, key)) {   // 초안 칸은 [저장] 직전 검사 (2026-08-27) · 새 행은 서버에 없음 (2026-09-16)
             const cf = await findCellConflict(id, key, String(srcRow?.[key] ?? ''));
             if (cf) {
                 setConflictDlg({
@@ -2347,10 +2457,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (dataSource === 'local')   setLocalData(p =>   ({ ...p, rows: updater(p.rows) }));
             return;
         }
-        const row = fbRows.find(r => r._id === id);
+        const row = fbRows.find(r => r._id === id) || (isDraftNew(id) && srcRow ? srcRow : null);   // 새 행 초안도 편집 가능 (2026-09-16)
         if (!row || !entry) return;   // 같은 값 다시 고름 = 초안 안 만듦
         // ★ 초안 적재 (2026-08-27): 드롭다운 변경도 즉시 저장 대신 초안 — 상태 이력은 초안 위에 이어 붙임(srcRow=overlay) · 백로그(보류/삭제 구분)는 [저장] 때
         addDraft(id, { [key]: value, _statusHistory: appendStatusHistory(srcRow || row, key, value) }, { [key]: String(row[key] ?? '') }, { [key]: value }, entry);
+        // ★ 진행 현황 자동 따라가기 (2026-09-16 팀장님): 개발 분류를 목록에서 고른 경우도 같은 규칙으로 초안에 함께 올림
+        const _auto = autoStatusPatch({ ...(srcRow || row), [key]: value }, key);
+        Object.entries(_auto).forEach(([k, v]) => addDraft(id,
+            { [k]: v, _statusHistory: appendStatusHistory({ ...(srcRow || row), [key]: value }, k, v) },
+            { [k]: String(row[k] ?? '') }, { [k]: v }, makeChangeEntry(srcRow || row, k, v)));
     };
 
     // ── 팝업 편집 저장 ────────────────────────────────────────────────────
@@ -3334,6 +3449,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // ★ 수식 재계산 (2026-08-19, 기술1팀): 상세팝업에서 트리거 칸을 고쳤어도 자동 칸 일관 유지
         if (fmActive(working)) Object.assign(working, fmRecalc(working, latest));
         if (paCfg) Object.assign(working, paRecalc(working));   // 진행율% 자동 (2026-08-24)
+        Object.assign(working, autoStatusPatch(working, null));   // 진행 현황 자동 따라가기 (2026-09-16 팀장님, Software팀)
         const entry = buildChangeEntry(latest, working);
         const prevHist = Array.isArray(latest._changeHistory) ? latest._changeHistory : [];
         const updatedRow = entry ? { ...working, _changeHistory: [...prevHist, entry] } : working;
@@ -3696,6 +3812,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
             return;
         }
+        // 아직 저장 전인 새 행(붙여넣기) = 서버에 없음 → 초안에서 빼면 끝 (2026-09-16)
+        if (isDraftNew(id)) { setDraft(prev => { const n = { ...prev }; delete n[id]; return n; }); return; }
         const delRow = fbRows.find(r => r._id === id);   // 삭제 전 정보 확보(백로그용)
         try {
             await deleteDoc(rowDocRef(currentTeam, id));
@@ -4116,8 +4234,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 표시 단계에서만 초안(노란 칸) 덧입힘 — 행 구성·순서는 위(저장값 기준) 그대로, 값만 초안으로 (2026-09-15)
     const sortedRows = useMemo(() => {
         if (dataSource !== 'firebase' || !Object.keys(draft).length) return sortedRowsBase;
-        return sortedRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
-    }, [sortedRowsBase, draft, dataSource]); // eslint-disable-line
+        const shown = sortedRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
+        return draftNewRows.length ? [...shown, ...draftNewRows] : shown;   // 새 행(붙여넣기)은 칩·정렬과 무관하게 맨 아래 (2026-09-16)
+    }, [sortedRowsBase, draft, dataSource, draftNewRows]); // eslint-disable-line
 
     // ★ 표시 행이 바뀌면(칩·검색·정렬·기준월) 내용맞춤 열 너비가 같이 변함 → 틀고정 오프셋 재실측 신호 (2026-08-18)
     //   frzTick은 sortedRows에 영향을 주지 않으므로 무한루프 없음. ±2px 허용 오차가 2중 장치.
@@ -4145,12 +4264,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const winStartRef = useRef(0); winStartRef.current = winStart;
     const winScrollRAF = useRef(0);
     const sortedRowsRef = useRef([]); sortedRowsRef.current = sortedRows;
-    winOnRef.current = winReady && sortedRows.length > WIN_MIN;
+    winOnRef.current = winReady && sortedRows.length > WIN_MIN && mlColList.length === 0;   // 여러 줄 칸 팀 = 행 높이가 제각각 → 창 렌더(같은 높이 가정) 끔 (2026-09-16)
     // 팀·연도·열구성·자료원·배율·밀집도가 바뀌면 전체를 다시 그려 재실측 (열 폭·행 높이가 달라짐)
     useEffect(() => { setWinReady(false); setWinPinW({}); setWinStart(0); }, [currentTeam, selectedYear, activeHeaders, dataSource, tableScale, compactMode]); // eslint-disable-line react-hooks/exhaustive-deps
     // 전체 렌더가 그려진 뒤(0.6초) 열 폭·행 높이 실측 → 창 렌더 켬 (그리기 끝난 뒤 읽어 강제 배치 비용 없음)
     useEffect(() => {
-        if (winReady || sortedRows.length <= WIN_MIN) return;
+        if (winReady || sortedRows.length <= WIN_MIN || mlColList.length) return;   // 여러 줄 칸 팀은 전체 렌더 유지 (2026-09-16)
         const t = setTimeout(() => {
             const tbl = tbodyRef.current ? tbodyRef.current.closest('table') : null;
             if (!tbl) return;
@@ -4582,7 +4701,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   미저장(pending/local) 상태에서는 이동 차단 — 미리보기 데이터가 다른 팀에 섞이는 사고 방지
     const switchTeam = (t) => {
         if (t === currentTeam) return;
-        if (draftCellCount > 0) { draftNavBlock(); return; }   // 임시 편집 미저장 (2026-08-27)
+        if (draftTotal > 0) { draftNavBlock(); return; }   // 임시 편집 미저장 (2026-08-27 · 2026-09-16 새 행 포함)
         if (dataSource !== 'firebase') { setAlertMsg('엑셀 미리보기(미저장) 상태에서는 팀 이동을 할 수 없습니다.\n확정 저장 또는 업로드 취소 후 이동해 주세요.'); return; }
         if (onSwitchTeam) onSwitchTeam(t);
     };
@@ -4629,7 +4748,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     };
     const canClearCell = (row, h, ignoreNa) => {
         if ((!ignoreNa && isNaItemCell(row, h)) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금 (ignoreNa = 범위 x용, 2026-09-10)
-        if (isStatusCol(h) || (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h))) || isCardAsgCol(h) || ((isClientCol(h) || isVendorAssCol(h)) && !isPlainKeyinCol(h)) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
+        if ((isStatusCol(h) && !isPlainKeyinCol(h)) || (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h))) || isCardAsgCol(h) || ((isClientCol(h) || isVendorAssCol(h)) && !isPlainKeyinCol(h)) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
         if (isExecNoCol(h)) return false;                                  // 실행번호 = 하위(s) 구조 마커와 얽힘
         if (isPointCol(h) && getSubPt(row._id)) return false;              // 하위 합계 자동
         return true;
@@ -4994,12 +5113,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 activeHeaders.forEach(h => { newRow[h] = src[h] || ''; });                         // 엑셀 항목만 복사(_ 내부필드 제외 = NAS 규칙·이력 안 따라옴)
                 activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; }); // 수행번호는 복사 안 함 — [+]로
                 if (noC) newRow[noC] = '';   // 번호 = 수동 키인 (중복 차단은 셀 키인·초안 저장에서)
-                const { _id, ...data } = newRow;
-                await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
-                recordAudit(AUDIT_ACTIONS.ADD, newRow, []);
+                // ★ 즉시 저장 → 초안 (2026-09-16 팀장님: 확인 없이 클라우드에 들어가 [저장]/[취소]가 안 뜨던 것)
+                //   표 맨 아래 노란 행으로 보이고, [저장]을 눌러야 실제로 만들어진다. [취소]면 사라진다.
+                addDraftRow(newRow);
             }
             clearSelPaint(); selRef.current = null;
-            showExtToast(`${clip.rows.length}건 새 프로젝트로 추가됨 — 번호는 비워 뒀습니다: 번호 칸 더블클릭으로 직접 키인 (중복 자동 차단)`);
+            showExtToast(`${clip.rows.length}건 새 행으로 붙여넣음 (아직 저장 전) — 노란 행의 번호를 더블클릭해 키인한 뒤 [저장]을 누르세요`);
         } catch (err) {
             setAlertMsg(`붙여넣기 오류: ${err.message}`);
         } finally { pasteBusyRef.current = false; }
@@ -5212,6 +5331,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 );
                             });
                         })()}
+                        {/* 직접 입력 (2026-09-16 팀장님): 목록에 없는 값도 키인 — 단어 드롭다운과 같은 방식 */}
+                        <div style={{ borderTop:'1px solid #e2e8f0', display:'flex' }}>
+                            <button onClick={() => { const r = activeRows.find(x=>x._id===statusDropdown.rowId); setEditingCell({ id: statusDropdown.rowId, key: statusDropdown.col, value: String(r?.[statusDropdown.col] ?? '') }); setStatusDropdown(null); }}
+                                style={{ flex:1, padding:'6px 10px', background:'#f8fafc', border:'none', cursor:'pointer', fontSize:'11px', fontWeight:700, color:'#1358a0' }}>✎ 직접 입력</button>
+                        </div>
                     </div>
                 </>
             )}
@@ -5419,14 +5543,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <Edit2 size={16} className="text-[#1e7ac8]"/> 상세/수정
                         </button>
+                        {/* 진행실적·그래프는 팀 카드 '기능' 스위치로 숨김 (2026-09-16 Software팀: PLC·ETOS·HMI·포인트 구조가 없어 뜻이 없음) */}
+                        {teamProfile?.기능?.진행실적팝업 !== false && (
                         <button onClick={() => { setProgressRow(progressRowFor(contextMenu.row)); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <TrendingUp size={16} className="text-[#1e7ac8]"/> 진행실적 등록
                         </button>
+                        )}
+                        {teamProfile?.기능?.실적그래프 !== false && (
                         <button onClick={() => { openGraphForRow(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
+                        )}
                         {/* ★ 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경) — 떠 있는 팔레트 열기 (이미 드래그 선택이 있으면 그 범위 유지) */}
                         <button onClick={() => { const m = contextMenu; setContextMenu(null); if (!selRef.current && m.col) fmtSelectCell(m.row._id, m.col); openFmtBar(); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
@@ -5707,6 +5836,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     suggestions={fieldSuggestions}
                     wordDropOptions={buildWordDropOptions()}
                     customerAsgCols={teamProfile?.고객담당자열 || []}
+                    plainKeyinCols={teamProfile?.일반입력열 || []}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
                     execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
@@ -5777,6 +5907,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     suggestions={fieldSuggestions}
                     wordDropOptions={buildWordDropOptions()}
                     customerAsgCols={teamProfile?.고객담당자열 || []}
+                    plainKeyinCols={teamProfile?.일반입력열 || []}
                     copiedFromRow={addCopiedRef.current}
                 />
             )}
@@ -6698,12 +6829,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
 
                     {/* ★ 임시 편집 저장 (2026-08-27 팀장님): 메인표 키인·드롭다운은 노란 칸(초안)으로 모아 두었다가 여기서 행별 1회 저장 (Ctrl+S) */}
-                    {dataSource === 'firebase' && draftCellCount > 0 && (
+                    {dataSource === 'firebase' && draftTotal > 0 && (
                         <div className="flex items-center gap-0.5 shrink-0">
                             <button onClick={() => saveDraft()} disabled={draftSaving} title="임시 편집을 서버에 저장 (Ctrl+S)"
                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded border text-xs font-bold shrink-0"
                                 style={{ backgroundColor: draftSaving ? '#9ca3af' : '#16a34a', borderColor: draftSaving ? '#9ca3af' : '#15803d', color: '#fff', animation: draftSaving ? 'none' : 'pmsDraftPulse 1.6s ease-in-out infinite' }}>
-                                <Save size={13}/> {draftSaving ? '저장 중…' : `저장 ${draftCellCount}칸`}
+                                <Save size={13}/> {draftSaving ? '저장 중…' : `저장 ${draftLabel()}`}
                             </button>
                             <button onClick={discardDraft} disabled={draftSaving} title="임시 편집 전부 되돌리기 (서버 값으로)"
                                 className="px-1.5 py-1.5 rounded border text-xs font-bold shrink-0"
@@ -6852,18 +6983,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {isAdmin && dataSource === 'firebase' && (<>
                                     <button onClick={() => { setSettingsOpen(false); handleFullBackup(); }}
                                         className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">3팀 통째 · 파일 내려받기</span>
+                                        <Database size={14} className="text-sky-600"/> 전체 백업 (JSON) <span className="text-[10px] text-[#999] font-normal">{LIST_TEAMS.length}팀 통째 · 파일 내려받기</span>
                                     </button>
                                     {/* 메인 PC 자동 전체 백업 (2026-09-09 팀장님): 매일 정해진 시각 3팀 전체 백업 → 이 PC에 지정한 NAS 폴더에 직접 저장 */}
                                     <button onClick={() => { setSettingsOpen(false); handleBkPickFolder(); }}
                                         className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${bkAutoOn ? 'text-emerald-700' : 'text-[#222]'}`}>
                                         <Clock size={14} className={bkAutoOn ? 'text-emerald-600' : 'text-sky-600'}/> 자동 백업 폴더 지정 (이 PC · 매일)
-                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{bkAutoOn ? `켜짐 · 매일 ${String(bkLoadHour()).padStart(2, '0')}시 · 3팀` : '꺼짐'}</span>
+                                        <span className="ml-auto text-[10px] font-normal text-[#999]">{bkAutoOn ? `켜짐 · 매일 ${String(bkLoadHour()).padStart(2, '0')}시 · ${LIST_TEAMS.length}팀` : '꺼짐'}</span>
                                     </button>
                                     {bkAutoOn && (<>
                                     <button onClick={() => { setSettingsOpen(false); bkFnRef.current && bkFnRef.current({ manual: true }); }}
                                         className="w-full text-left pl-8 pr-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#222] flex items-center gap-2 transition-colors">
-                                        <Database size={14} className="text-emerald-600"/> 지금 백업 → 폴더 <span className="text-[10px] text-[#999] font-normal">3팀 즉시 1회</span>
+                                        <Database size={14} className="text-emerald-600"/> 지금 백업 → 폴더 <span className="text-[10px] text-[#999] font-normal">{LIST_TEAMS.length}팀 즉시 1회</span>
                                     </button>
                                     <button onClick={() => { setSettingsOpen(false); handleBkOff(); }}
                                         className="w-full text-left pl-8 pr-4 py-2 hover:bg-red-50 text-xs font-bold text-red-700 flex items-center gap-2 transition-colors">
@@ -6934,6 +7065,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                         className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <TrendingUp size={14} className="text-emerald-600"/> 진행실적 심기 <span className="text-[10px] text-[#999] font-normal">표 % → 주간 장부</span>
                                     </button>
+                                    {/* 진행 현황 규칙 맞춤 (2026-09-16 팀장님, Software팀) — 이미 쌓인 행을 개발 분류·공정률 규칙에 한 번에 맞춤 */}
+                                    {teamProfile?.상태자동 && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); handleAutoStatusFix(); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Check size={14} className="text-violet-600"/> 진행 현황 규칙 맞춤 <span className="text-[10px] text-[#999] font-normal">분류 따라가기 · 100% = 완료</span>
+                                    </button>
+                                    )}
                                     </>)}
 
                                     {/* ── ⑤ 내 화면 (이 PC) ── 모두 */}
@@ -7410,12 +7548,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                                 onChange={e=>{ if (e.target.value) { editValRef.current = e.target.value; commitCellEdit(); } }}
                                                                 style={{ width: 0, height: 0, opacity: 0, border: 'none', padding: 0, margin: 0 }}/>
                                                         </span>
+                                                    ) : isMultiLineCol(h) ? (
+                                                        /* 여러 줄 칸 편집 (2026-09-16 팀장님) — 엑셀과 같게:
+                                                           Alt+Enter(또는 Shift+Enter) = 줄 추가 · Enter = 저장하고 아래 칸 · Tab = 저장하고 옆 칸 · Esc = 취소.
+                                                           '- '로 시작하는 줄에서 줄을 추가하면 새 줄에도 '- '가 자동으로 붙는다. */
+                                                        <textarea autoFocus defaultValue={editingCell.value} title="Alt+Enter = 줄 추가 · Enter = 저장"
+                                                            rows={Math.min(12, Math.max(2, mlLines(editingCell.value).length))}
+                                                            onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; e.target.style.height='auto'; e.target.style.height=Math.min(240, e.target.scrollHeight)+'px'; }}
+                                                            onMouseDown={()=>{ editNavModeRef.current='edit'; }}
+                                                            onFocus={e=>{ editNavModeRef.current='edit'; const _v=e.target.value; e.target.setSelectionRange(_v.length,_v.length); e.target.style.height='auto'; e.target.style.height=Math.min(240, e.target.scrollHeight)+'px'; }}
+                                                            onBlur={commitCellEdit}
+                                                            onKeyDown={e=>{ if(e.key==='Enter'&&(e.altKey||e.shiftKey||e.ctrlKey)){ e.preventDefault(); mlAddLine(e.target); } else if(e.key==='Enter'){ kbNavRef.current='down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
+                                                            style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing:'border-box', padding:0, margin:0, border:'none', outline:'none', background:'transparent', font:'inherit', lineHeight:1.45, color:'#111827', display:'block', resize:'none', overflow:'hidden', whiteSpace:'pre-wrap' }}/>
                                                     ) : (
-                                                        <input autoFocus type="text" defaultValue={editingCell.value}
+                                                        <><input autoFocus type="text" defaultValue={editingCell.value} list={editSuggest(h).length ? 'pls-cell-suggest' : undefined}
                                                             onChange={e=>{ editValRef.current = e.target.value; editDirtyRef.current = true; }} onMouseDown={()=>{ editNavModeRef.current='edit'; }}
                                                             onFocus={e=>e.target.select()} onBlur={commitCellEdit}
                                                             onKeyDown={e=>{ if(e.key==='Enter'){ kbNavRef.current=e.shiftKey?'up':'down'; e.preventDefault(); commitCellEdit(); } else if(e.key==='Tab'){ kbNavRef.current=e.shiftKey?'left':'right'; e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowDown'||e.key==='ArrowUp')&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowDown'?'down':'up'); e.preventDefault(); commitCellEdit(); } else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&!editDirtyRef.current&&editNavModeRef.current!=='edit'){ kbNavRef.current=(e.key==='ArrowLeft'?'left':'right'); e.preventDefault(); commitCellEdit(); } else if(e.key==='Escape'){ const _ec=editingCell; setEditingCell({id:null,key:null,value:''}); moveCursorFromRef.current(_ec,'stay'); } }}
                                                             style={{ width: editWRef.current ? `${editWRef.current}px` : '100%', boxSizing: 'border-box', padding: 0, margin: 0, border: 'none', outline: 'none', background: 'transparent', font: 'inherit', lineHeight: 'inherit', color: '#111827', display: 'block' }}/>
+                                                        {/* 제안 목록 (2026-09-16 팀장님 '요청자'): 그 열에 이미 쓴 값 — 목록에서 고르거나 그냥 키인 */}
+                                                        {editSuggest(h).length > 0 && <datalist id="pls-cell-suggest">{editSuggest(h).map(o => <option key={o} value={o}/>)}</datalist>}</>
                                                     )}
                                                 </td>
                                             );
@@ -7449,6 +7601,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${(!isHl && cellOff) ? 'cell-na' : ''}
                                                         ${isFrz(h)?'z-10':''}
                                                         ${(colWidths[h]||fitWidths[h])?'col-clip':''}
+                                                        ${isMultiLineCol(h)?'cell-ml':''}
                                                         ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}${_ffCls}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{}), ..._ffSty}}
                                                     title={cellOff ? offTip : autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
@@ -7483,7 +7636,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
 수정: 포인트·Point 칸을 고치면 자동으로 따라 바뀝니다.
 (건설 공사는 NAS 진척자료가 채웁니다)`); return; }   // 진행율% 자동 잠금 (2026-08-24)
                                                         const closeAll = () => { setStatusDropdown(null); setAssigneeDropdown(null); setClientDropdown(null); setVendorDropdown(null); setWordDropdown(null); };
-                                                        if (isStatusCol(h)) {
+                                                        if (isStatusCol(h) && !isPlainKeyinCol(h)) {   // 일반입력열(Software팀 '진행 현황' = 키인)은 아래 일반 편집창으로 (2026-09-16 팀장님)
                                                             closeAll();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             setStatusDropdown({ rowId: row._id, col: h, left: rect.left, width: Math.max(rect.width, 120), ...dropAnchor(rect, e.clientY) });
@@ -7555,7 +7708,10 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                         const _tot = _auto ? _sp.sum : String(val).trim();
                                                         const _tip = _auto ? `포인트 ${_tot} = 하위 ${_sp.count}개 합계 (자동)` : undefined;
                                                         return <span title={_tip} style={{wordBreak:'break-word',lineHeight:1.4,fontWeight:700,color:'#1e293b'}}>{_auto ? 'Σ ' : ''}{String(_tot)}</span>;
-                                                    })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span> : null}</span> : val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span> : <span className="text-slate-700">—</span>)}
+                                                    })() : (h === projectNameCol && isSubListRow(row) ? <span style={{whiteSpace:'nowrap'}}><span style={{color:'#7c3aed', fontWeight:800, marginRight:5}} title="하위(공종) 행 — 실행번호 s">└ 하위</span>{val ? <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span> : null}</span> : val ? (isMultiLineCol(h)
+                                                        /* 여러 줄 칸 (2026-09-16 팀장님): '- ' 항목마다 한 줄 — 값은 그대로 두고 보여주기만 나눔 */
+                                                        ? <span style={{display:'block',lineHeight:1.45,wordBreak:'break-word'}}>{mlLines(val).map((ln, li) => <span key={li} style={{display:'block', paddingLeft: /^[-·•]/.test(ln) ? 0 : 10}}>{ln}</span>)}</span>
+                                                        : <span style={{wordBreak:'break-word',lineHeight:1.4}}>{pctCell(h, val)}</span>) : <span className="text-slate-700">—</span>)}
                                                 </td>
                                             );
                                         })}
@@ -7678,7 +7834,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                     <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-xs shrink-0">
                         <span className="text-slate-600">
                             {(() => {   // 칩 연동 카운터 (2026-09-04 팀장님): 선택 칩 이름 + 메인 행만(번호와 일치) + 하위는 별도 표기
-                                const _m = sortedRows.filter(r => !isSubListRow(r)).length;
+                                const _m = sortedRows.filter(r => !isSubListRow(r) && !draft[r._id]?.__new).length;   // 저장 전 새 행은 아래에 따로 표기 (2026-09-16)
                                 const _lb = activeStatusChips.size === 0 ? '전체' : [...activeStatusChips].join('·');
                                 return (<>{_lb} <span className="text-slate-300 font-bold">{_m}</span>건{availableYears.length > 0 ? <span className="text-slate-600"> ({selectedYear}년)</span> : ''}</>);
                             })()}

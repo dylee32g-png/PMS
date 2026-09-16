@@ -22,17 +22,23 @@
 import tech1 from './tech1';
 import tech2 from './tech2';
 import tech3 from './tech3';
+import sw from './sw';       // Software팀 — 별도 서식 카드 (2026-09-16 팀장님: 마지막 퍼즐)
+import swMaint from './swMaint';   // Software팀 유지보수 — 보조 장부 (2026-09-16 팀장님: 현장 A/S·프로그램 수정 요청)
 
 const PROFILES = {
     '기술1팀': tech1,
     '기술2팀': tech2,
     '기술3팀': tech3,
+    'Software팀': sw,      // 2026-09-16 등록 — LIST_TEAMS(헤더 팀 전환·백업·홈 통계·로그인 직행)에 자동 포함
+    // 보조 장부(상위팀 = 'Software팀'): 홈에서는 Software팀 카드 안의 [유지보수 장표] 줄로 들어간다.
+    //   장부·백업·헤더 팀 전환에는 함께 잡히고, 로그인 직행 판정에서만 빠진다(카드 '보조장부').
+    'Software팀 유지보수': swMaint,
 };
 
 // 등록 안 된 팀(Software팀 등) = 기준 카드에서 위치 종속 값(참조UNC)만 뺀 일반 카드.
 //   규칙·열 이름은 기술2팀과 동일(지금까지의 동작), UNC 경로만 비활성(예전에도 미등록 팀은 '' 였음).
 const generic = { ...tech2, 팀: '(미등록 팀 — 기술2팀 기준)', 참조UNC: null };
-// List 화면이 있는 팀 목록 — 헤더 팀 전환 탭용 (2026-08-11. Software팀은 카드 없음=공사중이라 자동 제외)
+// List 화면이 있는 팀 목록 — 헤더 팀 전환 탭용 (2026-08-11 · 2026-09-16 Software팀 카드 등록으로 4팀)
 export const LIST_TEAMS = Object.keys(PROFILES);
 export const getTeamProfile = (team) => PROFILES[team] || generic;
 export default getTeamProfile;

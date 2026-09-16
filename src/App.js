@@ -1,3 +1,4 @@
+// ▣ 화면 갱신 표식 — 2026-09-16: 홈 팀 카드 도넛 2종 삭제 · '진행 띠'로 교체
 // =========================================================================
 // TechTeam PMS - Version 6.9.2 (패널 드래그 리사이즈 + 모달 위치 보정)
 // v6.8.3: 프로젝트 List 관리 엑셀 업로드 미리보기 + 인라인 에디팅 추가
@@ -837,7 +838,8 @@ const TechTeamPMS = () => {
       if (!team) {
           const nm = extractName(registeredUser.displayName || user?.displayName || '');
           if (nm) {
-              const hits = LIST_TEAMS.filter(t => (getTeamProfile(t)?.담당자목록 || []).some(a => extractName(a) === nm));
+              //   보조 장부(유지보수 등)는 제외 — 같은 사람이 개발·유지보수 두 명단에 있어 '어느 팀인지 모름'이 되는 것을 막음 (2026-09-16)
+              const hits = LIST_TEAMS.filter(t => !getTeamProfile(t)?.보조장부 && (getTeamProfile(t)?.담당자목록 || []).some(a => extractName(a) === nm));
               if (hits.length === 1) team = hits[0];
           }
       }
@@ -5819,7 +5821,7 @@ const TechTeamPMS = () => {
                               { id: '기술1팀', title: '기술1팀', desc: '해외(중국 외) 및 국내 파주외 지역 업무', icon: <Globe size={22} style={{ color: '#0f5a99' }} />, tint: '#dcecfa', hasSubMenu: true },
                               { id: '기술2팀', title: '기술2팀', desc: '파주 및 베트남 업무 (파주 LGD 중심)', icon: <Factory size={22} style={{ color: '#1e7ac8' }} />, tint: '#e3effa', hasSubMenu: true },
                               { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin size={22} style={{ color: '#116329' }} />, tint: '#d9f3e1', hasSubMenu: true },
-                              { id: 'Software팀', title: 'Software팀', desc: '사내 포털·MES DB 개발 · 현재 웹(PMS) 개발 중', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5' }
+                              { id: 'Software팀', title: 'Software팀', desc: '사내 프로그램 개발·유지보수 (UMS·EPM·SMS 등)', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5', hasSubMenu: true }   // 2026-09-16 팀장님: 공사중 해제 — 프로젝트 List 가동 (별도 서식 카드 teamProfiles/sw.js)
                           ].map(card => {
                               // eslint-disable-next-line no-unused-vars -- Software팀 공사중 표시 동안 미사용 (협의 완료 시 [열기] 행 복원용)
                               const handleCardClick = () => {
@@ -5850,73 +5852,70 @@ const TechTeamPMS = () => {
                                           </div>
                                       </div>
 
-                                      {/* ── 팀 미니 대시보드 (2026-08-11 — 보고용 확대판: 큰 숫자 + 도넛 2개 + 근거 캡션.
-                                            List KPI 카드와 같은 규칙·올해 기준. 데이터 없으면 자동 숨김) ── */}
+                                      {/* ── 팀 미니 대시보드 (2026-09-16 팀장님 — 도넛 2종 삭제 · '진행 띠'로 교체) ──
+                                            평균 공정률·포인트 달성률 도넛은 PLC·ETOS·시운전 포인트 구조를 쓰는 팀 전용 지표라
+                                            기술1팀·Software팀에서는 늘 '—' 였다. 대신 카드 폭을 가득 쓰는 큰 건수 + 한 줄 색 띠로
+                                            '전체 중 얼마가 끝났나'를 보이게 한다. 숫자·계산 규칙은 종전 그대로(teamStats 무접촉).
+                                            데이터 없으면 자동 숨김 */}
                                       {(() => {
                                           const st = homeStats[card.id];
                                           if (!st || !st.total) return null;
-                                          const Donut = ({ pct, color, dim, size = 56 }) => (
-                                              <div style={{ width: size, height: size, borderRadius: '50%', flex: 'none',
-                                                  background: pct === null ? '#edeae6' : `conic-gradient(${color} ${Math.max(0, Math.min(100, pct)) * 3.6}deg, #edeae6 0)` , position: 'relative' }}>
-                                                  <div style={{ position: 'absolute', inset: 6, background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                      {pct === null
-                                                          ? <span style={{ fontSize: 16, fontWeight: 800, color: '#c0c8d4' }}>—</span>   /* 값 없음 — 0%로 오해 방지 (2026-08-21) */
-                                                          : <span style={{ fontSize: size < 56 ? 11 : (pct >= 100 ? 13 : 14), fontWeight: 800, color: dim, letterSpacing: '-0.5px' }}>{pct}<span style={{ fontSize: 9, fontWeight: 700, color: '#a4a097' }}>%</span></span>}
+                                          // 홈 전용 역할색 — 추진중=앰버 · 진행중/수정중=파랑 · 개발중=보라 · 완료=초록 · 그 외=회색.
+                                          //   List 안 상태 칩(완료=빨강)과 일부러 다르다: 홈은 '얼마나 됐나'를 읽는 자리.
+                                          //   팀 카드 '홈카드.항목색: { 라벨: 색 }'으로 팀별 덮어쓰기 가능.
+                                          const ITEM_HEX = { '추진중': '#d97706', '준비': '#d97706', '진행': '#1e7ac8', '진행중': '#1e7ac8',
+                                              '수정중': '#1e7ac8', '개발중': '#7c3aed', '완료': '#059669', '접수': '#d97706', '처리중': '#1e7ac8',
+                                              ...(getTeamProfile(card.id)?.홈카드?.항목색 || {}) };
+                                          const cc = st.cc;
+                                          const Col = ({ k, v, hex, sub, grow }) => (
+                                              <div className="min-w-0" style={{ flexGrow: grow || 1, flexBasis: 0 }}>
+                                                  <div className="text-[11.5px] font-bold text-[#8f8b84] leading-none whitespace-nowrap overflow-hidden text-ellipsis">{k}</div>
+                                                  <div className="leading-none mt-1.5 whitespace-nowrap">
+                                                      <span className="text-[27px] font-extrabold tracking-tight" style={{ color: hex }}>{(v === null || v === undefined) ? '—' : v}</span>
+                                                      <span className="text-[13px] font-bold text-[#a4a097]">건</span>
                                                   </div>
+                                                  <div className="text-[10px] text-[#a4a097] leading-none mt-1.5 whitespace-nowrap overflow-hidden text-ellipsis">{sub}</div>
                                               </div>
                                           );
-                                          return (
-                                              <div className={`px-5 pb-2 pt-0.5 flex items-stretch ${st.cc ? 'gap-1 flex-nowrap' : 'gap-2 flex-wrap'} cursor-default select-none border-t border-[#f5f2ef]`}>   {/* 당해 카드 팀 = 6항목 한 줄 (2026-08-21) */}
-                                                  {/* 당해 카드 팀(기술1팀, 2026-08-21 팀장님): 전체 프로젝트 + 준비·진행중·완료 — List 상단 카드와 동일 규칙 */}
-                                                  {st.cc ? (<>
-                                                      <div className="flex-1 min-w-0 pt-1.5">
-                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] whitespace-nowrap">전체 프로젝트</div>
-                                                          <div className="leading-none mt-0.5">
-                                                              <span className="text-[21px] font-extrabold text-[#37352f] tracking-tight">{st.cc.total}</span>
-                                                              <span className="text-[12.5px] font-bold text-[#a4a097]">건</span>
-                                                          </div>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug whitespace-nowrap">{st.cc.basis}</div>
+                                          // 당해 카드 팀(현재 4팀 전부) = 전체 + 상태별 건수 + 진행 띠
+                                          if (cc) {
+                                              const items = (cc.items || []).map(it => ({ ...it, hex: ITEM_HEX[it.라벨] || '#8f8b84' }));
+                                              const sum = items.reduce((s, it) => s + (it.cnt || 0), 0);
+                                              const rest = Math.max(0, (cc.total || 0) - sum);   // 전체 > 항목 합 = 상태값이 셋 밖인 행 (기술1팀)
+                                              const doneIt = items.find(it => it.라벨 === '완료');
+                                              const rate = (cc.total > 0 && doneIt && doneIt.cnt !== null && doneIt.cnt !== undefined) ? Math.round(doneIt.cnt / cc.total * 100) : null;
+                                              const segs = items.filter(it => it.cnt > 0).map(it => ({ n: it.cnt, hex: it.hex }))
+                                                  .concat(rest > 0 ? [{ n: rest, hex: '#cfc9bf' }] : []);
+                                              return (
+                                                  <div className="px-5 pb-3 pt-1.5 cursor-default select-none border-t border-[#f5f2ef]">
+                                                      <div className="flex items-start gap-1.5">
+                                                          <Col k="전체 프로젝트" v={cc.total} hex="#37352f" sub={cc.basis} grow={1.8} />
+                                                          {items.map(it => <Col key={it.라벨} k={it.라벨} v={it.cnt} hex={it.hex} sub="작업 칸" />)}
+                                                          {rest > 0 && <Col k="그 외" v={rest} hex="#8f8b84" sub="그 밖의 값" />}
                                                       </div>
-                                                      {st.cc.items.map(it => (
-                                                          <div key={it.라벨} className="flex-1 min-w-0 pt-1.5">
-                                                              <div className="text-[10.5px] font-bold text-[#8f8b84] whitespace-nowrap">{it.라벨}</div>
-                                                              <div className="leading-none mt-0.5">
-                                                                  <span className="text-[21px] font-extrabold tracking-tight" style={{ color: it.라벨 === '완료' ? '#059669' : it.라벨 === '진행중' ? '#1e7ac8' : '#37352f' }}>{it.cnt === null ? '—' : it.cnt}</span>
-                                                                  <span className="text-[12.5px] font-bold text-[#a4a097]">건</span>
-                                                              </div>
-                                                              <div className="text-[10px] text-[#a4a097] mt-1 leading-snug whitespace-nowrap">작업 칸</div>
+                                                      {/* 진행 띠 = 상태별 건수 비중 (도넛이 하던 '비율' 자리) */}
+                                                      <div className="flex items-center gap-2.5 mt-2.5">
+                                                          <div className="flex-1 min-w-0 flex h-[11px] rounded-full overflow-hidden bg-[#f0edea]">
+                                                              {segs.map((s, i) => <div key={i} style={{ flexGrow: s.n, flexBasis: 0, background: s.hex }} />)}
                                                           </div>
-                                                      ))}
-                                                  </>) : (
-                                                  <div className="flex-1 min-w-[110px] pt-1.5">
-                                                      <div className="text-[11px] font-bold text-[#8f8b84]">{st.mode === 'monthly' ? `${st.month}월 진행` : '진행중'}</div>
-                                                      <div className="leading-none mt-0.5">
-                                                          <span className="text-[25px] font-extrabold text-[#37352f] tracking-tight">{st.mode === 'monthly' ? st.activeCnt : st.progCnt}</span>
-                                                          <span className="text-[12.5px] font-bold text-[#a4a097]"> / {st.total}건</span>
+                                                          {rate !== null && (
+                                                              <span className="shrink-0 text-[11.5px] font-bold text-[#8f8b84] whitespace-nowrap leading-none">완료 <span className="text-[17px] font-extrabold text-[#059669] tracking-tight">{rate}%</span></span>
+                                                          )}
                                                       </div>
-                                                      <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.mode === 'monthly'
-                                                          ? <>월간보고 자료 기준<br/>{st.month}월 실적 {st.monQ.toLocaleString()}pt</>
-                                                          : <>전체 {st.rawCnt}행 중<br/>하위 {st.subCnt} · 삭제 {st.delCnt} 제외</>}</div>
                                                   </div>
-                                                  )}
-                                                  {/* 공정률 도넛 — 당해 카드 팀은 값 없어도 '—'로 항상 표시 */}
-                                                  {(st.avgPct !== null || st.cc) && (
-                                                      <div className={`flex-1 ${st.cc ? 'min-w-0' : 'min-w-[110px]'} pt-1.5 flex flex-col items-center text-center`}>
-                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] mb-1 whitespace-nowrap">평균 공정률</div>
-                                                          <Donut pct={st.avgPct} color={st.avgPct >= 100 ? '#059669' : '#1e7ac8'} dim={st.avgPct >= 100 ? '#047857' : '#1e5f9e'} size={st.cc ? 46 : 56}/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.avgPct === null ? <>아직 입력된<br/>공정률 없음</> : st.mode === 'monthly'
-                                                              ? <>{st.month}월 값 있는 {st.pctN}건 평균<br/>(전체 공정률)</>
-                                                              : <>값 있는 {st.pctN}건 평균<br/>({st.pctBasis || 'PLC·ETOS·HMI·통합'})</>}</div>
-                                                      </div>
-                                                  )}
-                                                  {/* 포인트 달성률 도넛 — 당해 카드 팀은 값 없어도 '—' */}
-                                                  {(st.ptPct !== null || st.cc) && (
-                                                      <div className={`flex-1 ${st.cc ? 'min-w-0' : 'min-w-[110px]'} pt-1.5 flex flex-col items-center text-center`}>
-                                                          <div className="text-[10.5px] font-bold text-[#8f8b84] mb-1 whitespace-nowrap">포인트 달성률</div>
-                                                          <Donut pct={st.ptPct} color="#059669" dim="#047857" size={st.cc ? 46 : 56}/>
-                                                          <div className="text-[10px] text-[#a4a097] mt-1 leading-snug">{st.ptPct === null ? <>아직 누적·총점<br/>값 없음</> : <>누적 {st.accSum.toLocaleString()}<br/>÷ 총점 {st.totSum.toLocaleString()}</>}</div>
-                                                      </div>
-                                                  )}
+                                              );
+                                          }
+                                          // 당해 카드가 없는 팀 (폴백) — 진행중 / 전체만
+                                          return (
+                                              <div className="px-5 pb-3 pt-1.5 cursor-default select-none border-t border-[#f5f2ef]">
+                                                  <div className="text-[11.5px] font-bold text-[#8f8b84] leading-none">{st.mode === 'monthly' ? `${st.month}월 진행` : '진행중'}</div>
+                                                  <div className="leading-none mt-1.5">
+                                                      <span className="text-[27px] font-extrabold text-[#37352f] tracking-tight">{st.mode === 'monthly' ? st.activeCnt : st.progCnt}</span>
+                                                      <span className="text-[13px] font-bold text-[#a4a097]"> / {st.total}건</span>
+                                                  </div>
+                                                  <div className="text-[10px] text-[#a4a097] mt-1.5 leading-snug">{st.mode === 'monthly'
+                                                      ? <>월간보고 자료 기준 · {st.month}월 실적 {st.monQ.toLocaleString()}pt</>
+                                                      : <>전체 {st.rawCnt}행 중 하위 {st.subCnt} · 삭제 {st.delCnt} 제외</>}</div>
                                               </div>
                                           );
                                       })()}
@@ -5939,6 +5938,31 @@ const TechTeamPMS = () => {
                                                   </div>
                                                   <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#047857] group-hover/btn:text-white group-hover/btn:border-[#047857] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
+
+                                              {/* 1-2. 보조 장부 줄 (2026-09-16 팀장님, Software팀 유지보수) —
+                                                   팀 카드에 '상위팀: 이 카드'가 적힌 장부를 줄로 단다. 오른쪽 배지 = 미처리 N · N월 완료 N (홈 통계와 같은 규칙) */}
+                                              {LIST_TEAMS.filter(t => getTeamProfile(t)?.상위팀 === card.id).map(t => {
+                                                  const _p = getTeamProfile(t), _st = homeStats[t];
+                                                  const _open = _st ? (_p.홈요약?.미처리 || []).reduce((s, v) => s + (_st.statusCounts?.[v] || 0), 0) : null;
+                                                  return (
+                                                  <button key={t} onClick={() => { setCurrentTeam(t); setCurrentMode('projectList'); }}
+                                                      className="w-full flex items-center gap-3 px-5 py-2 border-t border-[#f0edea] border-l-[3px] border-l-transparent hover:border-l-[#7c3aed] hover:bg-[#f7f4fd] transition-all text-left group/btn cursor-pointer">
+                                                      <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#d6c9f5] transition-colors shrink-0">
+                                                          <Wrench size={14} className="text-[#73716b] group-hover/btn:text-[#7c3aed] transition-colors" />
+                                                      </div>
+                                                      <div className="flex-1 min-w-0">
+                                                          <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#7c3aed] transition-colors">{_p.홈줄?.제목 || '유지보수 장표'}</div>
+                                                          <div className="text-[#a4a097] text-xs mt-px">{_p.홈줄?.설명 || ''}</div>
+                                                      </div>
+                                                      {_st && (_st.total > 0) && (
+                                                          <span className="shrink-0 text-[11px] font-bold text-[#8f8b84] mr-1 whitespace-nowrap">
+                                                              미처리 <span className="text-[#d97706]">{_open}</span> · {new Date().getMonth() + 1}월 완료 <span className="text-[#047857]">{_st.doneThisMonth}</span>
+                                                          </span>
+                                                      )}
+                                                      <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#7c3aed] group-hover/btn:text-white group-hover/btn:border-[#7c3aed] transition-all">열기 <ChevronRight size={12} /></span>
+                                                  </button>
+                                                  );
+                                              })}
 
                                               {/* 2. 월간 업무 보고 — 잠금 시 '추후 업데이트 예정' 안내 행 (2026-08-19) */}
                                               {!MONTHLY_REPORT_OPEN ? (

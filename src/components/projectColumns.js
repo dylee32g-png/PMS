@@ -11,8 +11,8 @@ export const FILTERABLE   = ['진행', '현황', '공사업체', '업체담당�
 export const DROPDOWN_KW  = ['진행', '현황', '담당자', '공사업체', '업체담당자', '발주처'];
 // (2026-09-10 팀장님) 헤더 ▼ 값 골라보기 = 엑셀 자동필터처럼 모든 열. FILTERABLE 키워드 목록은 참고용으로만 남김
 export const isFilterable  = (h) => !String(h ?? '').startsWith('_');
-export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료'].some(k => s.includes(k)); };
-export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k));
+export const isDateCol     = (h) => { const s = String(h).replace(/\s/g, ''); return ['날짜', '일자', 'Date', '일시', '공사계약', '공사완료', '시작일', '종료일', '접수일', '완료일'].some(k => s.includes(k)); };   // '시작일'·'종료일' = Software팀 표준 양식 · '접수일'·'완료일' = Software팀 유지보수 장표 (2026-09-16) — 달력·자유 타이핑·YY/MM/DD 표시
+export const isDropdownCol = (h) => DROPDOWN_KW.some(k => h.includes(k)) && !String(h).replace(/\s/g, '').includes('내용');   // '진행 내용'(긴 글 칸)이 '진행' 키워드로 목록 편집칸이 되던 것 제외 (2026-09-16 Software팀)
 export const isStatusCol   = (h) => ['진행현황', '현황', '진행'].some(k => h.includes(k)) && !isDateCol(h)
     && !String(h).replace(/\s/g, '').includes('진행율')    // '진행율 %'(기술2팀 260822 수치 칸)가 '진행' 키워드에 걸려 상태 칩으로 그려지던 문제 (2026-08-24)
     && !String(h).replace(/\s/g, '').includes('내용');     // '진행 내용'(기술2팀 2013·2014 = 프로젝트명 칸)도 동일 오인 (2026-08-24)

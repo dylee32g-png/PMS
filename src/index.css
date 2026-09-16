@@ -438,6 +438,10 @@ tbody td:first-child {
    기본(손대지 않은 열)은 위 규칙대로 내용맞춤 한 줄 펼침 그대로 — 2026-08-21 팀장님: 더 안 줄여지던 문제 */
 .list-oneline th.col-clip,
 .list-oneline td.col-clip { max-width: var(--cw) !important; overflow: hidden !important; text-overflow: ellipsis; }
+/* ── 여러 줄 칸 (2026-09-16 팀장님, Software팀 '진행 내용') ───────────────────────────
+   팀 카드 '여러줄열'에 적힌 열만 예외 — '- ' 항목마다 줄을 나눠 보여준다(시인성).
+   ★한 줄 펼침 기본 기준(위 .list-oneline td)은 다른 팀·다른 열에 그대로 유지. */
+.list-oneline td.cell-ml { white-space: normal !important; max-width: var(--cw) !important; vertical-align: top !important; line-height: 1.45; }
 /* 수행번호 회수 ✕ — 행에 마우스 올릴 때만 (2026-08-21) */
 .list-oneline td .exec-del { opacity: 0; transition: opacity .12s; }
 .list-oneline tr:hover td .exec-del { opacity: 1; }

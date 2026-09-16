@@ -59,6 +59,18 @@ export function computeTeamStats(rows, team) {
     accSum = Math.round(accSum); totSum = Math.round(totSum);
     const statusCounts = {};
     if (statusCol) mains.forEach(r => { let v = String(r[statusCol] || '').trim(); if (v.toUpperCase() === 'HOLD') v = 'Hold'; if (v) statusCounts[v] = (statusCounts[v] || 0) + 1; });
+    // 이번 달 완료 (2026-09-16): 팀 카드 날짜짝의 '완료 날짜' 열이 이번 달인 행 수 —
+    //   홈 Software팀 카드의 [유지보수 장표] 줄 배지(미처리 N · N월 완료 N)에 쓴다. List 상단 ▲배지와 같은 규칙.
+    let doneThisMonth = 0;
+    {
+        const dp = profile?.열?.날짜짝;
+        const doneCol = (Array.isArray(dp) && dp[1]) ? keys.find(k => norm(k) === norm(dp[1])) : null;
+        if (doneCol) {
+            const _n = new Date();
+            const ym = _n.getFullYear() + '-' + String(_n.getMonth() + 1).padStart(2, '0');
+            mains.forEach(r => { if (String(r[doneCol] ?? '').trim().slice(0, 7) === ym) doneThisMonth += 1; });
+        }
+    }
     // 근거 표기용 (2026-08-11 팀장님: 130건이 어디서 나왔는지 카드에 작게 병기)
     const subCnt = rowsY.filter(r => isSubRow(r)).length;
     const delCnt = rowsY.filter(r => !isSubRow(r) && String(statusCol ? (r[statusCol] || '') : '').trim() === '삭제').length;
@@ -79,7 +91,7 @@ export function computeTeamStats(rows, team) {
         ccStats = { total: ccTotal, items, basis: cc.전체 === '항목합' ? (cc.항목 || []).map(it => it.라벨).join('·') + ' 합' : (noCol ? `${noCol} 기준` : '행 수 기준') };
     }
     return {
-        total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt, cc: ccStats,
+        total: mains.length, progCnt, rawCnt: rowsY.length, subCnt, delCnt, cc: ccStats, doneThisMonth,
         avgPct: pctN ? Math.round(pctSum / pctN * 10) / 10 : null, pctN, pctBasis,
         ptPct: (accCol && totSum > 0) ? Math.round(accSum / totSum * 100) : null, accSum, totSum,
         statusCounts,

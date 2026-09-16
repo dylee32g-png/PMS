@@ -28,6 +28,7 @@ export default function DetailModal({
     execLockedCols = [],      // 수행번호(당해 연도) — 손 키인 금지, 메인표 [+]/✕로만 (2026-08-28 팀장님)
     wordDropOptions = {},     // 팀 카드 '드롭다운열' 칸의 선택 목록 { 열이름: [값들] } — 공사분류·공장 등 (2026-09-04 팀장님)
     customerAsgCols = [],     // 팀 카드 '고객담당자열' — 발주처(고객사) 담당자 칸: 직원 칩 제외, 일반 입력 (2026-09-04 팀장님)
+    plainKeyinCols = [],      // 팀 카드 '일반입력열' — 진행 현황 등을 드롭다운(select) 대신 입력칸으로 (2026-09-16 Software팀: 상태 키인)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
@@ -94,7 +95,7 @@ export default function DetailModal({
     const renderField = (h) => {
         const val = detailRow[h] || '';
         const wide = isWideField(h);
-        const isStatus = isStatusCol(h);
+        const isStatus = isStatusCol(h) && !(plainKeyinCols || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 일반입력열이면 select 대신 입력칸 (2026-09-16)
         const isCustAsg = (customerAsgCols || []).some(c => String(c).replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 발주처 고객 담당자 = 일반 입력 (2026-09-04)
         const isAssignee = (isAssigneeCol(h) || isManagerCol(h)) && !isCustAsg;   // 관리자 = 담당자와 같은 선택 형식 (2026-07-22)
         const isCheck = isCheckCol(h);
@@ -258,9 +259,10 @@ export default function DetailModal({
                             </datalist>
                         </div>
                     ) : (
+                        /* 여러 줄 글(진행 내용·비고 등)은 줄 수만큼 펼쳐 보임 — 팝업에서 Enter로 줄 추가 (2026-09-16 팀장님) */
                         <textarea value={val}
                             onChange={e => setDetailRow(p => ({...p, [h]: e.target.value}))}
-                            rows={1}
+                            rows={Math.min(12, Math.max(1, String(val ?? '').split('\n').length))}
                             style={{ width:'100%', border:'none', outline:'none', resize:'none', padding:'4px 8px', fontSize:'12px', color:'#222', backgroundColor:'transparent', fontFamily:'inherit', lineHeight:1.5 }}
                             onFocus={e => e.target.style.backgroundColor='#fffde7'}
                             onBlur={e => e.target.style.backgroundColor='transparent'}/>
