@@ -26,6 +26,7 @@ export default function DetailModal({
     subPtInfo = null,         // 2단계(2026-07-20): 메인 행에 하위(공종)가 있으면 {count, sum} — '포인트' 칸 잠금+합계 표시
     extLockedCols = [],       // NAS 진척자료 자동 반영 대상 헤더들 (2026-07-22) — 보기 전용, 수정은 NAS 원본 엑셀
     execLockedCols = [],      // 수행번호(당해 연도) — 손 키인 금지, 메인표 [+]/✕로만 (2026-08-28 팀장님)
+    startLockedCols = [],     // 시작일 — 처음 저장 후 잠금, 관리자만 수정 (2026-09-17 Software팀)
     wordDropOptions = {},     // 팀 카드 '드롭다운열' 칸의 선택 목록 { 열이름: [값들] } — 공사분류·공장 등 (2026-09-04 팀장님)
     customerAsgCols = [],     // 팀 카드 '고객담당자열' — 발주처(고객사) 담당자 칸: 직원 칩 제외, 일반 입력 (2026-09-04 팀장님)
     plainKeyinCols = [],      // 팀 카드 '일반입력열' — 진행 현황 등을 드롭다운(select) 대신 입력칸으로 (2026-09-16 Software팀: 상태 키인)
@@ -37,6 +38,7 @@ export default function DetailModal({
     if (!detailRow) return null;
     const isAdd = mode === 'add';
     const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
+    const isStartLockedDM = (h) => (startLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
     const isExecLockedDM = (h) => (execLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 수행번호 자동 부여 칸 (2026-08-28)
 
     // 드롭다운열 칸 목록 찾기 — 열 이름 공백 무시 비교 (2026-09-04). 목록 없는 칸은 null = 일반 입력
@@ -130,6 +132,14 @@ export default function DetailModal({
                             title={subPtInfo.sum > 0 ? `총점 = 하위 ${subPtInfo.count}개 '포인트' 합계 (자동)` : `하위 ${subPtInfo.count}개의 총점이 아직 빈칸 — 입력 전까지 기존 부모 총점 유지`}>
                             <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{subPtInfo.sum > 0 ? `Σ ${subPtInfo.sum}` : (String(val).trim() ? val : '—')}</span>
                             <span style={{ fontSize:'11px', fontWeight:700, color:'#7c3aed', whiteSpace:'nowrap' }}>하위 {subPtInfo.count}개 합계 자동{subPtInfo.sum > 0 ? '' : ' 대기'}</span>
+                            <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
+                        </div>
+                    ) : isStartLockedDM(h) ? (
+                        // 시작일 (2026-09-17 Software팀): 처음 저장한 뒤 고정 — 바꾸려면 관리자
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
+                            title="시작일은 처음 저장한 뒤 잠깁니다 — 바꾸려면 관리자에게 요청하세요">
+                            <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val ?? '').trim() !== '' ? val : '—'}</span>
+                            <span style={{ fontSize:'11px', fontWeight:700, color:'#8f8b84', whiteSpace:'nowrap' }}>처음 저장 후 고정</span>
                             <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
                         </div>
                     ) : isExecLockedDM(h) ? (
@@ -269,7 +279,7 @@ export default function DetailModal({
                     )}
                 </div>
                 {/* 오른쪽 스위치 (2026-09-10 팀장님, 모든 항목 공통): 켜짐=값 있음 · 끄면 그 프로젝트 칸만 메인표 × · 열 숨김 없음. 수행번호(자동 부여)는 스위치 없음 */}
-                {!isExecLockedDM(h) ? (
+                {!isExecLockedDM(h) && !isStartLockedDM(h) ? (
                     <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
                         {isPctCol(h) && <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: swOn ? '#1e7ac8' : '#b0b8c4' }}>{off ? '미적용' : hasVal ? '적용' : '빈칸'}</span>}
                         <button type="button" onClick={(e) => { e.stopPropagation(); onSwitch(); }} title={swTip}

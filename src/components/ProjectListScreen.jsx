@@ -7,11 +7,12 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check, Copy,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home, Palette
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home, Palette, CalendarClock
 } from 'lucide-react';
 import { collection, doc, setDoc, updateDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
+import { DevLogModal, DevScheduleModal, devCols, devSavePatch, toYMD } from './DevLogModal';   // Software팀 진행 기록·일정 그래프 (2026-09-17)
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
@@ -355,6 +356,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [confirmDialog, setConfirmDialog]         = useState(null); // { message, onConfirm }
     const [execNoModal, setExecNoModal]             = useState(null); // { row, candidates, selected, loading }
     const [progressRow, setProgressRow]             = useState(null); // 진행실적 등록 대상 row
+    const [devLogRowId, setDevLogRowId]             = useState(null); // Software팀 진행 기록 팝업 대상 행 (2026-09-17)
+    const [devGraphRowId, setDevGraphRowId]         = useState(null); // Software팀 일정 그래프 대상 행 (2026-09-17)
     const [statusDropdown, setStatusDropdown]       = useState(null); // { rowId, col, top, left, width }
     const [assigneeDropdown, setAssigneeDropdown]   = useState(null); // { rowId, col, top, left, width }
     const [clientDropdown, setClientDropdown]       = useState(null); // { rowId, col, top, left, width }
@@ -2099,6 +2102,43 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return arr.length > HIST_MAX ? arr.slice(arr.length - HIST_MAX) : arr;
     };
 
+    // ── Software팀 진행 기록·일정 그래프 (2026-09-17 팀장님) ─────────────────────
+    //   팀 카드 '개발기록' = 시작일·완료예정일·공정률·진행 내용 열 이름. 없는 팀은 전부 꺼짐(기술팀 무접촉).
+    //   ① 시작일 = 처음 저장한 뒤 잠금(관리자만 수정) ② 완료예정일 = 바꿀 때마다 _devLog에 이력(메인표·상세 팝업은 사유 선택)
+    const devCfg = teamProfile?.개발기록 || null;
+    const devC = useMemo(() => devCols(activeHeaders, devCfg), [activeHeaders, devCfg]);
+    const devWho = user?.displayName || user?.email || '';
+    const isStartLocked = (id, key, ignoreAdmin) => {
+        if (!devCfg?.시작잠금 || !devC?.start || (isAdmin && !ignoreAdmin)) return false;
+        if (String(key ?? '').replace(/\s+/g, '') !== String(devC.start).replace(/\s+/g, '')) return false;
+        if (isDraftNew(id)) return false;                                     // 붙여넣은 새 행 = 아직 저장 전
+        const sv = activeRowsBase.find(r => r._id === id);
+        return !!sv && String(sv[devC.start] ?? '').trim() !== '';            // 비어 있던 시작일은 처음 한 번 적을 수 있음
+    };
+    // 진행 기록 팝업 [적용] — 그 행에 바로 저장(기술팀 진행실적 [적용하기]와 같은 원클릭). 노란 칸이 남은 행은 먼저 정리.
+    const applyDevLog = async (rowId, patch) => {
+        if (dataSource !== 'firebase') { setAlertMsg('진행 기록은 클라우드에 확정 저장된 표에서만 쓸 수 있습니다.'); return false; }
+        if (draftRef.current[rowId]) { setAlertMsg('이 행에 아직 저장하지 않은 노란 칸이 있습니다.\n위쪽 [저장] 또는 [취소]를 먼저 누른 뒤 다시 적용해 주세요.'); return false; }
+        const sv = fbRows.find(r => r._id === rowId);
+        if (!sv) { setAlertMsg('이 행을 찾을 수 없습니다 — 새로고침 후 다시 시도해 주세요.'); return false; }
+        if (!patch || !Object.keys(patch).length) return false;
+        const stP = (devC?.pct && patch[devC.pct] !== undefined) ? autoStatusPatch({ ...sv, ...patch }, devC.pct) : {};   // 100% → 완료 (2026-09-16 규칙)
+        const working = { ...sv, ...patch, ...stP };
+        const entry = buildChangeEntry(sv, working);
+        const write = { ...patch, ...stP };
+        if (entry) write._changeHistory = pushChangeHist(sv, entry);
+        try {
+            await setDoc(rowDocRef(currentTeam, rowId), stampSave(write), { merge: true });
+            const lastEnd = (patch._devLog || []).filter(e => e.kind === 'end').slice(-1)[0];
+            const changes = [...((entry && entry.changes) || [])];
+            if (lastEnd && lastEnd.reason) changes.push({ field: '완료예정 변경 사유', from: '', to: lastEnd.reason });
+            if (!changes.length) changes.push({ field: '진행 기록', from: '', to: '기록 추가' });
+            recordAudit(AUDIT_ACTIONS.EDIT, working, changes);
+            showExtToast(`진행 기록 저장 완료${stP && Object.keys(stP).length ? ` · 진행 현황 → ${Object.values(stP)[0]}` : ''}`);
+            return true;
+        } catch (err) { setAlertMsg(`저장 오류: ${err.message}`); return false; }
+    };
+
     // ── 동시 편집 안전장치 (2026-07-14) ────────────────────────────────────────
     //  ① stampSave = 저장할 때마다 '누가·언제' 도장(_updatedAt/_updatedBy)을 찍는다.
     //  ② findConflicts = 상세팝업 저장 직전, 서버 최신본과 '팝업을 열 때의 원본'을 대조해
@@ -2186,6 +2226,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // (2026-09-10 팀장님) 숫자 0도 값으로 저장 — 8/27 '0 입력 = 지우기' 규칙 폐지. 지우기는 빈칸(Del)으로만.
         //   주차장부 동기화도 0을 값으로 기록(장부 읽기는 v !== '' 기준이라 0이 최신값으로 인식됨 — ProgressModal 692행·App getRecordMonthlyProgress 확인).
         const srcRow = activeRows.find(r => r._id === editingCell.id);
+        if (isStartLocked(editingCell.id, editingCell.key)) {   // 시작일 잠금 (2026-09-17, Software팀)
+            showExtToast('시작일은 처음 저장한 뒤 잠겨 있습니다 — 바꾸려면 관리자에게 요청하세요', true);
+            setEditingCell({ id: null, key: null, value: '' }); return;
+        }
         // ★ x 키인 = 이 프로젝트에서 이 항목 사용 안 함 (2026-09-10 팀장님): 값은 비우고 스위치 off(_naItems) → 메인표 ×·팝업 미적용·진척률/그래프 제외.
         //   Del(빈칸)은 값만 지움(항목은 계속 사용). x·X·×·ㅌ(한글 자판의 x) 인정. 번호·수행번호 칸은 제외. 다시 쓰려면 그 칸에 값을 키인(자동 켜짐).
         const _xIn = String(editingCell.value ?? '').trim().toLowerCase();
@@ -2368,6 +2412,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (!ok) return;
             }
         }
+        // ★ 완료예정일 변경 이력 (2026-09-17 Software팀): 바뀐 행을 모아 사유를 한 번만 묻는다 — 비워 두면 '표에서 변경', [취소] = 저장 보류
+        let endReason = null;
+        if (devC?.end) {
+            const endChg = [];
+            ids.forEach(id => {
+                const { patch = {}, __new } = d[id] || {}; if (__new) return;
+                const k = Object.keys(patch).find(x => String(x).replace(/\s+/g, '') === String(devC.end).replace(/\s+/g, '')); if (!k) return;
+                const sv = fbRows.find(r => r._id === id); if (!sv) return;
+                const from = toYMD(sv[k]), to = toYMD(patch[k]);
+                if (from && to && from !== to) endChg.push(`· ${nameOf(sv)} — ${from.slice(2).replace(/-/g, '/')} → ${to.slice(2).replace(/-/g, '/')}`);
+            });
+            if (endChg.length) {
+                const ans = window.prompt(`완료예정일 변경 ${endChg.length}건 — 사유를 적어 주세요 (비워 두면 '표에서 변경')\n\n${endChg.slice(0, 6).join('\n')}${endChg.length > 6 ? '\n…' : ''}`, '');
+                if (ans === null) return;   // 저장 보류 (노란 칸 유지)
+                endReason = ans.trim() || '표에서 변경';
+            }
+        }
         setDraftSaving(true);
         let okRows = 0, okCells = 0, okNew = 0;
         try {
@@ -2376,13 +2437,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 const { patch = {}, edited = {}, entries = [], __new } = d[id] || {};
                 if (__new) {
                     // 새 행(붙여넣기) — 문서 신규 생성. 여기서 처음으로 서버에 올라간다 (2026-09-16)
-                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch }));
+                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch, ...(devC ? devSavePatch({}, patch, devC, null, devWho) : {}) }));   // 처음 완료예정 보관 (2026-09-17)
                     recordAudit(AUDIT_ACTIONS.ADD, { _id: id, ...patch }, []);
                     okNew++;
                 } else if (sv) {
                     let hist = Array.isArray(sv._changeHistory) ? sv._changeHistory : [];
                     entries.forEach(en => { hist = pushChangeHist({ _changeHistory: hist }, en); });
-                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
+                    const devExtra = devC ? devSavePatch(sv, patch, devC, endReason, devWho) : {};   // 완료예정일 이력·처음 계획 보관 (2026-09-17)
+                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patch, ...devExtra, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
                     const allChanges = entries.flatMap(en => (en && en.changes) || []);
                     if (allChanges.length) {   // 백로그 1건/행 — 상태를 보류·삭제로 바꿨으면 그 동작으로 기록
                         let act = AUDIT_ACTIONS.EDIT;
@@ -3450,6 +3512,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (fmActive(working)) Object.assign(working, fmRecalc(working, latest));
         if (paCfg) Object.assign(working, paRecalc(working));   // 진행율% 자동 (2026-08-24)
         Object.assign(working, autoStatusPatch(working, null));   // 진행 현황 자동 따라가기 (2026-09-16 팀장님, Software팀)
+        // ★ Software팀 날짜 규칙 (2026-09-17): 시작일 잠금 되돌림 · 완료예정일 변경 이력(사유 선택)
+        if (devC) {
+            if (devC.start && isStartLocked(latest._id, devC.start) && String(working[devC.start] ?? '') !== String(latest[devC.start] ?? '')) working[devC.start] = latest[devC.start];
+            if (devC.end) {
+                const from = toYMD(latest[devC.end]), to = toYMD(working[devC.end]);
+                let rsn = null;
+                if (dataSource === 'firebase' && from && to && from !== to) {
+                    const a = window.prompt(`완료예정일 ${from.slice(2).replace(/-/g, '/')} → ${to.slice(2).replace(/-/g, '/')}\n변경 사유를 적어 주세요 (비워 두면 '상세 팝업에서 변경')`, '');
+                    if (a === null) return;   // 저장 보류 (팝업 유지)
+                    rsn = a.trim() || '상세 팝업에서 변경';
+                }
+                Object.assign(working, devSavePatch(latest, { [devC.end]: working[devC.end] }, devC, rsn, devWho));
+            }
+        }
         const entry = buildChangeEntry(latest, working);
         const prevHist = Array.isArray(latest._changeHistory) ? latest._changeHistory : [];
         const updatedRow = entry ? { ...working, _changeHistory: [...prevHist, entry] } : working;
@@ -4747,6 +4823,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (_trc) _trc.classList.add('row-cur');
     };
     const canClearCell = (row, h, ignoreNa) => {
+        if (isStartLocked(row._id, h)) return false;   // 시작일 잠금 (2026-09-17, Software팀)
         if ((!ignoreNa && isNaItemCell(row, h)) || isExtLockedCell(row, h) || isFmAutoCell(row, h) || isPaAutoCell(row, h)) return false;   // 미적용·NAS·자동 계산 잠금 (ignoreNa = 범위 x용, 2026-09-10)
         if ((isStatusCol(h) && !isPlainKeyinCol(h)) || (!isCustAsgCol(h) && (isAssigneeCol(h) || isManagerCol(h))) || isCardAsgCol(h) || ((isClientCol(h) || isVendorAssCol(h)) && !isPlainKeyinCol(h)) || wordDropKey(h)) return false;   // 드롭다운 칸 — 실수 방지
         if (isExecNoCol(h)) return false;                                  // 실행번호 = 하위(s) 구조 마커와 얽힘
@@ -5556,6 +5633,19 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <BarChart3 size={16} className="text-[#1e7ac8]"/> 실적 그래프 보기
                         </button>
                         )}
+                        {/* ★ Software팀 진행 기록·일정 그래프 (2026-09-17 팀장님) — 기술팀 진행실적·실적 그래프 자리. 팀 카드 기능 스위치 */}
+                        {devC && teamProfile?.기능?.진행기록 && !isSubListRow(contextMenu.row) && !isDraftNew(contextMenu.row._id) && (
+                        <button onClick={() => { setDevLogRowId(contextMenu.row._id); setContextMenu(null); }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <CalendarClock size={16} className="text-[#1e7ac8]"/> 진행 기록
+                        </button>
+                        )}
+                        {devC && teamProfile?.기능?.일정그래프 && !isSubListRow(contextMenu.row) && !isDraftNew(contextMenu.row._id) && (
+                        <button onClick={() => { setDevGraphRowId(contextMenu.row._id); setContextMenu(null); }}
+                            className="w-full text-left px-4 py-2 hover:bg-violet-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
+                            <BarChart3 size={16} className="text-[#7c3aed]"/> 일정 그래프
+                        </button>
+                        )}
                         {/* ★ 서식 (2026-09-01 팀장님: 엑셀처럼 굵기·글자색·배경) — 떠 있는 팔레트 열기 (이미 드래그 선택이 있으면 그 범위 유지) */}
                         <button onClick={() => { const m = contextMenu; setContextMenu(null); if (!selRef.current && m.col) fmtSelectCell(m.row._id, m.col); openFmtBar(); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
@@ -5569,7 +5659,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             </button>
                         )}
                         {/* ★ 하위(공종) 추가 — 큰 프로젝트 밑에 공조·CDA 같은 공종 행 (2026-07-16). 하위 행에서는 숨김 */}
-                        {!isSubListRow(contextMenu.row) && (
+                        {!isSubListRow(contextMenu.row) && teamProfile?.기능?.하위공종 !== false && (
                         <button onClick={() => { const r = contextMenu.row; setContextMenu(null); handleAddSubRow(r); }}
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <CornerDownRight size={16} className="text-[#7c3aed]"/> 하위(공종) 추가
@@ -5597,7 +5687,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         )}
                         {/* 진행실적 초기화(백지) — ★관리자 전용 적용 완료 (2026-07-14, 기존 TODO 해소) */}
                         <div className="border-t border-[#e5eaf3] my-1"/>
-                        {isAdmin && (
+                        {isAdmin && teamProfile?.기능?.진행실적팝업 !== false && (
                         <button onClick={() => { handleResetProgress(contextMenu.row); setContextMenu(null); }}
                             className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center gap-3 text-sm font-bold text-[#dc2626] transition-colors">
                             <Trash2 size={16}/> 진행실적 초기화 (백지)
@@ -5786,6 +5876,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             )}
 
+            {/* ── Software팀 진행 기록 · 일정 그래프 (2026-09-17) ── */}
+            {devC && (devLogRowId || devGraphRowId) && (() => {
+                const rid = devLogRowId || devGraphRowId;
+                const r = activeRows.find(x => x._id === rid);
+                if (!r) return null;
+                const st = statusFilterCol ? String(r[statusFilterCol] ?? '').trim() : '';
+                const common = { row: r, cols: devC, no: String(r['번호'] ?? ''), name: String((projectNameCol && r[projectNameCol]) || ''), status: st, statusColor: STATUS_COLORS[st] };
+                return devLogRowId
+                    ? <DevLogModal {...common} who={devWho} notify={setAlertMsg}
+                        startLocked={!!devC.start && isStartLocked(r._id, devC.start, true)}
+                        onApply={(p) => applyDevLog(r._id, p)} onClose={() => setDevLogRowId(null)}
+                        onOpenGraph={teamProfile?.기능?.일정그래프 ? () => { setDevLogRowId(null); setDevGraphRowId(r._id); } : null} />
+                    : <DevScheduleModal {...common} onClose={() => setDevGraphRowId(null)}
+                        onOpenLog={teamProfile?.기능?.진행기록 ? () => { setDevGraphRowId(null); setDevLogRowId(r._id); } : null} />;
+            })()}
+
             {/* ── 진행실적 등록 모달리스 ── */}
             {progressRow && (() => {
                 const idx = activeRows.findIndex(r => r._id === progressRow._id);
@@ -5840,6 +5946,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
                     execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
+                    startLockedCols={detailRow && devC?.start && isStartLocked(detailRow._id, devC.start) ? [devC.start] : []}
                 />
             )}
 
