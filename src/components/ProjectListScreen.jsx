@@ -36,6 +36,12 @@ const SCALE_KEY = 'pms_list_scale';
 const SCALE_OPTIONS = [70, 80, 90, 100, 110, 125, 150];
 const loadScale = () => { try { const v = Number(localStorage.getItem(SCALE_KEY)); return SCALE_OPTIONS.includes(v) ? v : 100; } catch (e) { return 100; } };
 const saveScale = (v) => { try { localStorage.setItem(SCALE_KEY, String(v)); } catch (e) {} };
+// 정렬(열·방향)도 팀별로 이 PC에 기억 (2026-09-18: 다른 화면 갔다 오면 풀리던 문제)
+const sortCfgKey  = (team) => `pms_list_sort_${team || 'default'}`;
+const loadSortCfg = (team) => { try { const raw = localStorage.getItem(sortCfgKey(team)); const o = raw ? JSON.parse(raw) : null;
+    return (o && typeof o.key === 'string' && (o.dir === 'asc' || o.dir === 'desc')) ? { key: o.key, dir: o.dir } : { key: null, dir: 'asc' }; }
+    catch (e) { return { key: null, dir: 'asc' }; } };
+const saveSortCfg = (team, cfg) => { try { localStorage.setItem(sortCfgKey(team), JSON.stringify(cfg || { key: null, dir: 'asc' })); } catch (e) {} };
 const colWidthsKey = (team) => `pms_list_colWidths_${team || 'default'}`;
 const loadColWidths = (team) => { try { const raw = localStorage.getItem(colWidthsKey(team)); const o = raw ? JSON.parse(raw) : {}; return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; } catch (e) { return {}; } };
 const saveColWidths = (team, obj) => { try { localStorage.setItem(colWidthsKey(team), JSON.stringify(obj || {})); } catch (e) {} };
@@ -337,7 +343,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [isLoading, setIsLoading]         = useState(false);   // 진입 시엔 가림막 안 씀 — 업로드·저장 등 작업 중에만 (2026-08-11)
     const [alertMsg, setAlertMsg]           = useState('');
     const [searchTerm, setSearchTerm]       = useState('');
-    const [sortConfig, setSortConfig]       = useState({ key: null, dir: 'asc' });
+    const [sortConfig, setSortConfig]       = useState(() => loadSortCfg(currentTeam));   // 이 PC 기억 (2026-09-18)
     const [columnFilters, setColumnFilters] = useState({});
     const [openFilter, setOpenFilter]       = useState(null);
     const [filterSearch, setFilterSearch]   = useState('');   // 헤더 ▼ 드롭다운 검색칸 (2026-09-10, 엑셀 자동필터 검색)
@@ -430,6 +436,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // ── 열 숨김 설정: 팀 바뀌면 그 팀 저장값으로 다시 로드 (2026-07-09) ──
     useEffect(() => { setHiddenCols(loadHiddenCols(currentTeam)); }, [currentTeam]);
+
+    // ── 정렬: 팀 바뀌면 그 팀 저장값으로 (2026-09-18) ──
+    useEffect(() => { setSortConfig(loadSortCfg(currentTeam)); }, [currentTeam]);
 
     // ── Firebase 구독 ────────────────────────────────────────────────────
     useEffect(() => {
@@ -4466,8 +4475,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     // 헤더 클릭 정렬 3단계: 오름차순 → 내림차순 → 해제(기본 순서) (2026-08-28 팀장님: 수행번호 헤더를 눌러 내림차순이 걸린 채
     //   [+]로 번호를 받으니 행이 위로 튀어 '번호가 아래로 바뀐다'고 보임 — 종전엔 연도를 바꾸기 전엔 정렬을 끌 방법이 없었음)
+    //   ★정렬을 바꾸는 모든 경로는 applySort를 지난다 — 여기서 이 PC에 기억시킨다 (2026-09-18)
+    const applySort = (cfg) => { setSortConfig(cfg); saveSortCfg(currentTeam, cfg); };
     const requestSort = key =>
-        setSortConfig(p => p.key !== key ? { key, dir: 'asc' } : p.dir === 'asc' ? { key, dir: 'desc' } : { key: null, dir: 'asc' });
+        applySort(sortConfig.key !== key ? { key, dir: 'asc' } : sortConfig.dir === 'asc' ? { key, dir: 'desc' } : { key: null, dir: 'asc' });
 
     const visibleHeaders    = activeHeaders.filter(h => !hiddenCols.has(h));
     const activeFilterCount = Object.values(columnFilters).reduce((acc, v) => acc + (v instanceof Set ? v.size : (v ? 1 : 0)), 0)
@@ -4689,7 +4700,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 const on = isSortKey && sortConfig.dir === d;
                                 return (
                                     <button key={d} type="button" title={tip}
-                                        onClick={() => { setSortConfig({ key: h, dir: d }); setOpenFilter(null); }}
+                                        onClick={() => { applySort({ key: h, dir: d }); setOpenFilter(null); }}
                                         style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'5px 10px', border:'none', cursor:'pointer',
                                                  fontSize:12, fontWeight: on ? 800 : 500, color: on ? '#1e7ac8' : '#1e293b', backgroundColor: on ? '#e8f0fe' : 'transparent' }}>
                                         <span style={{ flex:1 }}>{lbl}</span>{on && <span style={{ fontSize:10, color:'#1e7ac8' }}>적용 중</span>}
@@ -4697,7 +4708,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                 );
                             })}
                             {isSortKey && (
-                                <button type="button" onClick={() => { setSortConfig({ key: null, dir: 'asc' }); setOpenFilter(null); }}
+                                <button type="button" onClick={() => { applySort({ key: null, dir: 'asc' }); setOpenFilter(null); }}
                                     style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', padding:'5px 10px', border:'none', cursor:'pointer', fontSize:12, fontWeight:500, color:'#b91c1c', backgroundColor:'transparent' }}>
                                     ✕ 정렬 해제 <span style={{ fontSize:10, color:'#94a3b8' }}>(원래 순서로)</span>
                                 </button>
@@ -6888,8 +6899,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 폭이 모자라면 줄을 늘리지 말고 왼쪽 미니 요약이 잘리게 한다. 오른쪽 도구 줄(홈·추가·검색·저장·⚙)은 shrink-0이라 항상 온전하다.
                 ⚠ 헤더에 무엇이든 추가하면 scratchpad/hdr_oneline_test.js (4팀 × 초안 4상태 × 폭 3종) 통과 후 완료 보고할 것 */}
             <header className="flex flex-row flex-nowrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
-                {/* 왼쪽: 타이틀 + 연도 + 기준월 + 미니 요약 — 여기만 줄어든다(overflow-hidden, 2026-09-18) */}
-                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                {/* 왼쪽: 타이틀 + 연도 + 기준월 + 미니 요약 — 여기만 줄어든다 — 자르기는 미니 요약에서만 한다(팀 드롭다운이 잘리지 않게, 2026-09-18) */}
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                     {/* 팀 탭 제거 (2026-08-31 팀장님) — 팀 전환은 제목 옆 ▾ 드롭다운, 홈은 오른쪽 버튼줄로 이동 */}
                     <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                         <ListChecks size={20}/>
@@ -6918,7 +6929,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <span className="text-[11px] font-bold text-gray-500 mr-1">기준연도:</span>
                             <select
                                 value={selectedYear}
-                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); setSortConfig({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); setActiveManagers(new Set()); }}
+                                onChange={e => { setSelectedYear(e.target.value); setColumnFilters({}); applySort({key:null,dir:'asc'}); setActiveStatusChips(new Set()); setActiveAssignees(new Set()); setActiveManagers(new Set()); }}
                                 className="bg-transparent border-none text-gray-700 text-[11px] font-bold outline-none color-scheme-light cursor-pointer">
                                 {(availableYears.length ? availableYears : [selectedYear]).map(y => <option key={y} value={y}>{y}년</option>)}
                             </select>
@@ -8084,7 +8095,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                             {selectedRowId && <span className="ml-3 text-violet-400 font-bold">· 행 선택됨 — 프로젝트 추가 시 초기값으로 복사</span>}
                             {/* 정렬 상태 표시 + 1클릭 해제 (2026-08-28 팀장님: 헤더 정렬이 켜진 줄 몰라 '번호 넣으면 행이 움직인다' 혼란 — 왜 움직이는지 여기서 보이게) */}
                             {sortConfig.key && <span className="ml-3 font-bold" style={{ color: '#1e7ac8' }}>· 정렬: {dispHeader(sortConfig.key)} {sortConfig.dir === 'asc' ? '↑ 오름차순' : '↓ 내림차순'}
-                                <button onClick={() => setSortConfig({ key: null, dir: 'asc' })} title="정렬을 끄고 기본 순서(번호 순)로" style={{ marginLeft: 6, padding: '0 6px', border: '1px solid #7fb3e3', borderRadius: 4, background: '#eaf3fc', color: '#1e7ac8', fontWeight: 800, cursor: 'pointer' }}>해제</button></span>}
+                                <button onClick={() => applySort({ key: null, dir: 'asc' })} title="정렬을 끄고 기본 순서(번호 순)로" style={{ marginLeft: 6, padding: '0 6px', border: '1px solid #7fb3e3', borderRadius: 4, background: '#eaf3fc', color: '#1e7ac8', fontWeight: 800, cursor: 'pointer' }}>해제</button></span>}
                             {/* 자동 전체 백업 표시 (2026-09-09) — 이 PC가 쓰는지(bkAutoOn) + 클라우드 상태(마지막 성공)로 어느 PC에서든 확인. 26시간 넘게 새 백업 없으면 주황 */}
                             {(bkAutoOn || (bkStatus && bkStatus.at)) && (() => {
                                 const ok = bkStatus?.ok !== false, at = bkStatus?.at ? rdTimeText(bkStatus.at) : '';
