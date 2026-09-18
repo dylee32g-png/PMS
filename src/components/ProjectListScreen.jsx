@@ -532,7 +532,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             return { ...prev, [rowId]: { ...d, patch: { ...d.patch, ...patch }, orig: nOrig, edited: { ...d.edited, ...edited }, entries: entry ? [...d.entries, entry] : d.entries } };   // ...d = 새 행 표시(__new) 보존 (2026-09-16)
         });
     };
-    const draftLabel = () => `${draftCellCount}칸${draftNewCount ? ` + 새 행 ${draftNewCount}건` : ''}`;
+    //   라벨은 짧게 — 헤더 한 줄 예산 (2026-09-18): 칸만 '3칸' · 새 행만 '새 행 1건' · 둘 다 '3칸+새 행 1건'
+    const draftLabel = () => `${draftCellCount ? `${draftCellCount}칸` : ''}${draftNewCount ? `${draftCellCount ? '+' : ''}새 행 ${draftNewCount}건` : ''}`;
     const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftLabel()}이 아직 저장되지 않았습니다.\n\n헤더의 [저장] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
     const guardNav = (fn) => () => { if (draftTotal > 0) { draftNavBlock(); return; } fn && fn(); };
     // 브라우저 뒤로가기(←/→)도 같은 가드 (2026-09-07 팀장님: 팀 이동은 확인창이 뜨는데 ←는 그냥 나감) — App.js popstate가 이 창구를 먼저 확인
@@ -6883,14 +6884,17 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             <input type="file" ref={restoreFileRef} onChange={handleRestorePick} accept=".json" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
-            <header className="flex flex-row flex-wrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
-                {/* 왼쪽: 홈·팀 탭 + 타이틀 + 연도 + 카운트 */}
-                <div className="flex items-center gap-2 min-w-0 shrink-0">
+            {/* ★헤더는 항상 한 줄 (2026-09-18 팀장님, 네 번째 재발 근절): flex-wrap 금지 —
+                폭이 모자라면 줄을 늘리지 말고 왼쪽 미니 요약이 잘리게 한다. 오른쪽 도구 줄(홈·추가·검색·저장·⚙)은 shrink-0이라 항상 온전하다.
+                ⚠ 헤더에 무엇이든 추가하면 scratchpad/hdr_oneline_test.js (4팀 × 초안 4상태 × 폭 3종) 통과 후 완료 보고할 것 */}
+            <header className="flex flex-row flex-nowrap justify-between items-center gap-2 mb-2 shrink-0 relative z-50">
+                {/* 왼쪽: 타이틀 + 연도 + 기준월 + 미니 요약 — 여기만 줄어든다(overflow-hidden, 2026-09-18) */}
+                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                     {/* 팀 탭 제거 (2026-08-31 팀장님) — 팀 전환은 제목 옆 ▾ 드롭다운, 홈은 오른쪽 버튼줄로 이동 */}
                     <div className="p-2 bg-[#1e7ac8] rounded-xl shadow-sm text-white shrink-0">
                         <ListChecks size={20}/>
                     </div>
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
                         <div className="relative shrink-0">
                             <h1 onClick={() => setTeamDropOpen(v => !v)} title="팀 전환 — 클릭"
                                 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1 whitespace-nowrap cursor-pointer select-none">
@@ -6941,7 +6945,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             const items = kpiData.ccOn ? (kpiData.ccItems || []).filter(it => it.cnt !== null) : [];
                             const total = kpiData.ccOn ? (kpiData.ccTotal || 0) : kpiData.total;
                             return (
-                                <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                                <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
                                     <span style={chip} title={(kpiData.ccOn ? `전체 ${total}건 = ` + items.map(it => `${it.라벨} ${it.cnt}건`).join(' + ') : `전체 ${total}건`) + (kpiData.ptPct !== null ? ` · 포인트 달성률 ${kpiData.ptPct}% (${kpiData.accSum.toLocaleString()}/${kpiData.totSum.toLocaleString()})` : '')}>
                                         <span style={{ flex: 1, minWidth: 0 }}>
                                             <span style={{ fontSize: 10.5, fontWeight: 800, color: '#64748b' }}>전체 <b style={{ fontSize: 14, color: '#37352f' }}>{total}</b><span style={{ fontSize: 9.5, color: '#a4a097' }}>건</span></span>
@@ -7055,7 +7059,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             <input type="text" placeholder="전체 검색..." value={searchTerm} title="전체 검색"
                                 onChange={e => setSearchTerm(e.target.value)}
                                 style={{ borderRadius: 8 }}
-                                className={`bg-white border border-[#d8d4cf] hover:border-[#b9b3ab] focus:border-[#1e7ac8] py-1.5 pl-7 pr-2 text-xs text-[#37352f] outline-none transition-all placeholder-[#a4a097] ${dataSource === 'firebase' && draftCellCount > 0 ? 'w-[72px]' : 'w-32 focus:w-48'}`}/>
+                                className={`bg-white border border-[#d8d4cf] hover:border-[#b9b3ab] focus:border-[#1e7ac8] py-1.5 pl-7 pr-2 text-xs text-[#37352f] outline-none transition-all placeholder-[#a4a097] ${dataSource === 'firebase' && draftTotal > 0 ? 'w-[72px]' : 'w-32 focus:w-48'}`}/>
                         </div>
                     </div>
 
