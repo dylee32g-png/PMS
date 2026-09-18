@@ -12,7 +12,7 @@ import {
 import { collection, doc, setDoc, updateDoc, deleteDoc, deleteField, getDoc, getDocs, onSnapshot, writeBatch } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
 import DetailModal from './DetailModal';
-import { DevLogModal, DevScheduleModal, devCols, devSavePatch, toYMD } from './DevLogModal';   // Software팀 진행 기록·일정 그래프 (2026-09-17)
+import { DevLogModal, DevScheduleModal, devCols, devSavePatch, toYMD, parseMonthLogSheet, buildMonthLogPlan, stripMonthLog } from './DevLogModal';   // Software팀 진행 기록·일정 그래프 (2026-09-17) · 지난 월 채우기 (2026-09-18)
 import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
@@ -358,6 +358,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const [progressRow, setProgressRow]             = useState(null); // 진행실적 등록 대상 row
     const [devLogRowId, setDevLogRowId]             = useState(null); // Software팀 진행 기록 팝업 대상 행 (2026-09-17)
     const [devGraphRowId, setDevGraphRowId]         = useState(null); // Software팀 일정 그래프 대상 행 (2026-09-17)
+    const [monthLog, setMonthLog]                   = useState(null); // 지난 월 진행 기록 채우기 미리보기 (2026-09-18)
+    const monthLogFileRef = useRef(null);                             // 〃 파일 고르기
     const [statusDropdown, setStatusDropdown]       = useState(null); // { rowId, col, top, left, width }
     const [assigneeDropdown, setAssigneeDropdown]   = useState(null); // { rowId, col, top, left, width }
     const [clientDropdown, setClientDropdown]       = useState(null); // { rowId, col, top, left, width }
@@ -2137,6 +2139,67 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             showExtToast(`진행 기록 저장 완료${stP && Object.keys(stP).length ? ` · 진행 현황 → ${Object.values(stP)[0]}` : ''}`);
             return true;
         } catch (err) { setAlertMsg(`저장 오류: ${err.message}`); return false; }
+    };
+
+    // ── 지난 월 진행 기록 채우기 (2026-09-18 팀장님, Software팀) ─────────────────
+    //   월간보고 엑셀을 변환한 파일의 '월별기록' 시트를 읽어, 달마다 한 건씩 진행 기록을 심는다.
+    //   표 칸(공정률·진행 내용·날짜)은 건드리지 않는다 — 그 값은 엑셀 업로드가 이미 넣은 최신 상태.
+    const handleMonthLogPick = async (e) => {
+        const file = e.target?.files?.[0];
+        if (monthLogFileRef.current) monthLogFileRef.current.value = '';
+        if (!file || !isAdmin || !devC) return;
+        setIsLoading(true);
+        try {
+            const XLSX = await loadXLSX();
+            const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+            const sn = wb.SheetNames.find(n => String(n).replace(/\s+/g, '') === '월별기록');
+            if (!sn) { setAlertMsg(`이 파일에는 '월별기록' 시트가 없습니다.\n\n시트 ${wb.SheetNames.length}개: ${wb.SheetNames.join(', ')}`); return; }
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+            const { items, error } = parseMonthLogSheet(raw);
+            if (error) { setAlertMsg(error); return; }
+            const res = buildMonthLogPlan(items, fbRows.filter(r => !isSubListRow(r)),
+                { numCol: '번호', nameCol: projectNameCol || '프로젝트명', by: '월간보고', now: new Date() });
+            setMonthLog({ fileName: file.name, months: [...new Set(items.map(i => String(i.date).slice(0, 7)))].sort(), ...res, done: null });
+        } catch (err) { setAlertMsg(`파일 읽기 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+    const applyMonthLog = async () => {
+        if (!monthLog || !isAdmin || dataSource !== 'firebase') return;
+        const { plan, counts } = monthLog;
+        if (!plan.length) { setAlertMsg('심을 기록이 없습니다.'); return; }
+        if (!window.confirm(`[지난 월 진행 기록 채우기]\n\n프로젝트 ${counts.rows}건 · 기록 ${counts.logs}건 · 완료예정 변경 ${counts.ends}건`
+            + (counts.replaced ? `\n※ 먼저 넣었던 월간보고 기록 ${counts.replaced}건은 새것으로 바뀝니다` : '')
+            + `\n\n표의 칸 값(공정률·진행 내용·날짜)은 건드리지 않습니다.\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            let n = 0;
+            for (const pl of plan) {
+                const w = { _devLog: pl.devLog };
+                if (pl.planEnd0) w._planEnd0 = pl.planEnd0;
+                await setDoc(rowDocRef(currentTeam, pl.rowId), stampSave(w), { merge: true });
+                n++;
+            }
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(지난 월 진행 기록)',
+                note: `지난 월 진행 기록 채우기: 프로젝트 ${n}건 · 기록 ${counts.logs}건 · 완료예정 변경 ${counts.ends}건 — ${monthLog.fileName}` });
+            setMonthLog(prev => prev ? { ...prev, done: `✔ 프로젝트 ${n}건에 기록 ${counts.logs}건을 넣었습니다. 우클릭 [일정 그래프]에서 확인하세요.` } : prev);
+            showExtToast(`지난 월 기록 저장 완료 — 프로젝트 ${n}건 · 기록 ${counts.logs}건 · 일정 변경 ${counts.ends}건`);
+        } catch (err) { setAlertMsg(`기록 채우기 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
+    };
+    const clearMonthLog = async () => {
+        if (!isAdmin || dataSource !== 'firebase') return;
+        const targets = fbRows.map(r => ({ r, keep: stripMonthLog(r) })).filter(x => x.keep);
+        if (!targets.length) { setAlertMsg('월간보고에서 넣은 기록이 없습니다.'); return; }
+        if (!window.confirm(`[월간보고 기록 지우기]\n\n프로젝트 ${targets.length}건에서 월간보고로 넣은 기록을 지웁니다.\n손으로 적은 기록은 그대로 둡니다.\n진행할까요?`)) return;
+        setIsLoading(true);
+        try {
+            for (const t of targets) await setDoc(rowDocRef(currentTeam, t.r._id), stampSave({ _devLog: t.keep }), { merge: true });
+            logAudit(currentTeam, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(지난 월 진행 기록)',
+                note: `월간보고 기록 지우기: 프로젝트 ${targets.length}건` });
+            setMonthLog(prev => prev ? { ...prev, done: `✔ 프로젝트 ${targets.length}건에서 월간보고 기록을 지웠습니다.` } : prev);
+            showExtToast(`월간보고 기록을 지웠습니다 — 프로젝트 ${targets.length}건`);
+        } catch (err) { setAlertMsg(`지우기 오류: ${err.message}`); }
+        finally { setIsLoading(false); }
     };
 
     // ── 동시 편집 안전장치 (2026-07-14) ────────────────────────────────────────
@@ -5876,6 +5939,67 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             )}
 
+            {/* ── 지난 월 진행 기록 채우기 미리보기 (2026-09-18 팀장님) ── */}
+            {monthLog && (
+                <div className="fixed inset-0 z-[9500] bg-black/40 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-[860px] max-w-full max-h-[86vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2.5 px-6 py-4 border-b border-[#f0edea] shrink-0">
+                            <CalendarClock size={20} className="text-[#1e7ac8]"/>
+                            <div>
+                                <div className="text-[15px] font-bold text-[#1e293b]">지난 월 진행 기록 채우기</div>
+                                <div className="text-[11.5px] text-[#8f8b84] mt-0.5">{monthLog.fileName}{monthLog.months?.length ? ` · ${monthLog.months[0]} ~ ${monthLog.months[monthLog.months.length - 1]} (${monthLog.months.length}개월)` : ''}</div>
+                            </div>
+                            <button onClick={() => setMonthLog(null)} className="ml-auto p-1 rounded-lg text-[#a4a097] hover:bg-[#f3f1ee]"><X size={18}/></button>
+                        </div>
+                        <div className="px-6 py-3 flex flex-wrap gap-2 text-[12px] shrink-0">
+                            <span className="rounded-full px-3 py-1 bg-[#eff6ff] text-[#1358a0] font-bold">프로젝트 {monthLog.counts.rows}건{(() => { const ys = [...new Set(monthLog.plan.map(p => p.year))].sort(); return ys.length > 1 ? ` (${ys[0]}~${ys[ys.length - 1]}년)` : (ys[0] ? ` (${ys[0]}년)` : ''); })()}</span>
+                            <span className="rounded-full px-3 py-1 bg-[#ecfdf5] text-[#047857] font-bold">기록 {monthLog.counts.logs}건</span>
+                            <span className="rounded-full px-3 py-1 bg-[#fffbeb] text-[#b45309] font-bold">완료예정 변경 {monthLog.counts.ends}건</span>
+                            {monthLog.counts.replaced > 0 && <span className="rounded-full px-3 py-1 bg-[#f3f1ee] text-[#6d6860] font-bold">먼저 넣은 기록 {monthLog.counts.replaced}건 교체</span>}
+                            {monthLog.counts.unmatched > 0 && <span className="rounded-full px-3 py-1 bg-[#fef2f2] text-[#b91c1c] font-bold">짝 못 찾음 {monthLog.counts.unmatched}건</span>}
+                        </div>
+                        <div className="px-6 overflow-y-auto grow">
+                            <table className="w-full text-[12px]">
+                                <thead className="sticky top-0 bg-white">
+                                    <tr className="text-[#8f8b84] text-left border-b border-[#e8e4de]">
+                                        <th className="py-1.5 w-14 text-center">연도</th><th className="w-12">번호</th><th>프로젝트명</th>
+                                        <th className="w-16 text-center">달</th><th className="w-16 text-center">기록</th>
+                                        <th className="w-20 text-center">일정 변경</th><th className="w-28">처음 완료예정</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {monthLog.plan.map(pl => (
+                                        <tr key={pl.rowId} className="border-b border-[#f5f3f0]">
+                                            <td className="py-1.5 text-center text-[#8f8b84]">{pl.year}</td>
+                                            <td className="text-[#8f8b84] font-bold">{pl.no}</td>
+                                            <td className="text-[#37352f] truncate max-w-[330px]">{pl.name}</td>
+                                            <td className="text-center text-[#6d6860]">{pl.months}</td>
+                                            <td className="text-center font-bold text-[#047857]">{pl.logs}</td>
+                                            <td className="text-center font-bold text-[#b45309]">{pl.ends || '—'}</td>
+                                            <td className="text-[#6d6860]">{pl.planEnd0 || (pl.planEnd0Have ? `${pl.planEnd0Have} (그대로)` : '—')}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {monthLog.unmatched.length > 0 && (
+                                <div className="my-3 rounded-lg bg-[#fef2f2] border border-[#fecaca] px-3 py-2 text-[12px] text-[#b91c1c]">
+                                    <b>표에서 짝을 못 찾은 {monthLog.unmatched.length}건</b> — 번호와 이름이 둘 다 다릅니다. 먼저 [엑셀 업로드]로 행을 넣어 주세요.
+                                    <ul className="mt-1 ml-4 list-disc">{monthLog.unmatched.map(u => <li key={`${u.year}-${u.no}`}>{u.year}년 {u.no} · {u.name} ({u.months}개월)</li>)}</ul>
+                                </div>
+                            )}
+                            {monthLog.done && <div className="my-3 rounded-lg bg-[#ecfdf5] border border-[#a7f3d0] px-3 py-2 text-[12.5px] text-[#047857] font-bold">{monthLog.done}</div>}
+                        </div>
+                        <div className="flex gap-2 items-center px-6 py-3 border-t border-[#f0edea] shrink-0">
+                            <span className="text-[11.5px] text-[#a4a097] mr-auto">표의 칸 값은 건드리지 않습니다 · 다시 넣어도 겹치지 않습니다(월간보고 기록만 교체)</span>
+                            <button onClick={clearMonthLog} className="text-[12.5px] font-bold rounded-lg px-3 py-1.5 border border-[#e8e4de] text-[#8f8b84] hover:bg-[#f3f1ee]">월간보고 기록 지우기</button>
+                            <button onClick={() => setMonthLog(null)} className="text-[13px] font-bold rounded-lg px-3.5 py-1.5 border border-[#d9d5ce] text-[#37352f] hover:bg-[#f3f1ee]">닫기</button>
+                            <button onClick={applyMonthLog} disabled={!monthLog.plan.length}
+                                className="text-[13px] font-bold rounded-lg px-4 py-1.5 bg-[#1e7ac8] text-white hover:bg-[#1968ad] disabled:opacity-50">적용</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Software팀 진행 기록 · 일정 그래프 (2026-09-17) ── */}
             {devC && (devLogRowId || devGraphRowId) && (() => {
                 const rid = devLogRowId || devGraphRowId;
@@ -6755,6 +6879,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             <input type="file" ref={userFileRef} onChange={handleUserExcelPick} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={histFileRef} onChange={handleHistoryImportPick} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={yearFileRef} onChange={handleYearFilePick} accept=".xlsx,.xls" className="hidden"/>
+            <input type="file" ref={monthLogFileRef} onChange={handleMonthLogPick} accept=".xlsx,.xls" className="hidden"/>
             <input type="file" ref={restoreFileRef} onChange={handleRestorePick} accept=".json" className="hidden"/>
 
             {/* ── 헤더 (월간업무보고 동일 스타일) ── */}
@@ -7177,6 +7302,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     <button onClick={() => { setSettingsOpen(false); handleAutoStatusFix(); }}
                                         className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
                                         <Check size={14} className="text-violet-600"/> 진행 현황 규칙 맞춤 <span className="text-[10px] text-[#999] font-normal">분류 따라가기 · 100% = 완료</span>
+                                    </button>
+                                    )}
+                                    {/* 지난 월 진행 기록 채우기 (2026-09-18 팀장님, Software팀) — 월간보고 변환 엑셀의 월별기록 시트 → 행 안 기록 */}
+                                    {devC && dataSource === 'firebase' && (
+                                    <button onClick={() => { setSettingsOpen(false); monthLogFileRef.current?.click(); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <CalendarClock size={14} className="text-[#1e7ac8]"/> 지난 월 진행 기록 채우기 <span className="text-[10px] text-[#999] font-normal">월간보고 엑셀 → 달별 기록·일정 이력</span>
                                     </button>
                                     )}
                                     </>)}

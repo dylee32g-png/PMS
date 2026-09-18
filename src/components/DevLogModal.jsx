@@ -120,6 +120,95 @@ export const checkDevInput = (sum, input) => {
     return null;
 };
 
+// ── 지난 월 진행 기록 채우기 (2026-09-18 팀장님, Software팀) ─────────────────
+//   월간보고 엑셀을 변환한 '월별기록' 시트(번호·기록날짜·공정률·한 일·완료예정일)를 읽어
+//   그 행의 기록(_devLog)·처음 완료예정(_planEnd0)으로 심는다. 표 칸 값은 건드리지 않는다.
+//   심은 기록에는 src 도장을 찍는다 → 다시 넣으면 도장 찍힌 것만 갈아끼우고 손으로 적은 기록은 그대로 둔다.
+export const MLOG_SRC = '월간보고';
+const MLOG_COL = { no: '번호', name: '프로젝트명', date: '기록날짜', pct: '공정률', text: '한 일', end: '완료예정일' };
+const pad3 = (s) => /^\d{1,3}$/.test(String(s).trim()) ? String(s).trim().padStart(3, '0') : String(s).trim();
+
+// 시트(2차원 배열) → 기록 목록 (머리글 줄은 스스로 찾는다)
+export const parseMonthLogSheet = (raw) => {
+    const rows = Array.isArray(raw) ? raw : [];
+    const hi = rows.findIndex(r => Array.isArray(r) && r.some(c => norm(c) === '번호') && r.some(c => norm(c) === '기록날짜'));
+    if (hi < 0) return { items: [], error: "'월별기록' 시트에서 머리글(번호·기록날짜)을 찾지 못했습니다." };
+    const head = rows[hi].map(c => norm(c));
+    const ci = {}; Object.keys(MLOG_COL).forEach(k => { ci[k] = head.indexOf(norm(MLOG_COL[k])); });
+    const get = (r, i) => (i >= 0 && r[i] !== undefined && r[i] !== null) ? String(r[i]).trim() : '';
+    const items = [];
+    rows.slice(hi + 1).forEach(r => {
+        if (!Array.isArray(r)) return;
+        const no = get(r, ci.no), date = toYMD(get(r, ci.date));
+        if (!no || !date) return;
+        items.push({ no: pad3(no), name: get(r, ci.name), date, pct: get(r, ci.pct), text: get(r, ci.text), end: toYMD(get(r, ci.end)) });
+    });
+    return { items, error: items.length ? null : "'월별기록' 시트에 읽을 줄이 없습니다." };
+};
+
+// 기록 목록 + 웹 행 → 행별 계획 (실제 쓰기는 부르는 쪽에서)
+export const buildMonthLogPlan = (items, rows, o = {}) => {
+    const numCol = o.numCol || '번호', nameCol = o.nameCol || '프로젝트명';
+    const by = o.by || MLOG_SRC, reason = o.reason || '월간보고 기준 변경';
+    const at = (o.now || new Date()).toISOString();
+    const byNo = new Map(), byName = new Map();
+    (rows || []).forEach(r => {
+        const y = String(r._year || ''), n = String(r[numCol] ?? '').trim();
+        if (n) byNo.set(`${y}||${pad3(n)}`, r);
+        const nm = norm(r[nameCol]);
+        if (nm && !byName.has(`${y}||${nm}`)) byName.set(`${y}||${nm}`, r);   // 이름 짝도 연도 안에서만 (2026-09-18)
+    });
+    // ★묶음 열쇠 = 연도 + 번호 (2026-09-18): 번호는 해마다 001부터 다시 시작하므로
+    //   번호만으로 묶으면 2025년 001과 2024년 001이 한 프로젝트가 된다.
+    const groups = new Map();
+    (items || []).forEach(it => {
+        const k = `${String(it.date).slice(0, 4)}||${it.no}`;
+        if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it);
+    });
+    const plan = [], unmatched = [];
+    let seq = 0;
+    groups.forEach((list0, gkey) => {
+        const list = list0.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        const year = String(list[0].date).slice(0, 4);
+        const no = list[0].no;
+        // 이름 짝은 그 해 행에서만 찾는다(해마다 같은 이름이 이어지는 프로젝트가 있어 연도를 넘으면 안 됨)
+        const row = byNo.get(gkey) || byName.get(`${year}||${norm(list[0].name)}`) || null;
+        if (!row) { unmatched.push({ no, year, name: list[0].name, months: list.length }); return; }
+        const cur = Array.isArray(row._devLog) ? row._devLog : [];
+        const keep = cur.filter(e => !e || e.src !== MLOG_SRC);
+        const entries = [];
+        let prevEnd = '', ends = 0;
+        list.forEach(it => {
+            const ps = String(it.pct ?? '').replace(/[%\s,]/g, '');
+            const p = (ps === '' || !Number.isFinite(Number(ps))) ? '' : Math.round(Number(ps) * 10) / 10;
+            const text = String(it.text ?? '').trim();
+            if (p !== '' || text) entries.push({ id: `ml-${gkey}-${it.date}-${seq++}`, kind: 'log', date: it.date, pct: p, text, by, at, src: MLOG_SRC });
+            if (it.end) {
+                if (prevEnd && it.end !== prevEnd) { entries.push({ id: `me-${gkey}-${it.date}-${seq++}`, kind: 'end', date: it.date, from: prevEnd, to: it.end, reason, by, at, src: MLOG_SRC }); ends++; }
+                prevEnd = it.end;
+            }
+        });
+        const first = (list.find(x => x.end) || {}).end || '';
+        const have0 = toYMD(row._planEnd0);
+        plan.push({
+            rowId: row._id, no, year, name: String(row[nameCol] ?? '') || list[0].name, months: list.length,
+            logs: entries.filter(e => e.kind === 'log').length, ends, replaced: cur.length - keep.length, kept: keep.length,
+            planEnd0: (!have0 && first) ? first : '', planEnd0Have: have0,
+            devLog: [...keep, ...entries].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.at).localeCompare(String(b.at))),
+        });
+    });
+    plan.sort((a, b) => String(a.year).localeCompare(String(b.year)) || String(a.no).localeCompare(String(b.no)));
+    const sum = (k) => plan.reduce((s, p) => s + p[k], 0);
+    return { plan, unmatched, counts: { rows: plan.length, logs: sum('logs'), ends: sum('ends'), replaced: sum('replaced'), unmatched: unmatched.length } };
+};
+
+// 심은 기록만 걷어내기 (되돌리기) — 손으로 적은 기록은 남긴다. 지울 게 없으면 null
+export const stripMonthLog = (row) => {
+    const cur = Array.isArray(row && row._devLog) ? row._devLog : [];
+    const keep = cur.filter(e => !e || e.src !== MLOG_SRC);
+    return keep.length === cur.length ? null : keep;
+};
+
 // ── 공통 겉모양 ──
 const Overlay = ({ children }) => (
     // 바깥(어두운 곳) 클릭으로는 닫히지 않음 — 버튼으로만 (2026-09-15 전 팝업 공통 규칙)
@@ -250,7 +339,7 @@ export function DevLogModal({ row, cols, no, name, status, statusColor, who, sta
                             {e.kind === 'end'
                                 ? <span className="font-bold text-[#d97706]">일정</span>
                                 : <span className="font-bold text-[#1e7ac8]" style={{ fontVariantNumeric: 'tabular-nums' }}>{e.pct === '' || e.pct === undefined ? '—' : `${e.pct}%`}</span>}
-                            <span className="text-[#37352f] min-w-0 break-words">
+                            <span className="text-[#37352f] min-w-0 break-words whitespace-pre-line">
                                 {e.kind === 'end'
                                     ? <>완료예정 {e.from ? md(e.from) : '없음'} → <b>{md(e.to)}</b>{e.reason ? <span className="text-[#a4a097] text-[11.5px]"> · {e.reason}</span> : null}</>
                                     : (e.text || <span className="text-[#a4a097]">(공정률만 기록)</span>)}
