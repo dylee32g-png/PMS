@@ -3,6 +3,7 @@ import { X, Minus, BarChart2, BarChart3, ChevronLeft, ChevronRight, RefreshCw } 
 import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import { getTeamProfile } from '../teamProfiles';   // 팝업 [자체/통합] 기본 선택 팀 연동 (2026-08-25)
+import { t1PlanDoneMove } from './tech1Progress';   // 완료 프로젝트 = 종료 주 (2026-09-29, 기술1팀 누계)
 
 const SIMPLE_ITEMS = [
     { key: 'drawing',  label: '도면입수',     color: '#3b82f6' },
@@ -54,7 +55,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [], sumAsPct = false }) => {   // sumAsPct: 시운전 합계를 %로 표기 (기술1팀 수식 팀, 2026-08-19)
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [], sumAsPct = false, doneWeekKey = null, lockAfterYm = null }) => {   // lockAfterYm 'YYYY-MM': 이 달 뒤 주 칸 입력 잠금 (기술1팀 누계, 2026-09-29 팀장님 "다음 달 이후 칸 잠금")   // sumAsPct: 시운전 합계를 %로 표기 (기술1팀 수식 팀, 2026-08-19) · doneWeekKey: 완료 프로젝트의 종료 주 'YYYY-M-W' (기술1팀 누계, 2026-09-29 — [적용하기] 때 종료 달 뒤 입력을 이 주로 옮김)
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -70,13 +71,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     // ── 모바일 간편 입력 주 선택 (2026-07-20 팀장님): 기본 = 오늘이 속한 주. PC(mobileMode=false)에선 사용 안 함 ──
     const [mobileWeek, setMobileWeek] = useState({ year: cy0, month: cm0, week: Math.min(5, Math.ceil(now0.getDate() / 7)) });
 
-    // 계산(누적·진척률)용 전체 범위 ±6개월 — 보기 범위와 무관하게 항상 고정 (합계·누적이 정확하도록)
+    // 계산(누적·진척률)용 기본 범위 ±6개월 — 보기 범위와 무관. 실제 계산 범위(ALL_WEEKS)는 아래 weeklyData 뒤에서 장부 기간까지 넓힘 (2026-09-29)
     const { y: allPy, m: allPm } = addMonths(cy0, cm0, -6);
     const { y: allNy, m: allNm } = addMonths(cy0, cm0, 6);
-    const ALL_MONTHS = genMonths(allPy, allPm, allNy, allNm);
-    const ALL_WEEKS  = ALL_MONTHS.flatMap(({ year, month }) =>
-        weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))
-    );
 
     // 화면 표시용 범위 (기본 2개월 / 전체보기 ±6개월) — 렌더링에만 사용
     const { y: pm6y, m: pm6m } = addMonths(cy0, cm0, showAllMonths ? -6 : -1);
@@ -100,6 +97,20 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const [pos,        setPos]        = useState({ x: Math.max(4, (window.innerWidth - progressPanelW) / 2), y: 50 });
     const [minimized,  setMinimized]  = useState(false);
     const [weeklyData, setWeeklyData] = useState({});
+    // ★ 계산 범위 = ±6개월 + 장부에 든 가장 이른·늦은 달 + 기준월 (2026-09-29 전수 점검): ±6개월로만 세면 그보다 오래된 공정 %(PLC·ETOS·HMI…)가
+    //   합계·진척률·회색 힌트에서 0으로 빠짐 — 예: 3월에 끝난 프로젝트가 10월부터 팝업 50% ↔ 메인표·그래프 100%. 보기 범위(DISP_WEEKS)는 그대로.
+    const ALL_WEEKS = (() => {
+        const yms = [allPy * 100 + allPm, allNy * 100 + allNm];
+        const [by, bm] = (baseDate && String(baseDate).includes('-')) ? String(baseDate).split('-').map(Number) : [cy0, cm0];
+        if (by > 1900 && bm >= 1 && bm <= 12) yms.push(by * 100 + bm);
+        Object.values(weeklyData || {}).forEach(o => {
+            if (!o || typeof o !== 'object') return;
+            Object.keys(o).forEach(k => { const p = String(k).split('-').map(Number); if (p.length >= 3 && p[0] > 1900 && p[1] >= 1 && p[1] <= 12) yms.push(p[0] * 100 + p[1]); });
+        });
+        const lo = yms.reduce((a, b) => Math.min(a, b)), hi = yms.reduce((a, b) => Math.max(a, b));
+        return genMonths(Math.floor(lo / 100), lo % 100, Math.floor(hi / 100), hi % 100).flatMap(({ year, month }) =>
+            weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` })));
+    })();
     const [savedWeekly,setSavedWeekly]= useState({});
     const [saving,     setSaving]     = useState(false);
     const [dirty,      setDirty]      = useState(false);
@@ -437,8 +448,17 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         }
     };
 
+    // ★ 다음 달 이후 주 = 잠금 (2026-09-29 팀장님, 기술1팀 누계): 메인표는 '오늘 달까지'만 세서, 다음 달 칸에 넣으면 그 달이 올 때까지 팝업 진척률 ≠ 메인표 공정률.
+    //   이미 들어 있던 미래 값은 지우기(빈칸)만 허용 — 실수로 넣은 것을 정리할 수 있게.
+    const isFutureWk = (wKey) => {
+        if (!lockAfterYm) return false;
+        const [y, m] = String(wKey).split('-').map(Number), [ly, lm] = String(lockAfterYm).split('-').map(Number);
+        return Number.isFinite(y) && Number.isFinite(m) && (y * 100 + m) > (ly * 100 + lm);
+    };
+    const FUTURE_TIP = '다음 달 이후 칸 — 그 달이 되면 입력할 수 있습니다 (메인표 공정률과 맞추기 위해 잠금 · 이미 있는 값은 지우기만 가능)';
     const updateWeekly = (itemKey, wKey, val) => {
         if (lockedItems.includes(itemKey)) return;   // NAS 진척자료 자동 항목 — 키인 잠금 (2026-07-22)
+        if (isFutureWk(wKey) && String(val ?? '') !== '') return;   // 다음 달 이후 = 지우기만 (2026-09-29)
         // (2026-09-10 팀장님) 숫자 0도 값으로 저장 — 7/10 '0 입력 = 빈칸' 규칙 폐지(메인표 0 허용과 통일). 지우기는 빈칸으로만.
         const n = Number(val);
         const parsed = (val === '' || !Number.isFinite(n)) ? undefined : Math.max(0, n);
@@ -564,7 +584,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 if (_hadSaved(key)) mainTable[HEADER_MAP[key]] = '';   // 이번에 지운 항목 → 메인표 빈칸 (2026-09-01)
                 return; // 원래 없던 칸은 안 건드림
             }
-            mainTable[HEADER_MAP[key]] = Math.round(itemFinalPct(key));
+            mainTable[HEADER_MAP[key]] = itemFinalPct(key);   // 반올림 없이 (2026-09-29: 66.7을 67로 넣으면 메인표 공정률이 팝업 진척률과 어긋남)
         });
         if (selfPctCum !== null && accSelfPts > 0) mainTable['자체시운전'] = selfPctCum;
         else if (accSelfPts === 0 && _hadSavedComb('commissioning')) mainTable['자체시운전'] = '';   // 이번에 지움 (2026-09-01)
@@ -631,27 +651,38 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const projectId = row._id || row.id;
         setApplying(true);
         try {
+            // ★ 완료 프로젝트 = 종료 주 (2026-09-29 팀장님 "종료 주로 자동 이동", 기술1팀 누계): 종료 달 뒤(이번 주 등)에 넣은 값은 종료 주로 옮겨 저장
+            //   — 메인표 키인·[진행 수치 다시 계산]과 같은 규칙(t1PlanDoneMove). 끝난 프로젝트가 금월·전월에 잡히지 않게. 합계·진척률은 그대로(자리만 이동)
+            let wd = weeklyData, movedTxt = '';
+            if (doneWeekKey) {
+                const mv = t1PlanDoneMove(weeklyData, doneWeekKey);
+                if (mv) {
+                    wd = mv.weekly; setWeeklyData(wd);
+                    const [, dm, dw] = String(doneWeekKey).split('-');
+                    movedTxt = ` · 완료 프로젝트라 종료 달 뒤 입력 ${mv.moved.reduce((s, x) => s + x.from.length, 0)}칸을 종료 주(${dm}월 ${dw}주)로 옮김`;
+                }
+            }
             await setDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${team}`, docKey), {
-                weekly: weeklyData,
+                weekly: wd,
                 updatedAt: new Date().toISOString(),
             });
-            setSavedWeekly(weeklyData); setDirty(false);
-            onProgressSaved?.({ docKey, weeklyData });
+            setSavedWeekly(wd); setDirty(false);
+            onProgressSaved?.({ docKey, weeklyData: wd });
             // ③ 포인트 실적 = 선택(자체 또는 통합, 합 없음) → 메인표 포인트실적/포인트소스 (2026-06-29)
             let _pts = pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0);
             // ★ 이번에 지워 0이 된 경우(마지막 저장 때는 실적 있었음) = 메인표 Point도 빈칸 (2026-09-01 지우기 동기화)
             const _hadPts0 = (kb) => Object.keys(savedWeekly || {}).some(k => (k === kb || k.endsWith('_' + kb)) && Object.values(savedWeekly[k] || {}).some(v => v !== '' && v !== null && v !== undefined));
             if (_pts === 0 && _hadPts0(pointSource === 'int' ? 'intCommissioning' : 'commissioning')) _pts = '';
-            const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, '포인트소스': pointSource } };
+            const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, '포인트소스': pointSource }, weekly: wd };   // weekly = 방금 저장한 장부(종료 주 이동 반영) — List 누계 계산용(구독본은 한 박자 늦음, 2026-09-29)
             await onApplyToMonthly(projectId, _confirm);
             const _bits = [];
             if (data.plc  != null) _bits.push(`PLC ${data.plc}%`);
             if (data.etos != null) _bits.push(`ETOS ${data.etos}%`);
             if (data.hmi  != null) _bits.push(`HMI ${data.hmi}%`);
             _bits.push(`포인트 ${_pts}pt(${pointSource === 'int' ? '통합' : '자체'})`);
-            setApplyMsg(`✓ ${data.month}월 저장·적용 완료 — ${_bits.join(' · ')}`);
+            setApplyMsg(`✓ ${data.month}월 저장·적용 완료 — ${_bits.join(' · ')}${movedTxt}`);
             setApplyConfirm(null);
-            setTimeout(() => setApplyMsg(''), 6000);
+            setTimeout(() => setApplyMsg(''), movedTxt ? 9000 : 6000);
         } catch (e) {
             setApplyMsg('저장 오류: ' + e.message);
         } finally {
@@ -702,7 +733,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             });
         });
         return r;
-    }, [weeklyData]); // eslint-disable-line
+    }, [weeklyData, baseDate]); // eslint-disable-line
 
     const subCumByWeek = useMemo(() => {
         if (subRows.length === 0) return null;
@@ -805,7 +836,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                 <div key={itemKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: BORDER_D }}>
                     <div style={{ width: 4, height: 22, background: color, borderRadius: 2, flexShrink: 0 }}/>
                     <div style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-                    <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey)} value={val ?? ''} placeholder={showPrev ? String(prevVal) : ''}
+                    <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey) || (isFutureWk(wKey) && !hasVal)} title={isFutureWk(wKey) ? FUTURE_TIP : undefined} value={val ?? ''} placeholder={showPrev ? String(prevVal) : ''}
                         onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onWheel={e => e.target.blur()}
                         onFocus={e => { if (e.target.select) e.target.select(); }}
                         style={{ width: 108, height: 48, fontSize: 21, fontWeight: 800, textAlign: 'center', borderRadius: 10,
@@ -914,8 +945,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const showPrev = useMax && !hasVal && prevVal > 0;
                     const extraCls = wkCls(wKey);
                     return (
-                        <td key={wKey} className={extraCls} style={{ ...TD, background: isCur?'#fef9e7':'#f8fafc' }}>
-                            <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey)} value={val??''} placeholder={showPrev ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
+                        <td key={wKey} className={extraCls} style={{ ...TD, background: isFutureWk(wKey) ? '#e9edf2' : isCur?'#fef9e7':'#f8fafc' }} title={isFutureWk(wKey) ? FUTURE_TIP : undefined}>
+                            <input type="number" min="0" inputMode="numeric" readOnly={lockedItems.includes(itemKey) || (isFutureWk(wKey) && !hasVal)} value={val??''} placeholder={showPrev && !isFutureWk(wKey) ? String(prevVal) : ''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                                 style={{ display:'block', width:'100%', height:38, background: hasVal?'rgba(37,99,235,0.07)':'transparent',
                                     border:'none', outline:'none', color: hasVal?'var(--brand)':'#94a3b8',
                                     fontSize: cellFontFit(hasVal ? val : (showPrev ? prevVal : '')), fontWeight: hasVal?700:400,
@@ -959,8 +990,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             const hasVal = val !== undefined && val !== '';
             const extraCls = wkCls(wKey);
             return (
-                <td key={wKey} className={extraCls} style={{ ...TD, background: isCur ? '#fef9e7' : bgColor }}>
-                    <input type="number" min="0" inputMode="numeric" value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
+                <td key={wKey} className={extraCls} style={{ ...TD, background: isFutureWk(wKey) ? '#e9edf2' : isCur ? '#fef9e7' : bgColor }} title={isFutureWk(wKey) ? FUTURE_TIP : undefined}>
+                    <input type="number" min="0" inputMode="numeric" readOnly={isFutureWk(wKey) && !hasVal} value={val??''} data-w={wKey} onChange={e => updateWeekly(itemKey, wKey, e.target.value)} onKeyDown={e => cellKeyNav(e, wKey)} onWheel={e => e.target.blur()}
                         style={{ display:'block', width:'100%', height:34, background: hasVal?`${valColor}15`:'transparent',
                             border:'none', outline:'none', color: hasVal?valColor:'#94a3b8',
                             fontSize: cellFontFit(hasVal ? val : ''), fontWeight: hasVal?700:400,

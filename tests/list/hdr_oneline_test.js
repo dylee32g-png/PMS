@@ -5,6 +5,7 @@
  *
  *   상태 = 5팀(유지보수 포함) × 초안 4가지 × 창 폭 3가지 = 60가지
  */
+process.env.BABEL_ENV = process.env.BABEL_ENV || 'test';   // babel-preset-react-app은 환경값이 없으면 멈춤 — README대로 'node 파일'만 쳐도 돌게 (2026-09-29)
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

@@ -1874,7 +1874,8 @@ const TechTeamPMS = () => {
       const procByMonth = {}, commByMonth = {};
       // 수식 팀(기술1팀 2026, 팀 카드 '수식'): 자체 성분 = 그 달 실적÷총물량 (누적 아님) — 팝업 진척률·메인 금월 공정률과 통일 (2026-08-19 v2 표식)
       const _fmCfgA = getTeamProfile(currentTeam)?.수식;
-      const fmMonthly = !!_fmCfgA && (!Array.isArray(_fmCfgA.연도) || _fmCfgA.연도.includes(String(p._year || '')));
+      const fmMonthly = !!_fmCfgA && _fmCfgA.방식 !== '누계' && (!Array.isArray(_fmCfgA.연도) || _fmCfgA.연도.includes(String(p._year || '')));   // ★ 누계 방식(2026-09-29) = 자체 성분도 지금까지 누적÷총물량 (다른 팀과 같음)
+      const fmCumA = !!_fmCfgA && _fmCfgA.방식 === '누계' && (!Array.isArray(_fmCfgA.연도) || _fmCfgA.연도.includes(String(p._year || '')));    // 누계 = 메인표·팝업과 같은 소수 1자리 (2026-09-29: 66.7 ↔ 67 어긋남)
       const selfByMonth = {}, intByMonth = {};
       wkList.forEach(w => {
           ['plc','etos','hmi'].forEach(k => {
@@ -1904,7 +1905,8 @@ const TechTeamPMS = () => {
               if (k === 'integratedTest') return totalPt > 0 ? Math.min(100, (fmMonthly ? (intByMonth[mk]  || 0) : comm.int)  / totalPt * 100) : 0;
               return Math.min(100, proc[k] || 0);
           };
-          result[mk] = Math.round(applied.reduce((s, k) => s + valOf(k), 0) / applied.length);
+          const avgP = applied.reduce((s, k) => s + valOf(k), 0) / applied.length;
+          result[mk] = fmCumA ? Math.round(avgP * 10) / 10 : Math.round(avgP);
       });
       return result;
   };
@@ -5881,7 +5883,7 @@ const TechTeamPMS = () => {
                                           if (cc) {
                                               const items = (cc.items || []).map(it => ({ ...it, hex: ITEM_HEX[it.라벨] || '#8f8b84' }));
                                               const sum = items.reduce((s, it) => s + (it.cnt || 0), 0);
-                                              const rest = Math.max(0, (cc.total || 0) - sum);   // 전체 > 항목 합 = 상태값이 셋 밖인 행 (기술1팀)
+                                              const rest = Math.max(0, (cc.total || 0) - sum);   // 전체 > 항목 합 = 상태값이 셋 밖인 행 — '항목합'이 아닌 카드만 (2026-09-29부터 4팀 모두 항목합 = 안 생김)
                                               const doneIt = items.find(it => it.라벨 === '완료');
                                               const rate = (cc.total > 0 && doneIt && doneIt.cnt !== null && doneIt.cnt !== undefined) ? Math.round(doneIt.cnt / cc.total * 100) : null;
                                               const segs = items.filter(it => it.cnt > 0).map(it => ({ n: it.cnt, hex: it.hex }))

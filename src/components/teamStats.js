@@ -84,7 +84,7 @@ export function computeTeamStats(rows, team) {
             const vals = [].concat(it.값).map(v => String(v).trim());
             return { 라벨: it.라벨, cnt: stCol2 ? mains.filter(r => vals.includes(String(r[stCol2] || '').trim())).length : null };
         });
-        // 전체 산정 (2026-08-24 팀장님 확정): '항목합' 팀(기술2·3팀) = 진행중·추진중·완료만 합산, 그 외(삭제·2018이전 등) 미포함 — List 상단 카드와 동일 규칙
+        // 전체 산정 (2026-08-24 팀장님 확정 · 2026-09-29 4팀 통일): '항목합' = 칩 3종만 합산, 그 외(삭제·취소·대기·2018이전 등) 미포함 — List 상단 카드와 동일 규칙
         const ccTotal = cc.전체 === '항목합'
             ? items.reduce((s, it) => s + (it.cnt || 0), 0)
             : (noCol ? mains.filter(r => String(r[noCol] ?? '').trim() !== '').length : mains.length);

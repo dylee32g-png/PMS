@@ -9,6 +9,7 @@ import { isStatusCol, isAssigneeCol, isManagerCol, isDateCol, isClientCol, isVen
 // ⑧ Hold/HOLD 표기 통일: 상태 표시에 normalizeStatus 적용 (표시만, 데이터 불변)
 // 2026-06-29: 묶음(activeColGroups)별 섹션 재구성 — 묶음 제목 줄 + 같은 묶음 가로 배치 + 라벨 너비 정리.
 //   · 항목 순서는 엑셀(activeColGroups) 그대로 유지 (엑셀 우선 원칙).
+//     (2026-09-29) activeColGroups = 엑셀 순서 + 팀 카드 '열순서'(기술1팀 의뢰·견적코드 등 → 비고 앞) — 메인표와 같은 순서
 // 2026-07-10: 모든 섹션 2열 통일 + 라벨 고정폭 + 행높이 통일(토글은 행 오른쪽).
 // 2026-07-13: mode='add' 지원 — 프로젝트 추가 팝업이 같은 틀·같은 폭을 쓰도록 통합(옛 1열 640px 폼 폐기).
 //   · 진행현황/담당자 목록은 부모(teamSettings 마스터)에서 props로 받음 — 추가·수정 팝업 모두 팀 설정 반영.
@@ -30,6 +31,9 @@ export default function DetailModal({
     wordDropOptions = {},     // 팀 카드 '드롭다운열' 칸의 선택 목록 { 열이름: [값들] } — 공사분류·공장 등 (2026-09-04 팀장님)
     customerAsgCols = [],     // 팀 카드 '고객담당자열' — 발주처(고객사) 담당자 칸: 직원 칩 제외, 일반 입력 (2026-09-04 팀장님)
     plainKeyinCols = [],      // 팀 카드 '일반입력열' — 진행 현황 등을 드롭다운(select) 대신 입력칸으로 (2026-09-16 Software팀: 상태 키인)
+    progSwitch = null,        // 기술1팀 누계 (2026-09-29): { cols:[PLC·ETOS T/S·HMI·자체 시운전], alwaysCols:[자체 시운전] } — 진행 항목 스위치 = 이 프로젝트에 적용 (메인표·진행실적 팝업과 같은 규칙)
+    autoLockedCols = [],      // 자동 계산 칸(기술1팀 수식 — 자체 시운전·누적·전월·금월·전체·전월(2)·금월(2)) = 보기 전용 (2026-09-29 전수 점검: 쳐도 저장 때 다시 계산돼 사라지던 것)
+    autoPctCols = [],         // 그중 % 붙여 보일 칸 (팀 카드 표시.퍼센트표기열 — 공정률 전체·전월·금월)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
@@ -40,6 +44,8 @@ export default function DetailModal({
     const isExtLockedDM = (h) => (extLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '').toUpperCase() === String(h ?? '').replace(/\s+/g, '').toUpperCase());   // NAS 자동 칸 (2026-07-22)
     const isStartLockedDM = (h) => (startLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
     const isExecLockedDM = (h) => (execLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 수행번호 자동 부여 칸 (2026-08-28)
+    const isAutoLockedDM = (h) => (autoLockedCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));   // 수식 자동 칸 (2026-09-29)
+    const isAutoPctDM = (h) => (autoPctCols || []).some(t => String(t ?? '').replace(/\s+/g, '') === String(h ?? '').replace(/\s+/g, ''));
 
     // 드롭다운열 칸 목록 찾기 — 열 이름 공백 무시 비교 (2026-09-04). 목록 없는 칸은 null = 일반 입력
     const wordOptsOf = (h) => { const k = String(h ?? '').replace(/\s/g, ''); const hit = Object.keys(wordDropOptions || {}).find(c => String(c).replace(/\s/g, '') === k); return hit ? (wordDropOptions[hit] || []) : null; };
@@ -105,18 +111,36 @@ export default function DetailModal({
         //   종전 '메인표 열 표시/숨김(팀 공통)' 토글은 폐지 — 열은 항상 다 보이고, 숨김은 설정 메뉴 [열 표시/숨기기]에서만.
         const off = naItems.includes(h);
         const hasVal = String(val ?? '').trim() !== '';
-        const swOn = !off && hasVal;
+        // ★ 기술1팀 누계 (2026-09-29 팀장님): 진행 항목 스위치 = 적용 여부 = 메인표·진행실적 팝업과 같은 규칙 (List t1EmptyOffOf)
+        //   'value'  (PLC·ETOS T/S·HMI) = 값이 있어야 적용 — 빈칸은 '빈칸'(메인표 × · 팝업에 없음). 켜면(_naOn) 빈칸이어도 적용 → 팝업에 줄
+        //   'always' (자체 시운전)       = 빈칸도 '적용'(0%로 계산) — "자체 시운전은 무조건 기본 활성화". 끄면(_naItems) 팝업·공정률에서 빠짐
+        //   (오전의 '진행 중·취소 = 빈칸도 적용'은 폐지 — 메인표 ×인데 팝업에 PLC·ETOS가 나오던 원인, 010 취소)
+        const _psN = (v) => String(v ?? '').replace(/\s+/g, '');
+        const _psHit = (list) => (list || []).some(c => _psN(c) === _psN(h));
+        const psRule = progSwitch && _psHit(progSwitch.cols) ? (_psHit(progSwitch.alwaysCols) ? 'always' : 'value') : null;
+        const exOn = psRule === 'value' && (Array.isArray(detailRow._naOn) ? detailRow._naOn : []).some(x => _psN(x) === _psN(h));
+        const swOn = !off && (hasVal || psRule === 'always' || exOn);
         const focusField = () => setTimeout(() => {
             const box = document.querySelector(`[data-dm-field="${CSS.escape(String(h))}"]`);
             const el = box && box.querySelector('input:not([type=date]), textarea, select, button');
             if (el) el.focus();
         }, 0);
+        const setExOn = (want) => setDetailRow(p => {   // 빈 항목 켜기/끄기 = _naOn 표시 (끈 목록 _naItems에서는 뺌)
+            const ex = Array.isArray(p._naItems) ? p._naItems : [], on = Array.isArray(p._naOn) ? p._naOn : [];
+            const ex2 = ex.filter(x => _psN(x) !== _psN(h)), on2 = on.filter(x => _psN(x) !== _psN(h));
+            return { ...p, _naItems: ex2, _naOn: want ? [...on2, h] : on2 };
+        });
         const onSwitch = () => {
+            if (psRule === 'value' && !hasVal) { setExOn(off || !exOn); return; }   // 빈칸: 켜기(팝업에 줄) ↔ 끄기
             if (off) { toggleNa(h); if (!hasVal) focusField(); }       // off → on: 목록에서 빼고, 빈칸이면 바로 키인하도록
-            else if (hasVal) toggleNa(h);                                // on → off: 목록에 추가(메인표 ×, 값 보관)
+            else if (hasVal || psRule === 'always') toggleNa(h);         // on → off: 목록에 추가(메인표 ×, 값 보관) · 자체 시운전 = 빈칸이어도 끔
             else focusField();                                           // 빈칸(자동 off) → 값을 넣어야 켜짐
         };
-        const swTip = off ? '스위치 off — 메인표 × (누르면 켬)' : hasVal ? '켜짐 — 누르면 끔 (메인표 ×, 값은 보관)' : '빈칸 — 값을 입력하면 켜집니다';
+        const swTip = off ? '스위치 off — 메인표 × (누르면 켬)'
+            : hasVal ? '켜짐 — 누르면 끔 (메인표 ×, 값은 보관)'
+            : psRule === 'always' ? '적용 — 아직 빈칸(0%로 계산) · 누르면 끔 (진행실적 팝업·공정률에서 빠짐)'
+            : psRule === 'value' ? (exOn ? '적용 — 진행실적 팝업에 줄이 있음 · 누르면 끔' : '빈칸 — 이 프로젝트엔 없는 항목(메인표 ×) · 누르면 켬: 진행실적 팝업에 줄이 생김')
+            : '빈칸 — 값을 입력하면 켜집니다';
         return (
             <div key={h} data-dm-field={h} style={{ gridColumn: wide ? '1 / -1' : undefined, ...fieldBox }}>
                 {/* 라벨(고정폭·한 줄). 메인표 토글은 행 오른쪽 끝 → 라벨이 좁아도 이름이 한 줄에 들어가 행 높이 일정 (2026-07-10) */}
@@ -156,6 +180,14 @@ export default function DetailModal({
                             title="NAS 진척자료에서 자동으로 들어오는 값 — 수정은 NAS 원본 엑셀에서">
                             <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val).trim() !== '' ? String(val).replace(/%/g,'') + '%' : '—'}</span>
                             <span style={{ fontSize:'11px', fontWeight:700, color:'#0369a1', whiteSpace:'nowrap' }}>NAS 자동</span>
+                            <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
+                        </div>
+                    ) : isAutoLockedDM(h) ? (
+                        // 수식 자동 칸 (2026-09-29 전수 점검): 메인표 셀과 같이 키인 잠금 — 진행실적 장부 + PLC·ETOS·HMI·총물량으로 계산됨
+                        <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
+                            title="자동 계산 칸 — PLC·ETOS·HMI·총물량은 직접 입력, 시운전 포인트는 진행실적 팝업에서 넣으면 따라 바뀝니다">
+                            <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val ?? '').trim() !== '' ? (isAutoPctDM(h) && !String(val).endsWith('%') ? String(val) + '%' : pctDisplay(h, val)) : '—'}</span>
+                            <span style={{ fontSize:'11px', fontWeight:700, color:'#1e7ac8', whiteSpace:'nowrap' }}>{isAdd ? '추가하면 자동 계산' : '자동 계산'}</span>
                             <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
                         </div>
                     ) : isCheck ? (
@@ -281,7 +313,7 @@ export default function DetailModal({
                 {/* 오른쪽 스위치 (2026-09-10 팀장님, 모든 항목 공통): 켜짐=값 있음 · 끄면 그 프로젝트 칸만 메인표 × · 열 숨김 없음. 수행번호(자동 부여)는 스위치 없음 */}
                 {!isExecLockedDM(h) && !isStartLockedDM(h) ? (
                     <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:5, padding:'0 9px', borderLeft:'1px solid #eef1f6' }}>
-                        {isPctCol(h) && <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: swOn ? '#1e7ac8' : '#b0b8c4' }}>{off ? '미적용' : hasVal ? '적용' : '빈칸'}</span>}
+                        {isPctCol(h) && <span style={{ fontSize:'10px', fontWeight:700, whiteSpace:'nowrap', color: swOn ? '#1e7ac8' : '#b0b8c4' }}>{off ? '미적용' : swOn ? '적용' : '빈칸'}</span>}
                         <button type="button" onClick={(e) => { e.stopPropagation(); onSwitch(); }} title={swTip}
                             style={{ flexShrink:0, width:'22px', height:'13px', borderRadius:'7px', border:'none', cursor:'pointer', position:'relative', padding:0,
                                 backgroundColor: swOn ? '#1e7ac8' : '#cbd5e1' }}>

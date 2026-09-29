@@ -18,7 +18,11 @@ import ProgressModal from './ProgressModal';
 import { naProgressItemsOf, extLockedItemKeysAllOf } from './projectListData';
 import { getTeamProfile } from '../teamProfiles';   // 통합열 별칭 — 기술2·3팀 통합시운전 기본 ON (2026-08-25)
 
-const TEAMS = ['기술1팀', '기술2팀', '기술3팀', 'Software팀'];
+// 모바일 입력 대상 팀 = 팀 카드 '기능.모바일입력'이 false가 아닌 팀 (2026-09-29 전수 점검): 기술1팀·Software팀 카드는 false인데 목록에 나왔음 —
+//   이 화면엔 기술1팀 누계 계산·항목 규칙이 없어, 여기서 넣으면 메인표 자동 칸·진행실적 팝업 항목이 PC와 달라짐 → 카드대로 제외 (PC List에서 입력)
+const ALL_TEAMS = ['기술1팀', '기술2팀', '기술3팀', 'Software팀'];
+const TEAMS = ALL_TEAMS.filter(t => getTeamProfile(t)?.기능?.모바일입력 !== false);
+const OFF_TEAMS = ALL_TEAMS.filter(t => !TEAMS.includes(t));
 
 // 헤더 이름 비교는 공백 제거 후 (엑셀 헤더 '참 조' 같은 공백 함정 — 2026-07-08 교훈)
 const norm = (h) => String(h ?? '').replace(/\s+/g, '');
@@ -191,6 +195,7 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                         <div style={{ fontSize: 12, color: '#666', lineHeight: 1.7 }}>
                             담당자명 <b style={{ color: '#1e7ac8' }}>{myName || '(이름 없음)'}</b>(으)로 배정된 프로젝트를 찾지 못했습니다.<br />
                             프로젝트 List의 '담당자' 이름과 내 계정 이름이 같은지<br />관리자에게 확인을 요청해 주세요.
+                            {OFF_TEAMS.length > 0 && <><br /><span style={{ color: '#94a3b8' }}>{OFF_TEAMS.join('·')}은 모바일 입력 대상이 아닙니다 — [PC 화면]에서 입력하세요.</span></>}
                         </div>
                     </div>
                 ) : (
