@@ -213,8 +213,10 @@ ok(!!mc && mc.includes('if (fmCfg && fmCum) {') && mc.includes('await buildMonth
    '[월간 마감]: 누계면 칸 비움 없이 다시 계산 · 스냅샷 = 마감 달 기준 장부 값 (수동·자동 공용 buildMonthSnapshot — 서버 최신 장부)');
 ok(src.includes("|| (fmCum && ('_naItems' in patch || '_naOn' in patch))") && src.includes('fmCumTrig(editingCell.key)'), '셀 키인: 작업·종료·x(사용 안 함)도 자동 칸 다시 계산');
 ok(src.includes('handleT1Recalc()') && src.includes('진행 수치 다시 계산') && src.includes('진행실적 장부엔 값이 있는데 메인표 칸이 빈칸'), "설정 '정리 도구' [진행 수치 다시 계산] (관리자) — 기존 4건 이동 + 자동 칸 + '장부엔 값·메인표 빈칸' 알림");
-ok(src.includes("progSwitch={detailRow && fmCum") && src.includes("progSwitch={addingRow && fmCum"), '상세 보기·추가 팝업에 진행 항목 스위치 규칙 전달');
-ok(src.split("alwaysCols: [fmCol('자체 시운전'), fmCol('통합 시운전')] } : null}").length - 1 === 2 && !src.includes("mode: t1IsDone("), '  └ 둘 다 같은 규칙: 자체·통합 시운전 = 스위치로 켜고 끔(alwaysCols) · 완료/진행 중 구분 없음');
+ok(src.includes('progSwitch={progSwitchOf(detailRow)}') && src.includes('progSwitch={progSwitchOf(addingRow)}'), '상세 보기·추가 팝업에 진행 항목 스위치 규칙 전달 (progSwitchOf 하나 — 2026-09-30 기술2·3팀도)');
+const psOfSrc = grabTo(src, '    const progSwitchOf = (row) => {', '\n    };');
+ok(!!psOfSrc && psOfSrc.includes("if (fmCum && fmActive(row)) return { cols: ['PLC', 'ETOS T/S', 'HMI', '자체 시운전', '통합 시운전'].map(fmCol), alwaysCols: [fmCol('자체 시운전'), fmCol('통합 시운전')] };") && !src.includes("mode: t1IsDone("),
+   '  └ 둘 다 같은 규칙: 기술1팀 누계 = 자체·통합 시운전 스위치로 켜고 끔(alwaysCols) · 완료/진행 중 구분 없음');
 const eo = grabTo(src, '    const t1EmptyOffOf = (row) => {', '\n    };');
 ok(!!eo && !/off\.internalTest = false/.test(eo) && !eo.includes('t1IsDone') && !src.includes('t1DoneOffOf'), 't1EmptyOffOf: 완료 여부와 무관(전 프로젝트 같은 규칙) · 자체 시운전은 빼지 않음 · 옛 규칙(완료만) 없음');
 const mobTeams = new Function('getTeamProfile', (mobSrc.match(/^const ALL_TEAMS = [^\n]+/m) || [''])[0] + '\n' + (mobSrc.match(/^const TEAMS = [^\n]+/m) || [''])[0] + '\nreturn TEAMS;')(getTeamProfile);
@@ -263,15 +265,16 @@ const pmParts = {
     now: grabTo(pmSrc, '    const now0 = new Date();', '    const cy0 = now0.getFullYear(), cm0 = now0.getMonth() + 1;'),
     base: grabTo(pmSrc, '    const { y: allPy, m: allPm } = addMonths(cy0, cm0, -6);', '    const { y: allNy, m: allNm } = addMonths(cy0, cm0, 6);'),
     range: grabTo(pmSrc, '    const ALL_WEEKS = (() => {', '\n    })();'),
-    calc: grabTo(pmSrc, '    const [refY, refM] = ', '    }, [weeklyData, totalPt, subRows, refWKey, progressItems, sumAsPct]); // eslint-disable-line'),
+    helpers: (() => { const h = grabTo(pmSrc, '    const hasRecIn = (w, key) =>', "    const BASE_TIP = '"); return h ? h.replace(/    const BASE_TIP = '$/, '') : null; })(),   // 기록 없는 항목 기준값 (2026-09-30 — 기술1팀엔 mainBase 없음 = 종전 계산)
+    calc: grabTo(pmSrc, '    const [refY, refM] = ', '    }, [weeklyData, totalPt, subRows, refWKey, progressItems, sumAsPct, mainBase, savedWeekly]); // eslint-disable-line'),
 };
 Object.entries(pmParts).forEach(([k, v]) => ok(!!v, '팝업 원문 조각 찾음: ' + k));
 // 수리 전 계산 범위(오늘 ±6개월 고정) — 같은 원문에서 범위만 옛것으로 바꿔 시한폭탄 재현
 const RANGE_OLD = '    const ALL_MONTHS = genMonths(allPy, allPm, allNy, allNm);\n    const ALL_WEEKS  = ALL_MONTHS.flatMap(({ year, month }) =>\n        weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))\n    );';
 const fixedDate = (iso) => { const t0 = new Date(iso).getTime(); return class extends Date { constructor(...a) { if (a.length) super(...a); else super(t0); } static now() { return t0; } }; };
 const popupPct = ({ weekly, progressItems, totalPt, baseDate = '2026-09', today = '2026-09-29T12:00:00+09:00', oldRange = false }) => {
-    const body = `${pmParts.head}\nreturn (progressItems, weeklyData, baseDate, totalPt, subRows, sumAsPct) => {\n${pmParts.items}\n${pmParts.now}\n${pmParts.base}\n${oldRange ? RANGE_OLD : pmParts.range}\n${pmParts.calc}\nreturn overallPct;\n};`;
-    return new Function('useMemo', 'Date', body)((fn) => fn(), fixedDate(today))(progressItems || {}, weekly || {}, baseDate, Number(totalPt) || 0, [], false);
+    const body = `${pmParts.head}\nreturn (progressItems, weeklyData, baseDate, totalPt, subRows, sumAsPct, mainBase, savedWeekly) => {\n${pmParts.items}\n${pmParts.now}\n${pmParts.base}\n${oldRange ? RANGE_OLD : pmParts.range}\n${pmParts.helpers}\n${pmParts.calc}\nreturn overallPct;\n};`;
+    return new Function('useMemo', 'Date', body)((fn) => fn(), fixedDate(today))(progressItems || {}, weekly || {}, baseDate, Number(totalPt) || 0, [], false, {}, weekly || {});   // 기술1팀 = mainBaseOf가 {} (수식 팀) → 기준값 없음
 };
 // 지금 상태 = 9/29 06:00 백업 숫자 + 오늘 한 일([진행 수치 다시 계산] 종료 주 이동 · 003 자체 켬 · 003·004·006·011 종료 주 포인트 — 화면 23 누적 44·844·16·6)
 const NOW17 = {
@@ -395,7 +398,10 @@ const hAdd = dmHtml({ _id: 'N', 작업: '' }, 'add');
 ok(AUTO7.every(h => segOf(hAdd, h).includes('추가하면 자동 계산')), '추가 팝업: 자동 칸 = "추가하면 자동 계산"');
 ok(segOf(h008, '통합 시운전').includes('🔒 잠금') && segOf(h008, '통합 시운전').includes('title="스위치 off') && dmHtml({ ...S26['008'].row, _id: '008', _naOn: ['통합 시운전'] }, 'edit').includes('title="적용 — 아직 빈칸'),
    '  └ 통합 시운전: 값은 잠금 · 스위치로 켜고 끔 (꺼짐 = "스위치 off" / 켜면 "적용 — 아직 빈칸(0%)")');
-ok(src.split('autoLockedCols={').length - 1 === 2 && src.includes("autoLockedCols={detailRow && fmActive(detailRow) && !isSubListRow(detailRow) ? fmAutoColsOf() : []}"), 'List가 상세 보기·추가 팝업 둘 다에 잠글 칸 전달 (수식 연도 행만)');
+const alOfSrc = grabTo(src, '    const autoLockedColsOf = (row) => {', '\n    };');
+ok(src.split('autoLockedCols={').length - 1 === 2 && src.includes('autoLockedCols={autoLockedColsOf(detailRow)}') && src.includes('autoLockedCols={autoLockedColsOf(addingRow)}')
+   && !!alOfSrc && alOfSrc.includes('if (!row || isSubListRow(row)) return [];') && alOfSrc.includes('if (fmActive(row)) return fmAutoColsOf();'),
+   'List가 상세 보기·추가 팝업 둘 다에 잠글 칸 전달 (수식 연도 행 = 자동 칸 7개 · 하위 행 없음 — 2026-09-30 기술2·3팀 진행율 % 추가)');
 
 // ═══ 9. 행 복사·새 행 — 진행 값 비움 + 새 장부 (③) ══════════════════════════════════════
 console.log('\n■ 9. 행 복사(우클릭 [이 행 복사해서 추가]·Ctrl+V)·새 행 — 진행 값·자동 칸을 베끼지 않음');

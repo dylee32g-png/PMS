@@ -15,7 +15,7 @@ import { metaDocRef, rowsColRef, rowDocRef } from './projectListData';
 import { extractName, normalizeStatus } from './projectColumns';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import ProgressModal from './ProgressModal';
-import { naProgressItemsOf, extLockedItemKeysAllOf } from './projectListData';
+import { naProgressItemsOf, extLockedItemKeysAllOf, extLockedColsMainOf, grayEmptyTestOf, mainBaseOf } from './projectListData';
 import { getTeamProfile } from '../teamProfiles';   // 통합열 별칭 — 기술2·3팀 통합시운전 기본 ON (2026-08-25)
 
 // 모바일 입력 대상 팀 = 팀 카드 '기능.모바일입력'이 false가 아닌 팀 (2026-09-29 전수 점검): 기술1팀·Software팀 카드는 false인데 목록에 나왔음 —
@@ -118,29 +118,55 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
         setProgress({ team, row, subs });
     };
 
-    // '적용하기' → 메인표(List 행) 반영 — applyProgressToMainRow(ProjectListScreen 709행)와 같은 규칙
-    const applyToMain = async (team, rowId, mainTable) => {
+    // '적용하기' → 메인표(List 행) 반영 — PC ProjectListScreen.applyProgressToMainRow와 같은 규칙 (2026-09-30 전수 점검으로 맞춤):
+    //   ① 바뀐 칸만 merge 저장 — 종전: 불러온 행 사본을 통째 저장 → 그사이 다른 사람·NAS가 고친 칸을 옛 값으로 되돌릴 수 있었음 (9/21 사고와 같은 모양)
+    //   ② 저장 직전 그 행을 서버에서 다시 읽어 비교 ③ NAS 자동 칸은 건드리지 않음 (PC와 같은 칸 목록 — extLockedColsMainOf)
+    //   ④ 팀 누적열(기술2·3팀 'Point')에도 포인트 실적을 쓰고 진행율 %(Point ÷ 포인트, 비면 하위 합) 재계산 — 종전엔 모바일만 Point가 안 바뀌어 메인표 ↔ 팝업 어긋남
+    const applyToMain = async (team, rowId, mainTable, subs) => {
         if (!rowId || !mainTable) return;
         const rows = teamData[team]?.rows || [];
-        const srcRow = rows.find(r => r._id === rowId);
+        let srcRow = rows.find(r => r._id === rowId);
         if (!srcRow) return;
+        try { const fr = await getDoc(rowDocRef(team, rowId)); if (fr.exists()) srcRow = { _id: rowId, ...fr.data() }; } catch (e) { /* 못 읽으면 불러온 값으로 비교 */ }
+        const pf = getTeamProfile(team);
+        const headers = teamData[team]?.headers || [];
+        const colOf = (nm) => nm ? (headers.find(h => norm(h) === norm(nm)) || null) : null;
+        const hasKey = (h) => !!h && Object.prototype.hasOwnProperty.call(srcRow, h);   // 그 행에 있는 칸만 (옛 양식 지난 연도 행에 새 칸을 만들지 않게)
+        const lockedN = extLockedColsMainOf(srcRow, pf).map(norm);
+        const isLocked = (h) => lockedN.includes(norm(h));
         const patch = {};
         Object.entries(mainTable).forEach(([h, v]) => { if (v !== null && v !== undefined) patch[h] = String(v); });
+        const accCol = colOf(pf?.시운전?.누적열);
+        if (hasKey(accCol) && patch['포인트실적'] !== undefined && !isLocked(accCol)) {
+            patch[accCol] = patch['포인트실적'];
+            const pa = pf?.진행율자동;
+            const rc = pa ? colOf(pa.결과열) : null;
+            if (hasKey(rc) && !isLocked(rc) && (!Array.isArray(pa.연도) || pa.연도.includes(String(srcRow._year || '')))) {
+                const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[%,]/g, '')); return Number.isFinite(n) ? n : 0; };
+                const cur = { ...srcRow, ...patch };
+                const den = num(cur[colOf(pa.분모열)]) || (subs || []).reduce((sm, x) => sm + (Number(x.pt) || 0), 0);   // 분모 비면 하위 합 (PC effTotalPt와 같음)
+                const numS = String(cur[colOf(pa.분자열)] ?? '').trim();
+                patch[rc] = (den > 0 && numS !== '') ? String(Math.round(num(numS) / den * 1000) / 10) : '';
+            }
+        }
+        Object.keys(patch).forEach(h => { if (isLocked(h)) delete patch[h]; });
         if (!Object.keys(patch).length) return;
         const changes = Object.keys(patch)
             .map(k => ({ field: k, from: String(srcRow[k] ?? ''), to: String(patch[k]) }))
             .filter(c => c.from !== c.to);
-        const entry = changes.length ? { datetime: new Date().toISOString(), changes } : null;
+        if (!changes.length) { setToast('✓ 진행실적 저장 — 메인표는 이미 같은 값'); setTimeout(() => setToast(''), 3000); return; }
+        const entry = { datetime: new Date().toISOString(), changes };
         try {
-            const { _id, ...rest } = srcRow;
-            const hist = entry
-                ? [...(Array.isArray(srcRow._changeHistory) ? srcRow._changeHistory : []), entry]
-                : (srcRow._changeHistory || []);
+            const _id = srcRow._id;
+            const base = Array.isArray(srcRow._changeHistory) ? srcRow._changeHistory : [];
+            const hist0 = [...base, entry];
+            const hist = hist0.length > 300 ? hist0.slice(hist0.length - 300) : hist0;   // PC와 같은 300건 상한
+            const diff = {}; changes.forEach(c => { diff[c.field] = patch[c.field]; });
             await setDoc(rowDocRef(team, _id), {
-                ...rest, ...patch, _changeHistory: hist,
+                ...diff, _changeHistory: hist,
                 _updatedAt: new Date().toISOString(),               // 동시수정 감지 도장 (2026-07-14 규칙과 동일)
                 _updatedBy: user?.email || '',
-            });
+            }, { merge: true });
             if (entry) {
                 logAudit(team, {
                     who: user?.email || '', action: AUDIT_ACTIONS.EDIT,
@@ -149,7 +175,7 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                     changes, note: '모바일 진행실적 적용',
                 });
             }
-            setToast('✓ 진행실적이 반영되었습니다 (' + Object.keys(patch).length + '개 항목)');
+            setToast('✓ 진행실적이 반영되었습니다 (' + changes.length + '개 항목)');
             setTimeout(() => setToast(''), 3000);
             loadTeam(team);   // 카드·행 데이터 새로 읽기 (다음 팝업이 최신값에서 시작)
         } catch (e) {
@@ -266,12 +292,16 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
                     row={progress.row}
                     team={progress.team}
                     subRows={progress.subs}
-                    progressItems={naProgressItemsOf(progress.row, null, getTeamProfile(progress.team)?.시운전?.통합열)}   /* 기본 미적용·프로젝트별 적용 반영 (2026-07-21) · 통합열 별칭 (2026-08-25) */
+                    progressItems={(() => {   /* 기본 미적용·프로젝트별 적용 (2026-07-21) · 통합열 별칭 (2026-08-25) · ★빈칸 = 없음 + 통합시운전 묶음 (2026-09-30 — PC List와 같은 함수) */
+                        const pf = getTeamProfile(progress.team), sv = pf?.시운전 || {};
+                        return naProgressItemsOf(progress.row, null, sv.통합열, { gray: grayEmptyTestOf(pf), intCols: sv.통합열 ? [sv.통합열, sv.누적열].filter(Boolean) : [] });
+                    })()}
+                    mainBase={mainBaseOf(progress.row, teamData[progress.team]?.headers, getTeamProfile(progress.team))}   /* 장부에 기록 없는 항목 = 메인표 값이 합계 (2026-09-30 — PC와 같은 함수) */
                     lockedItems={extLockedItemKeysAllOf(progress.row)}   /* NAS 자동 항목 키인 잠금 — 공종표 부모 항목 포함 (2026-07-22) */
                     mobileMode={true}
                     mobileNav={mobileNav}
                     baseDate={baseDate}
-                    onApplyToMonthly={(rowId, data) => { applyToMain(progress.team, rowId, data?.mainTable); onApplyProgressByPid?.(progress.row._pid, data); }}
+                    onApplyToMonthly={(rowId, data) => { applyToMain(progress.team, rowId, data?.mainTable, progress.subs); onApplyProgressByPid?.(progress.row._pid, data); }}
                     onProgressSaved={onProgressSaved}
                     onClose={() => setProgress(null)}
                 />

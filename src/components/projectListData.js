@@ -87,10 +87,42 @@ export async function idbDelete(teamId) {
 //   숫자 1~3자리만 변환, 그 외(빈칸·문자·4자리 이상)는 그대로. 업로드·병합 매칭·웹 편집이 같은 규칙을 쓴다.
 export const padProjectNo = (v) => { const s = String(v ?? '').trim(); return /^\d{1,3}$/.test(s) ? s.padStart(3, '0') : s; };
 
+// ── ★ 빈칸 = 이 프로젝트엔 없는 항목 (2026-09-30 팀장님: "메인표는 PLC·ETOS ×인데 진행실적 팝업엔 살아 있다" — 기술2·3팀) ──
+//   9/29 기술1팀 규칙(ProjectListScreen t1EmptyOffOf)과 같은 원칙을 모든 팀에:
+//   메인표가 빈칸을 ×로 그리는 열(팀 카드 빈칸회색 — opt.gray)에서
+//     · PLC·ETOS·HMI = 값이 있어야 적용 (0도 값)
+//     · 통합시운전 = opt.intCols(기술2·3팀 '진행율 %'·'Point') 중 하나라도 값이 있어야 적용
+//   빈칸 = × = 진행실적 팝업·진척률·실적 그래프·모바일에서 빠짐. 상세 보기에서 켠 항목(_naOn)은 빈칸이어도 적용(팝업에 줄).
+//   끈 항목(_naItems)·기본 미적용은 호출하는 쪽(naItems)이 따로 뺀다. 반환 = { plc:false, … } (빠지는 항목만)
+//   쓰는 곳: ProjectListScreen naToProgressItems(PC 팝업·그래프) · 아래 naProgressItemsOf(모바일)
+export function emptyProgOffOf(row, headers, opt = {}) {
+    if (!row) return {};
+    const norm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+    const hs = (headers && headers.length ? headers : Object.keys(row)).filter(h => !String(h).startsWith('_'));
+    const gray = typeof opt.gray === 'function' ? opt.gray : () => false;   // 기본 = 규칙 없음 (빈칸도 × 아닌 팀)
+    const empty = (h) => String(row[h] ?? '').trim() === '';
+    const onL = (Array.isArray(row._naOn) ? row._naOn : []).map(norm);
+    const colOf = (names) => hs.find(h => names.some(n => norm(h) === norm(n)));
+    const off = {};
+    [['plc', ['PLC']], ['etos', ['ETOS', 'ETOS T/S']], ['hmi', ['HMI']]].forEach(([k, names]) => {
+        const c = colOf(names);
+        if (c && gray(c) && empty(c) && !onL.includes(norm(c)) && !names.some(n => onL.includes(norm(n)))) off[k] = false;
+    });
+    const ic = (opt.intCols || []).map(n => colOf([n])).filter(Boolean);
+    if (ic.length && ic.every(c => gray(c) && empty(c)) && !onL.includes(norm('통합시운전')) && !ic.some(c => onL.includes(norm(c)))) off.integratedTest = false;
+    return off;
+}
+// 메인표가 빈칸을 짙은 회색 ×로 그리는 열인지 (팀 카드 빈칸회색·빈칸회색열) — ProjectListScreen isGrayEmptyCol과 같은 규칙 (모바일용, 2026-09-30)
+export const grayEmptyTestOf = (profile) => {
+    const kws = (profile?.빈칸회색열 || []).map(k => String(k).replace(/\s+/g, '').toLowerCase());
+    return (h) => profile?.빈칸회색 === true || (kws.length > 0 && kws.some(k => String(h).replace(/\s+/g, '').toLowerCase().includes(k)));
+};
+
 // ── 프로젝트별 진행항목 적용/미적용 → ProgressModal progressItems 변환 (2026-07-21 팀장님) ──
 //   기본 미적용: 헤더(없으면 행의 키)에 열이 없는 항목은 기본 off — _naOn(켬 예외)·_naItems(끔 목록) 반영.
 //   ProjectListScreen과 동일 규칙. 모바일(MobileInputScreen)에서 재사용.
-export function naProgressItemsOf(row, headers, intColName) {
+//   opt = { gray, intCols } (2026-09-30): 빈칸 = 없음 규칙(emptyProgOffOf) + 통합시운전 묶음 칸(진행율 %·Point)을 끄면 통합시운전 끔
+export function naProgressItemsOf(row, headers, intColName, opt = {}) {
     const ALL = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
     const norm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
     const hs = (headers && headers.length ? headers : Object.keys(row || {})).filter(h => !String(h).startsWith('_'));
@@ -100,17 +132,75 @@ export function naProgressItemsOf(row, headers, intColName) {
     const ex = Array.isArray(row && row._naItems) ? row._naItems : [];
     const on = Array.isArray(row && row._naOn) ? row._naOn : [];
     const na = [...new Set([...ex, ...defs.filter(n => !on.includes(n))])];
-    if (!na.length) return undefined;
-    const KEY = { '도면입수': 'drawing', 'I/OMAP': 'iomap', '화면작성': 'screen', '기준정보': 'baseinfo', 'PLC': 'plc', 'ETOS': 'etos', 'HMI': 'hmi' };
-    const pi = {};
+    const emptyOff = emptyProgOffOf(row, hs, opt);   // ★ 빈칸 = 없음 (2026-09-30) — PC List와 같은 함수
+    if (!na.length && !Object.keys(emptyOff).length) return undefined;
+    const KEY = { '도면입수': 'drawing', 'I/OMAP': 'iomap', '화면작성': 'screen', '기준정보': 'baseinfo', 'PLC': 'plc', 'ETOS': 'etos', 'ETOST/S': 'etos', 'HMI': 'hmi' };
+    const intCols = (opt.intCols || []).map(norm);
+    const pi = { ...emptyOff };
     na.forEach(h => {
         const k = KEY[norm(h)];
         const c = String(h).replace(/\s/g, '');
         if (k) pi[k] = false;
         else if (c.includes('자체시운전')) pi.internalTest = false;
-        else if (c.includes('통합시운전')) pi.integratedTest = false;
+        else if (c.includes('통합시운전') || intCols.includes(norm(h))) pi.integratedTest = false;   // 진행율 %·Point를 끔 = 통합시운전 끔 (2026-09-30)
     });
     return Object.keys(pi).length ? pi : undefined;
+}
+
+// ── ★ 사람이 친 진행 값 → 진행실적 장부 어디에? (2026-09-30 팀장님: "3월에 넣은 값이 합계로 나와야 하는데 오늘 날짜로 또 적어" — 기술2·3팀) ──
+//   메인표·상세/수정·새 행에서 PLC·ETOS·HMI(%) 또는 Point(포인트)를 쳤을 때 (수식 팀 = 기술1팀 누계는 따로 — 종료 주 규칙).
+//   종전(7/10) = 무조건 '이번 주' 칸 → 완료 프로젝트에도 오늘 날짜 기록이 생기고, 그 뒤 팝업 3월 칸에 넣어도 합계 = 더 뒤인 이번 주 값.
+//   ① 장부 합계와 같은 값 = 안 씀 (팝업 [적용하기] 뒤 노란 칸 [저장] 등 — 같은 값을 오늘 날짜로 또 적던 것)
+//   ② 기록 없는 항목에 0 = 안 씀 (기록 없음 = 0 — 항목만 켜려고 친 0이 이번 주 칸에 남아 나중 입력을 가리던 것)
+//   ③ 끝난 프로젝트(완료·취소·삭제) = 새 날짜를 만들지 않음 — 기록이 있으면 마지막 기록 칸의 값만 바꿈, 없으면 장부에 안 씀
+//      (그때 팝업 합계·진척률·그래프는 메인표 값을 씀 — 아래 mainBaseOf)
+//   진행 중 프로젝트 = 종전대로 이번 주 칸 (오늘 진행한 것) · NAS 자동 반영·[진행실적 심기]는 호출 쪽에서 이번 주 고정(opts.atNow)
+//   검사: tests/list/prog_item_sync_test.js 7장
+export const CLOSED_STATUSES = ['완료', '취소', '삭제'];
+export const isClosedStatusVal = (v) => CLOSED_STATUSES.includes(String(v ?? '').replace(/\s+/g, ''));
+const _hasLv = (v) => v !== '' && v !== null && v !== undefined;
+const _wkOrd = (wk) => { const p = String(wk).split('-').map(Number); return (p[0] || 0) * 10000 + (p[1] || 0) * 100 + (p[2] || 0); };
+const _latestWk = (ents) => ents.length ? ents.reduce((a, b) => (_wkOrd(b[0]) > _wkOrd(a[0]) ? b : a)) : null;
+// % 항목(누적 % — 마지막 기록이 합계). weeks = 장부 그 항목 { 'YYYY-M-W': 값 } · cy·cm = 오늘 연·월
+//   반환 { skip: true } = 안 씀 · { wk } = 그 주 칸 값만 고침 · {} = 이번 주 (종전)
+export function handPctTarget(weeks, num, closed, cy, cm) {
+    const ents = Object.entries(weeks || {}).filter(([, v]) => _hasLv(v));
+    const cur = _latestWk(ents.filter(([wk]) => _wkOrd(wk) <= cy * 10000 + cm * 100 + 99));   // 팝업 합계 = 이번 달까지의 마지막 기록
+    if (cur && Number(cur[1]) === num) return { skip: true };                                    // ①
+    if (!ents.length && num === 0) return { skip: true };                                        // ②
+    if (closed) {                                                                                // ③
+        const tgt = cur || _latestWk(ents);
+        return (!tgt || Number(tgt[1]) === num) ? { skip: true } : { wk: tgt[0] };
+    }
+    return {};
+}
+// Point(주마다 딴 포인트 — 합이 누적). 반환 { skip } · { wk, val } = 그 주 칸을 val로 · { block, sum, cur, wk } = 줄이기 차단 · {} = 이번 주 증분 (종전)
+export function handPointTarget(weeks, num, closed) {
+    const ents = Object.entries(weeks || {}).filter(([, v]) => _hasLv(v) && Number.isFinite(Number(v)));
+    const r3 = (x) => Math.round(x * 1000) / 1000;
+    const total = r3(ents.reduce((sm, [, v]) => sm + Number(v), 0));
+    if (total === r3(num)) return { skip: true };                                                // ①
+    if (!ents.length && num === 0) return { skip: true };                                        // ②
+    if (!closed) return {};
+    if (!ents.length) return { skip: true };                                                     // ③ 기록 없음 → 메인표 Point가 합계
+    const last = _latestWk(ents), others = r3(total - Number(last[1]));
+    if (num < others) return { block: true, sum: others, cur: Number(last[1]), wk: last[0] };    // 그 전 주차 합보다 작게 = 기록 어긋남
+    return { wk: last[0], val: r3(num - others) };
+}
+// 장부에 주차 기록이 없는 항목의 '메인표 값' — 진행실적 팝업 합계·진척률과 실적 그래프가 0 대신 이 값을 씀 (날짜 없는 기준값)
+//   { plc, etos, hmi, drawing, iomap, screen, baseinfo, intCommissioning(= 팀 누적열 'Point') } · 수식 팀(기술1팀 누계)은 제외 → {}
+//   쓰는 곳: ProjectListScreen(팝업 mainBase·그래프 graphObj.mainBase) · MobileInputScreen(팝업)
+export function mainBaseOf(row, headers, profile) {
+    if (!row || profile?.수식) return {};
+    const norm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
+    const hs = (headers && headers.length ? headers : Object.keys(row)).filter(h => !String(h).startsWith('_'));
+    const KEY = { '도면입수': 'drawing', 'I/OMAP': 'iomap', '화면작성': 'screen', '기준정보': 'baseinfo', 'PLC': 'plc', 'ETOS': 'etos', 'ETOST/S': 'etos', 'HMI': 'hmi' };
+    const num = (v) => { const t = String(v ?? '').replace(/[,%]/g, '').trim(); if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? Math.max(0, n) : null; };
+    const out = {};
+    hs.forEach(h => { const k = KEY[norm(h)]; if (!k || k in out) return; const n = num(row[h]); if (n !== null) out[k] = n; });
+    const acc = profile?.시운전?.누적열 ? hs.find(h => norm(h) === norm(profile.시운전.누적열)) : null;
+    if (acc) { const n = num(row[acc]); if (n !== null) out.intCommissioning = n; }
+    return out;
 }
 const a4cNormName = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 const a4cNumCol  = (headers) => (headers||[]).find(h => h === '번호') || (headers||[]).find(h => h.includes('번호') && !h.includes('전화') && !h.includes('사업')) || null;
@@ -502,6 +592,15 @@ export const computeExtSubTable = (wb, rule) => {
     if (!rows.length) return { error: '공종 행을 못 찾음 (이름열·시트 확인)' };
     if (!total) return { error: "'총계' 행을 못 찾음" };
     return { rows, total };
+};
+
+// 메인 행의 NAS 자동 칸(헤더 이름) — ProjectListScreen extLockedColsRow의 메인 행 규칙과 같음 (모바일 [적용하기]가 NAS 칸을 덮지 않게, 2026-09-30)
+//   자기 규칙 대상 + 하위 공종표가 채우는 부모 칸 + 누적열(Point)·통합열(진행율 %) — 팀 카드 시운전 별칭
+export const extLockedColsMainOf = (row, profile) => {
+    const own = extLockedColsOf(row).filter(t => t !== '하위 공종표');
+    const st = extRulesOf(row).find(r => r.type === 'subTable');
+    const web = (nm) => nm === '누적' ? (profile?.시운전?.누적열 || nm) : nm === '통합시운전' ? (profile?.시운전?.통합열 || nm) : nm;
+    return st ? [...own, ...Object.keys(st.parentCols || {}), web('누적'), web('통합시운전')] : own;
 };
 
 // 행의 잠금 항목 키 전체 (자기 규칙 + 하위공종표의 부모 항목 + 통합시운전) — 진행실적 팝업·모바일용

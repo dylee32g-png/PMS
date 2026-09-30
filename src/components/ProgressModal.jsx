@@ -46,6 +46,17 @@ function addMonths(y, m, n) {
     return { y: ry, m: rm };
 }
 
+// [적용하기] 때 메인표에 쓸 포인트 실적(기술2·3팀 = Point 열) — 숫자 = 그대로 · '' = 이번에 지워 0이 됨(메인표도 빈칸, 2026-09-01)
+//   · 0 = 0을 직접 넣음(0도 값, 2026-09-10) · undefined = 포인트 기록이 한 번도 없음 → 메인표 안 건드림 (2026-09-30:
+//   종전엔 기록이 없어도 0을 써서 메인표 ×였던 통합시운전이 '값 있음'으로 켜졌음 — PLC·HMI만 넣었는데 팝업에 통합시운전 줄이 생기는 일)
+function pointsForMain(pts, savedWeekly, weekly, kb) {
+    const hasIn = (w) => Object.keys(w || {}).some(k => (k === kb || k.endsWith('_' + kb)) && Object.values(w[k] || {}).some(v => v !== '' && v !== null && v !== undefined));
+    if (pts !== 0) return pts;
+    if (hasIn(savedWeekly)) return '';
+    if (hasIn(weekly)) return 0;
+    return undefined;
+}
+
 const LABEL_COL_W = 110;
 const TYPE_COL_W  = 44;
 const TOTAL_COL_W = 70;
@@ -55,7 +66,7 @@ const BORDER_D = '1px solid #eaecef';
 const TH = { padding: '5px 4px', borderRight: BORDER, borderBottom: BORDER, borderTop: 'none', borderLeft: 'none', textAlign: 'center', fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap', background: '#f8fafc', fontSize: 11 };
 const TD = { padding: 0, borderRight: BORDER_D, borderBottom: BORDER_D, borderTop: 'none', borderLeft: 'none', textAlign: 'center', background: '#f8fafc' };
 
-const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [], sumAsPct = false, doneWeekKey = null, lockAfterYm = null }) => {   // lockAfterYm 'YYYY-MM': 이 달 뒤 주 칸 입력 잠금 (기술1팀 누계, 2026-09-29 팀장님 "다음 달 이후 칸 잠금")   // sumAsPct: 시운전 합계를 %로 표기 (기술1팀 수식 팀, 2026-08-19) · doneWeekKey: 완료 프로젝트의 종료 주 'YYYY-M-W' (기술1팀 누계, 2026-09-29 — [적용하기] 때 종료 달 뒤 입력을 이 주로 옮김)
+const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeeklyReport, parseWeekly, baseDate = '', onApplyToMonthly, onProgressSaved, progressItems = {}, onShowGraph, mobileMode = false, mobileNav = null, lockedItems = [], sumAsPct = false, doneWeekKey = null, lockAfterYm = null, mainBase = null }) => {   // mainBase: 장부에 기록 없는 항목의 메인표 값 { plc, etos, hmi, intCommissioning… } (2026-09-30 — projectListData.mainBaseOf)   // lockAfterYm 'YYYY-MM': 이 달 뒤 주 칸 입력 잠금 (기술1팀 누계, 2026-09-29 팀장님 "다음 달 이후 칸 잠금")   // sumAsPct: 시운전 합계를 %로 표기 (기술1팀 수식 팀, 2026-08-19) · doneWeekKey: 완료 프로젝트의 종료 주 'YYYY-M-W' (기술1팀 누계, 2026-09-29 — [적용하기] 때 종료 달 뒤 입력을 이 주로 옮김)
     // #7 항목 on/off: 팀 설정에서 꺼진 항목은 팝업에서 숨김 + 진척률 계산에서 제외
     const isItemOn = (k) => { const sk = ITEM_SETTING_KEY[k]; return sk ? (progressItems[sk] !== false) : true; };
     const SIMPLE_ON    = SIMPLE_ITEMS.filter(it => isItemOn(it.key));
@@ -63,10 +74,12 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const WEEKLY_ON    = WEEKLY_ITEMS.filter(it => isItemOn(it.key));
     const selfOn = isItemOn('commissioning');
     const intOn  = isItemOn('intCommissioning');
+    // 적용 중인 진행 항목이 하나도 없음 = 메인표가 전부 × (2026-09-30) — 표 위에 '줄이 없는 이유' 안내
+    const noItemsOn = SIMPLE_ON.length + SECONDARY_ON.length === 0 && !selfOn && !intOn;
     const now0 = new Date();
     const cy0 = now0.getFullYear(), cm0 = now0.getMonth() + 1;
 
-    // 표시 범위: 기본=이번 달+지난달(2개월), '전체 기간 보기'=±6개월. 데이터·합계는 그대로, 보이는 칸만 바뀜
+    // 표시 범위: 기본=이번 달+지난달(2개월), '전체 기간 보기'=계산 범위 전체(올해 1월부터 — 아래 ALL_WEEKS). 데이터·합계는 그대로, 보이는 칸만 바뀜
     const [showAllMonths, setShowAllMonths] = useState(false);
     // ── 모바일 간편 입력 주 선택 (2026-07-20 팀장님): 기본 = 오늘이 속한 주. PC(mobileMode=false)에선 사용 안 함 ──
     const [mobileWeek, setMobileWeek] = useState({ year: cy0, month: cm0, week: Math.min(5, Math.ceil(now0.getDate() / 7)) });
@@ -75,32 +88,22 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
     const { y: allPy, m: allPm } = addMonths(cy0, cm0, -6);
     const { y: allNy, m: allNm } = addMonths(cy0, cm0, 6);
 
-    // 화면 표시용 범위 (기본 2개월 / 전체보기 ±6개월) — 렌더링에만 사용
-    const { y: pm6y, m: pm6m } = addMonths(cy0, cm0, showAllMonths ? -6 : -1);
-    const { y: nm6y, m: nm6m } = addMonths(cy0, cm0, showAllMonths ?  6 :  0);
-    const DISP_MONTHS = genMonths(pm6y, pm6m, nm6y, nm6m);
-    const DISP_WEEKS  = DISP_MONTHS.flatMap(({ year, month }) =>
-        weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))
-    );
-
+    // 기본 보기 = 지난달 + 이번 달. 실제 표 범위(DISP_*)는 장부를 읽은 뒤(아래 ALL_WEEKS 다음)에서 만든다 — '전체 기간 보기'가 장부 기간을 따라가게 (2026-09-30)
+    const { y: pm1y, m: pm1m } = addMonths(cy0, cm0, -1);
     const totalLabelW = LABEL_COL_W + TYPE_COL_W;
     const weekColW    = 44;
-    // 표시 테이블 너비
-    const tableW      = DISP_WEEKS.length * weekColW + totalLabelW + TOTAL_COL_W;
-    // 모달 뷰포트: 보이는 주차에 맞추되 최대 ≈13주(전체보기 시 가로 스크롤)
-    const visWeekCnt  = Math.min(DISP_WEEKS.length, Math.round(3 * 4.4));
-    const visW        = visWeekCnt * weekColW + totalLabelW + TOTAL_COL_W;
-    // 좁은 화면(모바일) 대응 (2026-07-15): 팝업 폭을 화면 폭에 맞춰 줄임 — 주차 영역은 원래 있던 가로 스크롤 사용. PC(넓은 화면)는 기존과 동일.
-    const progressPanelW = Math.min(visW + 48, Math.max(320, window.innerWidth - 8));
+    // 팝업 폭: 보이는 주차에 맞추되 최대 ≈13주(전체보기 시 가로 스크롤) · 좁은 화면(모바일)은 화면 폭에 맞춰 줄임(2026-07-15) — PC(넓은 화면)는 종전과 같음
+    const panelWOf = (weekCnt) => Math.min(Math.min(weekCnt, Math.round(3 * 4.4)) * weekColW + totalLabelW + TOTAL_COL_W + 48, Math.max(320, window.innerWidth - 8));
+    const defWeekCnt = genMonths(pm1y, pm1m, cy0, cm0).reduce((sm, { year, month }) => sm + weeksInMonth(year, month).length, 0);
     const wSummaryPanelW = 520;
 
-    const [pos,        setPos]        = useState({ x: Math.max(4, (window.innerWidth - progressPanelW) / 2), y: 50 });
+    const [pos,        setPos]        = useState({ x: Math.max(4, (window.innerWidth - panelWOf(defWeekCnt)) / 2), y: 50 });   // 첫 화면 = 기본 보기 폭 기준 (종전과 같음)
     const [minimized,  setMinimized]  = useState(false);
     const [weeklyData, setWeeklyData] = useState({});
-    // ★ 계산 범위 = ±6개월 + 장부에 든 가장 이른·늦은 달 + 기준월 (2026-09-29 전수 점검): ±6개월로만 세면 그보다 오래된 공정 %(PLC·ETOS·HMI…)가
-    //   합계·진척률·회색 힌트에서 0으로 빠짐 — 예: 3월에 끝난 프로젝트가 10월부터 팝업 50% ↔ 메인표·그래프 100%. 보기 범위(DISP_WEEKS)는 그대로.
+    // ★ 계산 범위 = ±6개월 + 올해 1월 + 장부에 든 가장 이른·늦은 달 + 기준월 (2026-09-29 전수 점검 · 올해 1월 = 2026-09-30): ±6개월로만 세면 그보다 오래된 공정 %(PLC·ETOS·HMI…)가
+    //   합계·진척률·회색 힌트에서 0으로 빠짐 — 예: 3월에 끝난 프로젝트가 10월부터 팝업 50% ↔ 메인표·그래프 100%. '전체 기간 보기' 표 = 이 범위 그대로(아래 DISP_MONTHS).
     const ALL_WEEKS = (() => {
-        const yms = [allPy * 100 + allPm, allNy * 100 + allNm];
+        const yms = [allPy * 100 + allPm, allNy * 100 + allNm, cy0 * 100 + 1];
         const [by, bm] = (baseDate && String(baseDate).includes('-')) ? String(baseDate).split('-').map(Number) : [cy0, cm0];
         if (by > 1900 && bm >= 1 && bm <= 12) yms.push(by * 100 + bm);
         Object.values(weeklyData || {}).forEach(o => {
@@ -111,7 +114,27 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         return genMonths(Math.floor(lo / 100), lo % 100, Math.floor(hi / 100), hi % 100).flatMap(({ year, month }) =>
             weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` })));
     })();
+    // 화면 표시용 범위 — 렌더링에만 사용. 기본 = 지난달+이번 달 / '전체 기간 보기' = 계산 범위(ALL_WEEKS) 전체
+    //   = 올해 1월(또는 6개월 전 중 이른 달)부터 6개월 뒤까지 + 장부에 든 모든 달 (2026-09-30 팀장님 "전체 기간이 3월부터 — 1월부터 나오게":
+    //   종전 전체 보기 = 오늘 ±6개월이라 9월에 열면 3월부터였음. 이제 합계·진척률에 드는 주는 전부 표에 보임)
+    const DISP_MONTHS = showAllMonths ? ALL_WEEKS.filter(w => w.week === 1).map(({ year, month }) => ({ year, month })) : genMonths(pm1y, pm1m, cy0, cm0);
+    const DISP_WEEKS  = DISP_MONTHS.flatMap(({ year, month }) =>
+        weeksInMonth(year, month).map(w => ({ year, month, week: w, key: `${year}-${month}-${w}` }))
+    );
+    const tableW         = DISP_WEEKS.length * weekColW + totalLabelW + TOTAL_COL_W;   // 표시 테이블 너비
+    const progressPanelW = panelWOf(DISP_WEEKS.length);
     const [savedWeekly,setSavedWeekly]= useState({});
+    // ★ 장부에 기록이 없는 항목 = 메인표 값이 합계 (2026-09-30 팀장님 "3월에 넣은 값이 합계로 — 오늘 날짜로 또 적지 마"):
+    //   끝난 프로젝트는 메인표에서 값을 넣어도 장부에 날짜를 만들지 않으므로(projectListData handPctTarget) 합계·진척률이 0으로 보이지 않게 메인표 값을 씀.
+    //   주차 칸에 기록이 하나라도 있으면(또는 열 때 있었으면) 기록이 합계 — 기준값은 안 씀. 회색 힌트엔 안 씀(날짜 있는 기록이 아님). [적용하기]는 기록 없는 항목을 메인표에 안 씀(종전 그대로)
+    const hasRecIn = (w, key) => Object.values((w || {})[key] || {}).some(v => v !== '' && v !== null && v !== undefined);
+    const baseOf = (key) => {
+        if (!mainBase || hasRecIn(weeklyData, key) || hasRecIn(savedWeekly, key)) return 0;
+        if ((key === 'commissioning' || key === 'intCommissioning') && subRows.length > 0) return 0;   // 하위 체제 = 하위별 장부가 원장
+        const n = Number(mainBase[key]);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    const BASE_TIP = '주차 기록 없음 — 메인표 값을 합계로 씀 (알맞은 주 칸에 넣고 [적용하기] 하면 그 기록이 합계)';
     const [saving,     setSaving]     = useState(false);
     const [dirty,      setDirty]      = useState(false);
     const [confirmClose, setConfirmClose] = useState(false);   // ★ 저장 안 하고 닫으려 할 때 경고 (2026-07-14)
@@ -142,7 +165,9 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const g = {};
         DISP_MONTHS.forEach(({ year, month }) => { if (!g[year]) g[year] = []; g[year].push(month); });
         return Object.entries(g);
-    }, []); // eslint-disable-line
+    }, [showAllMonths, DISP_MONTHS.length, DISP_MONTHS.length ? DISP_MONTHS[0].year * 100 + DISP_MONTHS[0].month : 0]); // eslint-disable-line
+    // ★ 보기 범위가 바뀌면 다시 계산 (2026-09-30): 종전 [] = 첫 화면(2개월) 그대로라 '전체 기간 보기'에서 연도 칸이 10주만 덮고
+    //   '합계' 머리칸이 표 가운데(4월 뒤)에 끼어, 5월부터 월·주 머리글이 실제 칸보다 한 칸씩 밀려 보였음
 
     const execNoVal = row['실행번호'] || row.execNo || '';
     // A-4b: docKey = 고유 ID(pid) 우선 — 저장은 항상 pid 장부로, 읽기는 옛 장부(실행번호→행ID) 폴백
@@ -578,7 +603,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         //   원래부터 빈 항목은 종전대로 안 건드림(팝업 안 쓰는 프로젝트의 엑셀 수동 값 보호).
         const _hadSaved = (k) => Object.values((savedWeekly || {})[k] || {}).some(v => v !== '' && v !== null && v !== undefined);
         const _hadSavedComb = (kb) => subRows.length > 0 ? subRows.some((_, i) => _hadSaved(`sub_${i}_${kb}`)) : _hadSaved(kb);
-        [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].forEach(({ key }) => {
+        [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].filter(({ key }) => isItemOn(key)).forEach(({ key }) => {   // 꺼진(메인표 ×) 항목은 메인표에 안 씀 — 장부에만 남은 값이 [적용하기] 때 메인표를 되살려 항목이 저절로 켜지지 않게 (2026-09-30)
             const wd = weeklyData[key] || {};
             if (!Object.values(wd).some(v => v !== '' && v !== null && v !== undefined)) {
                 if (_hadSaved(key)) mainTable[HEADER_MAP[key]] = '';   // 이번에 지운 항목 → 메인표 빈칸 (2026-09-01)
@@ -669,17 +694,15 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             setSavedWeekly(wd); setDirty(false);
             onProgressSaved?.({ docKey, weeklyData: wd });
             // ③ 포인트 실적 = 선택(자체 또는 통합, 합 없음) → 메인표 포인트실적/포인트소스 (2026-06-29)
-            let _pts = pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0);
-            // ★ 이번에 지워 0이 된 경우(마지막 저장 때는 실적 있었음) = 메인표 Point도 빈칸 (2026-09-01 지우기 동기화)
-            const _hadPts0 = (kb) => Object.keys(savedWeekly || {}).some(k => (k === kb || k.endsWith('_' + kb)) && Object.values(savedWeekly[k] || {}).some(v => v !== '' && v !== null && v !== undefined));
-            if (_pts === 0 && _hadPts0(pointSource === 'int' ? 'intCommissioning' : 'commissioning')) _pts = '';
-            const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, '포인트소스': pointSource }, weekly: wd };   // weekly = 방금 저장한 장부(종료 주 이동 반영) — List 누계 계산용(구독본은 한 박자 늦음, 2026-09-29)
+            //   ★ 이번에 지워 0 = 메인표 Point도 빈칸 (2026-09-01) · 포인트 기록이 한 번도 없으면 안 건드림 (2026-09-30) — pointsForMain
+            const _pts = pointsForMain(pointSource === 'int' ? (data.accIntPts || 0) : (data.accSelfPts || 0), savedWeekly, wd, pointSource === 'int' ? 'intCommissioning' : 'commissioning');
+            const _confirm = { ...data, mainTable: { ...data.mainTable, '포인트실적': _pts, ...(_pts === undefined ? {} : { '포인트소스': pointSource }) }, weekly: wd };   // weekly = 방금 저장한 장부(종료 주 이동 반영) — List 누계 계산용(구독본은 한 박자 늦음, 2026-09-29)
             await onApplyToMonthly(projectId, _confirm);
             const _bits = [];
             if (data.plc  != null) _bits.push(`PLC ${data.plc}%`);
             if (data.etos != null) _bits.push(`ETOS ${data.etos}%`);
             if (data.hmi  != null) _bits.push(`HMI ${data.hmi}%`);
-            _bits.push(`포인트 ${_pts}pt(${pointSource === 'int' ? '통합' : '자체'})`);
+            if (_pts !== undefined) _bits.push(`포인트 ${_pts === '' ? '비움' : _pts + 'pt'}(${pointSource === 'int' ? '통합' : '자체'})`);
             setApplyMsg(`✓ ${data.month}월 저장·적용 완료 — ${_bits.join(' · ')}${movedTxt}`);
             setApplyConfirm(null);
             setTimeout(() => setApplyMsg(''), movedTxt ? 9000 : 6000);
@@ -717,7 +740,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const r = {};
         // (가) 공정 항목 = 누적 %: 각 주차 값 = 그때까지의 '최신 입력값'(빈 주는 직전 값 이어받기 = 이월)
         [...SIMPLE_ITEMS, ...SECONDARY_ITEMS].forEach(({ key }) => {
-            let last = 0; r[key] = {};
+            let last = baseOf(key); r[key] = {};   // 기록 없는 항목 = 메인표 값부터 (2026-09-30)
             ALL_WEEKS.forEach(({ key: wKey }) => {
                 const v = (weeklyData[key] || {})[wKey];
                 if (v !== undefined && v !== null && v !== '') last = Number(v) || 0;
@@ -726,14 +749,14 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         });
         // 시운전 = 포인트: 그때까지의 '누적 합'
         WEEKLY_ITEMS.forEach(({ key }) => {
-            let s = 0; r[key] = {};
+            let s = baseOf(key); r[key] = {};
             ALL_WEEKS.forEach(({ key: wKey }) => {
                 s += Number((weeklyData[key] || {})[wKey]) || 0;
                 r[key][wKey] = s;
             });
         });
         return r;
-    }, [weeklyData, baseDate]); // eslint-disable-line
+    }, [weeklyData, baseDate, mainBase, savedWeekly, subRows.length]); // eslint-disable-line
 
     const subCumByWeek = useMemo(() => {
         if (subRows.length === 0) return null;
@@ -760,7 +783,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             return Math.min(100, cumByKey[key]?.[refWKey] || 0);
         }
         // 시운전: 누적 포인트 / 총포인트
-        const total = Object.values(weeklyData[key] || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+        const total = Object.values(weeklyData[key] || {}).reduce((s, v) => s + (Number(v) || 0), 0) + baseOf(key);   // 기록 없으면 메인표 Point (2026-09-30)
         return totalPt > 0 ? Math.min(100, (total / totalPt) * 100) : 0;
     };
 
@@ -810,7 +833,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const cntCommish = (selfOn ? 1 : 0) + (intOn ? 1 : 0);
         const totalItemCnt = SIMPLE_ON.length + SECONDARY_ON.length + cntCommish;
         return totalItemCnt > 0 ? Math.round((simPct + wkPct) / totalItemCnt * 10) / 10 : 0;
-    }, [weeklyData, totalPt, subRows, refWKey, progressItems, sumAsPct]); // eslint-disable-line
+    }, [weeklyData, totalPt, subRows, refWKey, progressItems, sumAsPct, mainBase, savedWeekly]); // eslint-disable-line
 
     // ── 모바일 간편 입력 패널 (2026-07-20 팀장님 확정) ────────────────────────────────
     //   기본 = 한 주만 크게(오늘이 속한 주). [이전 주]/[다음 주]로 이동, 금주 아니면 [오늘로] 복귀 버튼.
@@ -831,7 +854,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
             const val = weeklyData[itemKey]?.[wKey];
             const hasVal = val !== undefined && val !== '';
             const prevVal = useMax ? (cumByKey[itemKey]?.[wKey] || 0) : 0;
-            const showPrev = useMax && !hasVal && prevVal > 0;
+            const showPrev = useMax && !hasVal && prevVal > 0 && !baseOf(itemKey);   // 기준값(날짜 없음)은 힌트로 안 그림 (2026-09-30)
             return (
                 <div key={itemKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px', borderBottom: BORDER_D }}>
                     <div style={{ width: 4, height: 22, background: color, borderRadius: 2, flexShrink: 0 }}/>
@@ -927,7 +950,8 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
         const vals = Object.values(d).map(v => Number(v)||0).filter(v => v > 0);
         const total = useMax
             ? Math.min(100, cumByKey[itemKey]?.[refWKey] || 0)
-            : vals.reduce((s,v) => s+v, 0);
+            : vals.reduce((s,v) => s+v, 0) + baseOf(itemKey);
+        const baseOnly = baseOf(itemKey) > 0;   // 합계 = 메인표 값 (주차 기록 없음, 2026-09-30)
         return (
             <tr key={itemKey}>
                 <td colSpan={2} style={{ ...TD, padding:'0 10px', fontWeight:700, color:'#374151', background:bgLabel, position:'sticky', left:0, zIndex:1, height:38 }}>
@@ -942,7 +966,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                     const hasVal = val !== undefined && val !== '';
                     // #8 이전값: 공정 항목(useMax=누적%)의 빈 칸에 직전 값(이월)을 흐린 힌트로 표시 (참고용·저장 안 됨)
                     const prevVal  = useMax ? (cumByKey[itemKey]?.[wKey] || 0) : 0;
-                    const showPrev = useMax && !hasVal && prevVal > 0;
+                    const showPrev = useMax && !hasVal && prevVal > 0 && !baseOf(itemKey);   // 기준값(날짜 없음)은 힌트로 안 그림 (2026-09-30)
                     const extraCls = wkCls(wKey);
                     return (
                         <td key={wKey} className={extraCls} style={{ ...TD, background: isFutureWk(wKey) ? '#e9edf2' : isCur?'#fef9e7':'#f8fafc' }} title={isFutureWk(wKey) ? FUTURE_TIP : undefined}>
@@ -962,7 +986,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         </td>
                     );
                 })}
-                <td style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color: total>0?color:'var(--line)', background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
+                <td title={baseOnly ? BASE_TIP : undefined} style={{ ...TD, padding:'0 10px', fontWeight:800, fontSize:14, color: baseOnly ? '#94a3b8' : total>0?color:'var(--line)', fontStyle: baseOnly ? 'italic' : undefined, background:bgLabel, textAlign:'right', position:'sticky', right:0, zIndex:1 }}>
                     {total > 0 ? ((!useMax && totalPt > 0 && total > totalPt)
                         ? <span title={`총점 ${totalPt} 초과 — 주차값 또는 총점 설정을 확인하세요`} style={{ color:'#dc2626', background:'#fee2e2', border:'1px solid #fca5a5', borderRadius:4, padding:'0 5px', fontWeight:800, whiteSpace:'nowrap' }}>⚠ {total}</span>
                         : (useMax ? `${total}%`
@@ -1455,6 +1479,13 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                             </div>
                         </div>
 
+                        {/* 적용 중인 진행 항목 없음 (2026-09-30): 메인표가 전부 × — 왜 줄이 없는지·어떻게 켜는지 */}
+                        {noItemsOn && (
+                            <div style={{ flexShrink:0, margin:'2px 18px 6px', padding:'8px 12px', borderRadius:8, background:'#f8fafc', border:'1px dashed #cbd5e1', fontSize:12, color:'#64748b', lineHeight:1.6 }}>
+                                이 프로젝트는 메인표에 값이 있는 진행 항목이 없어서 입력할 줄이 없습니다 (메인표가 전부 ×).<br/>
+                                PC에서 행 우클릭 → [상세/수정]의 항목 스위치를 켜면 여기에 줄이 생깁니다 — 그다음 알맞은 주 칸에 넣고 [적용하기] (메인표 칸에 값을 넣어도 켜짐).
+                            </div>
+                        )}
                         {/* 모바일 간편 입력 (2026-07-20): mobileMode + 기본 보기 = 한 주 패널 / '전체 기간 보기' = 기존 표 */}
                         {(mobileMode && !showAllMonths) ? renderMobileWeekPanel() : (<>
                         {/* 수평 스크롤 테이블 — flex:1로 남은 높이 채움 → 스크롤바 항상 보임 */}
@@ -1590,7 +1621,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
 
                         {/* 주석 — flex 고정 영역 */}
                         <div style={{ flexShrink:0, padding:'3px 18px 6px', fontSize:10, color:'var(--line)' }}>
-                            * 1주: 1~7일, 2주: 8~14일, 3주: 15~21일, 4주: 22~28일, 5주: 29일~) · 배경= 현재주 · 주황= 시작주 · 녹색테두리= 완료주
+                            * 1주: 1~7일, 2주: 8~14일, 3주: 15~21일, 4주: 22~28일, 5주: 29일~) · 배경= 현재주 · 주황= 시작주 · 녹색테두리= 완료주 · 회색 기울임 합계 = 주차 기록 없이 메인표 값
                         </div>
                     </div>
 

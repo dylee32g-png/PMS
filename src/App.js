@@ -1869,8 +1869,12 @@ const TechTeamPMS = () => {
           return (pa[0]-pb[0]) || (pa[1]-pb[1]) || (pa[2]-pb[2]);
       });
       const monthOf = (w) => { const a = w.split('-'); return `${a[0]}-${String(Number(a[1])).padStart(2,'0')}`; };
-      const lastVal = { plc:0, etos:0, hmi:0 };
-      let selfAcc = 0, intAcc = 0;
+      // ★ 장부에 기록 없는 항목 = 메인표 값 (2026-09-30 — 진행실적 팝업 합계와 같은 규칙 · List가 p.mainBase로 넘김: 끝난 프로젝트는 메인표에서 넣어도 장부에 날짜를 안 만듦)
+      const _mb = p.mainBase || {};
+      const _rec = (k) => Object.values(weekly[k] || {}).some(v => v !== '' && v !== null && v !== undefined);
+      const _b = (k) => (_rec(k) ? 0 : Math.max(0, Number(_mb[k]) || 0));
+      const lastVal = { plc:_b('plc'), etos:_b('etos'), hmi:_b('hmi') };
+      let selfAcc = 0, intAcc = hasSubKeys ? 0 : _b('intCommissioning');
       const procByMonth = {}, commByMonth = {};
       // 수식 팀(기술1팀 2026, 팀 카드 '수식'): 자체 성분 = 그 달 실적÷총물량 (누적 아님) — 팝업 진척률·메인 금월 공정률과 통일 (2026-08-19 v2 표식)
       const _fmCfgA = getTeamProfile(currentTeam)?.수식;

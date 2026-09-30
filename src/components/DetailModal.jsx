@@ -34,6 +34,8 @@ export default function DetailModal({
     progSwitch = null,        // 기술1팀 누계 (2026-09-29): { cols:[PLC·ETOS T/S·HMI·자체 시운전], alwaysCols:[자체 시운전] } — 진행 항목 스위치 = 이 프로젝트에 적용 (메인표·진행실적 팝업과 같은 규칙)
     autoLockedCols = [],      // 자동 계산 칸(기술1팀 수식 — 자체 시운전·누적·전월·금월·전체·전월(2)·금월(2)) = 보기 전용 (2026-09-29 전수 점검: 쳐도 저장 때 다시 계산돼 사라지던 것)
     autoPctCols = [],         // 그중 % 붙여 보일 칸 (팀 카드 표시.퍼센트표기열 — 공정률 전체·전월·금월)
+    autoLockTip = null,       // 자동 칸 안내 문구 (기술2·3팀 진행율 % = Point ÷ 포인트, 2026-09-30) — 없으면 기술1팀 문구
+    intColAlias = null,       // 팀 카드 시운전.통합열('진행율 %') — 표에 있으면 통합시운전 = '열 있음' (List defaultNaItems와 같은 규칙, 2026-09-30)
 }) {
     const [copiedRef, setCopiedRef] = React.useState(false);
     const [asgOpen, setAsgOpen] = React.useState(null);   // 담당자 다중 선택 펼침 항목 (2026-07-28 팀장님)
@@ -109,16 +111,20 @@ export default function DetailModal({
         const isCheck = isCheckCol(h);
         // ★ 스위치 (2026-09-10 팀장님): 켜짐 = '값이 있다'. 끄면 그 프로젝트의 이 칸만 메인표 ×(값은 보관) · 빈칸이면 자동 off 표시 · 켜면 입력칸으로 포커스.
         //   종전 '메인표 열 표시/숨김(팀 공통)' 토글은 폐지 — 열은 항상 다 보이고, 숨김은 설정 메뉴 [열 표시/숨기기]에서만.
-        const off = naItems.includes(h);
-        const hasVal = String(val ?? '').trim() !== '';
         // ★ 기술1팀 누계 (2026-09-29 팀장님): 진행 항목 스위치 = 적용 여부 = 메인표·진행실적 팝업과 같은 규칙 (List t1EmptyOffOf)
         //   'value'  (PLC·ETOS T/S·HMI) = 값이 있어야 적용 — 빈칸은 '빈칸'(메인표 × · 팝업에 없음). 켜면(_naOn) 빈칸이어도 적용 → 팝업에 줄
         //   'always' (자체 시운전)       = 빈칸도 '적용'(0%로 계산) — "자체 시운전은 무조건 기본 활성화". 끄면(_naItems) 팝업·공정률에서 빠짐
         //   (오전의 '진행 중·취소 = 빈칸도 적용'은 폐지 — 메인표 ×인데 팝업에 PLC·ETOS가 나오던 원인, 010 취소)
+        // ★ 기술2·3팀 등 (2026-09-30 팀장님 "메인표 ×인데 팝업엔 PLC·ETOS가 살아 있다"): PLC·ETOS·HMI도 'value' 규칙 (List progSwitchOf) +
+        //   통합시운전 묶음(progSwitch.group) = '진행율 %'·'Point' 두 칸이 한 항목 — 스위치 하나를 끄면 둘 다 ×, 켜면 둘 다 켜짐. 값 = 둘 중 하나라도 있으면 적용
         const _psN = (v) => String(v ?? '').replace(/\s+/g, '');
         const _psHit = (list) => (list || []).some(c => _psN(c) === _psN(h));
-        const psRule = progSwitch && _psHit(progSwitch.cols) ? (_psHit(progSwitch.alwaysCols) ? 'always' : 'value') : null;
-        const exOn = psRule === 'value' && (Array.isArray(detailRow._naOn) ? detailRow._naOn : []).some(x => _psN(x) === _psN(h));
+        const _grp = (progSwitch && progSwitch.group && _psHit(progSwitch.group.cols)) ? progSwitch.group : null;
+        const _gIn = (x) => !!_grp && [..._grp.cols, _grp.name].some(n => _psN(n) === _psN(x));
+        const off = _grp ? (Array.isArray(detailRow._naItems) ? detailRow._naItems : []).some(_gIn) : naItems.includes(h);
+        const hasVal = _grp ? _grp.cols.some(c => String(detailRow[c] ?? '').trim() !== '') : String(val ?? '').trim() !== '';
+        const psRule = progSwitch && (_grp || _psHit(progSwitch.cols)) ? (_psHit(progSwitch.alwaysCols) ? 'always' : 'value') : null;
+        const exOn = psRule === 'value' && (Array.isArray(detailRow._naOn) ? detailRow._naOn : []).some(x => _grp ? _gIn(x) : _psN(x) === _psN(h));
         const swOn = !off && (hasVal || psRule === 'always' || exOn);
         const focusField = () => setTimeout(() => {
             const box = document.querySelector(`[data-dm-field="${CSS.escape(String(h))}"]`);
@@ -131,12 +137,24 @@ export default function DetailModal({
             return { ...p, _naItems: ex2, _naOn: want ? [...on2, h] : on2 };
         });
         const onSwitch = () => {
+            if (_grp) {   // 통합시운전 묶음 (2026-09-30): 켬 ↔ 끔 — 값은 보관 · 두 칸 같이 (끔 = 이 칸을 끈 목록에 · 켬 = 묶음 이름을 끈 목록에서 빼고, 값이 없으면 켬 표시)
+                setDetailRow(p => {
+                    const ex = (Array.isArray(p._naItems) ? p._naItems : []).filter(x => !_gIn(x));
+                    const on = (Array.isArray(p._naOn) ? p._naOn : []).filter(x => !_gIn(x));
+                    return swOn ? { ...p, _naItems: [...ex, h], _naOn: on } : { ...p, _naItems: ex, _naOn: hasVal ? on : [...on, _grp.name] };
+                });
+                return;
+            }
             if (psRule === 'value' && !hasVal) { setExOn(off || !exOn); return; }   // 빈칸: 켜기(팝업에 줄) ↔ 끄기
             if (off) { toggleNa(h); if (!hasVal) focusField(); }       // off → on: 목록에서 빼고, 빈칸이면 바로 키인하도록
             else if (hasVal || psRule === 'always') toggleNa(h);         // on → off: 목록에 추가(메인표 ×, 값 보관) · 자체 시운전 = 빈칸이어도 끔
             else focusField();                                           // 빈칸(자동 off) → 값을 넣어야 켜짐
         };
-        const swTip = off ? '스위치 off — 메인표 × (누르면 켬)'
+        const swTip = _grp ? (off ? '스위치 off — 통합시운전 사용 안 함 (진행율 %·Point 둘 다 메인표 ×, 값은 보관) · 누르면 켬'
+                : hasVal ? '적용 — 누르면 끔 (통합시운전 = 진행율 %·Point 둘 다 ×, 값은 보관)'
+                : exOn ? '적용 — 아직 빈칸 · 진행실적 팝업에 통합시운전 줄이 있음 · 누르면 끔'
+                : '빈칸 — 이 프로젝트엔 통합시운전 없음(메인표 ×) · 누르면 켬: 진행실적 팝업에 줄이 생김')
+            : off ? '스위치 off — 메인표 × (누르면 켬)'
             : hasVal ? '켜짐 — 누르면 끔 (메인표 ×, 값은 보관)'
             : psRule === 'always' ? '적용 — 아직 빈칸(0%로 계산) · 누르면 끔 (진행실적 팝업·공정률에서 빠짐)'
             : psRule === 'value' ? (exOn ? '적용 — 진행실적 팝업에 줄이 있음 · 누르면 끔' : '빈칸 — 이 프로젝트엔 없는 항목(메인표 ×) · 누르면 켬: 진행실적 팝업에 줄이 생김')
@@ -185,7 +203,7 @@ export default function DetailModal({
                     ) : isAutoLockedDM(h) ? (
                         // 수식 자동 칸 (2026-09-29 전수 점검): 메인표 셀과 같이 키인 잠금 — 진행실적 장부 + PLC·ETOS·HMI·총물량으로 계산됨
                         <div style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'4px 8px' }}
-                            title="자동 계산 칸 — PLC·ETOS·HMI·총물량은 직접 입력, 시운전 포인트는 진행실적 팝업에서 넣으면 따라 바뀝니다">
+                            title={autoLockTip || '자동 계산 칸 — PLC·ETOS·HMI·총물량은 직접 입력, 시운전 포인트는 진행실적 팝업에서 넣으면 따라 바뀝니다'}>
                             <span style={{ fontSize:'12px', fontWeight:800, color:'#1e293b' }}>{String(val ?? '').trim() !== '' ? (isAutoPctDM(h) && !String(val).endsWith('%') ? String(val) + '%' : pctDisplay(h, val)) : '—'}</span>
                             <span style={{ fontSize:'11px', fontWeight:700, color:'#1e7ac8', whiteSpace:'nowrap' }}>{isAdd ? '추가하면 자동 계산' : '자동 계산'}</span>
                             <span style={{ marginLeft:'auto', fontSize:'11px', color:'#94a3b8', flexShrink:0 }}>🔒 잠금</span>
@@ -356,7 +374,10 @@ export default function DetailModal({
     const PROG_ALL_ITEMS = ['도면입수', 'I/O Map', '화면작성', '기준정보', 'PLC', 'ETOS', 'HMI', '자체시운전', '통합시운전'];
     const _npNorm = (v) => String(v ?? '').replace(/\s+/g, '').toUpperCase();
     const missingProgItems = PROG_ALL_ITEMS.filter(name =>
-        !(activeHeaders || []).some(h => !isInternal(h) && _npNorm(h).includes(_npNorm(name))));
+        !(activeHeaders || []).some(h => !isInternal(h) && _npNorm(h).includes(_npNorm(name))))
+        // 팀 통합열 별칭 (2026-09-30 — List defaultNaItems의 2026-08-25 규칙과 통일): 통합열('진행율 %')이 표에 있으면 통합시운전은 '열 있음'.
+        //   종전엔 여기만 '열 없음'으로 봐서 '통합시운전 · 메인표 열 없음 · 미적용' 줄이 따로 떴음(메인표·팝업은 적용 중인데) → 진행율 %·Point 스위치가 통합시운전 스위치
+        .filter(name => !(name === '통합시운전' && intColAlias && (activeHeaders || []).some(h => _npNorm(h) === _npNorm(intColAlias))));
     const isProgSec = (sec) => !!(sec && sec.label) && _npNorm(sec.label).includes('공사진행');
     // ★ 기본 미적용 (2026-07-21 팀장님): 엑셀에 열 없는 항목(missingProgItems)은 전 프로젝트 기본 off.
     //   켜면 _naOn(예외 목록)에 저장. 엑셀 열 있는 항목은 기존대로 _naItems(끈 목록)에 저장.

@@ -17,7 +17,7 @@ import { db, appId } from '../firebase';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, parseDateFlex, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
-import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef, backupStatusRef } from './projectListData';
+import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef, backupStatusRef, emptyProgOffOf, mainBaseOf, handPctTarget, handPointTarget, isClosedStatusVal } from './projectListData';
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 import { t1DateToYmd, t1WeekKeyOfYmd, t1CumDerive, t1PlanDoneMove, t1LatestPct } from './tech1Progress';   // 기술1팀 진행 수치 누계 계산 (2026-09-29)
 
@@ -1005,6 +1005,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return (l && l.weekly) || {};
     };
     const t1IsDone = (row) => { const c = aliasCol(teamProfile?.상태?.칩기준열 || '작업'); return !!c && String(row?.[c] ?? '').trim() === '완료'; };
+    // 끝난 프로젝트 = 진행 현황 완료·취소·삭제 (2026-09-30 팀장님, 기술2·3팀): 메인표·상세/수정에서 진행 값을 고쳐도 진행실적에 '새 날짜'를 만들지 않음 (handPctTarget·handPointTarget)
+    const isRowClosed = (row) => { const c = aliasCol(teamProfile?.상태?.칩기준열 || '진행 현황'); return !!c && isClosedStatusVal(row?.[c]); };
     const t1EndYmd = (row) => { const c = datePairCols && datePairCols[1]; return c ? t1DateToYmd(row?.[c]) : ''; };   // 날짜짝 뒤쪽 = 종료
     const t1RefYm = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
     // 완료 프로젝트의 종료 주 'YYYY-M-W' — 종료 날짜가 오늘 달 이하일 때만 (메인표 키인 syncProgressCellToLedger와 같은 조건, 2026-09-29)
@@ -1535,11 +1537,63 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         return [...new Set([...ex, ...defaultNaItems.filter(n => !on.includes(n)), ...cardDefaultOffOf(row).filter(n => !on.includes(n))])];
     };
     // ★ 스위치 off 칸 = 모든 열 (2026-09-10 팀장님): 종전 공정/시운전 9칸만 → 상세 팝업 스위치를 끈 어떤 항목이든 그 프로젝트 칸만 × (열 숨김 아님)
-    const isNaItemCell = (row, h) => naItemsOf(row).includes(h);
+    //   + 통합시운전 묶음 (2026-09-30): 기술2·3팀 '진행율 %'·'Point'(카드 시운전 통합열·누적열) = 한 항목 — 둘 중 하나(또는 '통합시운전')를 끄면 두 칸 모두 ×
+    const intGroupCols = (() => {
+        const sv = teamProfile?.시운전;
+        if (!sv || !sv.통합열) return [];
+        return [sv.통합열, sv.누적열].filter(Boolean).map(nm => (activeHeaders || []).find(h => fmNorm(h) === fmNorm(nm))).filter(Boolean);
+    })();
+    const isIntGroupCol = (h) => intGroupCols.includes(h);
+    const _isIntGroupName = (x) => fmNorm(x) === fmNorm('통합시운전') || intGroupCols.some(g => fmNorm(g) === fmNorm(x));
+    const intGroupOffOf = (row) => intGroupCols.length > 0 && naItemsOf(row).some(_isIntGroupName);
+    const isNaItemCell = (row, h) => naItemsOf(row).includes(h) || (isIntGroupCol(h) && intGroupOffOf(row));
+    // ★ 진행 항목 '적용' = 메인표에 값이 있을 때만 (2026-09-30 팀장님: "메인표는 PLC·ETOS ×인데 진행실적 팝업엔 살아 있다" — 기술2·3팀)
+    //   9/29 기술1팀 규칙(t1EmptyOffOf)을 다른 팀에도: 메인표가 빈칸을 ×로 그리는 열(카드 빈칸회색)에서
+    //   PLC·ETOS·HMI = 값이 있어야 적용(0도 값) · 통합시운전 = 진행율 %·Point 중 하나라도 값이 있어야 적용.
+    //   빈칸 = × = 진행실적 팝업·진척률·실적 그래프·모바일에서 빠짐. 쓰려면 메인표에 값을 넣거나 상세 보기에서 스위치를 켬(_naOn → 팝업에 줄).
+    //   규칙 본문 = projectListData.emptyProgOffOf (모바일 naProgressItemsOf와 같은 함수). 하위(공종) 행은 부모 팝업을 쓰므로 제외.
+    const genericEmptyOffOf = (row) => (!row || isSubListRow(row)) ? {} : emptyProgOffOf(row, activeHeaders, { gray: isGrayEmptyCol, intCols: intGroupCols });
+    // 상세 보기에서 '켠' 빈 진행 항목 칸 (2026-09-30): 값은 없지만 적용 중(팝업에 줄) → 메인표도 × 대신 흰 빈칸 — '× = 팝업에 없음'을 정확히 맞춤
+    const isExOnProgCell = (row, h) => {
+        if (!row || isSubListRow(row) || isNaItemCell(row, h)) return false;
+        const on = (Array.isArray(row._naOn) ? row._naOn : []).map(fmNorm);
+        if (isIntGroupCol(h)) return on.some(x => _isIntGroupName(x));
+        return ['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) && on.includes(fmNorm(h));
+    };
+    // 상세 보기 진행 항목 스위치 규칙 (DetailModal progSwitch) — 진행실적 팝업·메인표와 같은 규칙
+    //   기술1팀 누계 = PLC·ETOS T/S·HMI 값 규칙 + 자체·통합 시운전 항상형 (2026-09-29)
+    //   그 밖 팀(기술2·3팀 등) = PLC·ETOS·HMI 값 규칙 + 통합시운전 묶음(진행율 %·Point 스위치 하나 = 두 칸 같이) (2026-09-30)
+    const progSwitchOf = (row) => {
+        if (!row || isSubListRow(row)) return null;
+        if (fmCum && fmActive(row)) return { cols: ['PLC', 'ETOS T/S', 'HMI', '자체 시운전', '통합 시운전'].map(fmCol), alwaysCols: [fmCol('자체 시운전'), fmCol('통합 시운전')] };
+        if (teamProfile?.기능?.진행실적팝업 === false) return null;
+        const cols = (activeHeaders || []).filter(h => ['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) && isGrayEmptyCol(h));
+        const gCols = intGroupCols.filter(isGrayEmptyCol);
+        if (!cols.length && !gCols.length) return null;
+        return { cols, alwaysCols: [], group: gCols.length ? { name: '통합시운전', cols: gCols } : null };
+    };
+    // ★ 복사해서 만드는 새 행 = 진행 값 비움 — 수식 없는 팀(기술2·3팀) (2026-09-30 · 9/29 기술1팀 t1BlankProgress와 같은 이유)
+    //   새 행 = 빈 진행실적 장부. PLC·ETOS·HMI·진행율 %·Point를 베끼면 메인표엔 값이 있는데 팝업·그래프는 0 → 어긋남. 포인트(총점) 등 계획 값은 그대로
+    const blankProgressCopyOf = (row) => {
+        if (fmCfg || !row || isSubListRow(row)) return row;   // 수식 팀(기술1팀)은 t1BlankProgress(9/29) 그대로
+        (activeHeaders || []).filter(h => ['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) || isIntGroupCol(h))
+            .forEach(c => { if (Object.prototype.hasOwnProperty.call(row, c)) row[c] = ''; });
+        return row;
+    };
+    // 상세 보기·추가 팝업에서 잠글 자동 칸 — 기술1팀 수식 칸(2026-09-29) · 기술2·3팀 진행율 %(Point ÷ 포인트, 2026-09-30: 쳐도 저장 때 다시 계산돼 사라지던 것)
+    const autoLockedColsOf = (row) => {
+        if (!row || isSubListRow(row)) return [];
+        if (fmActive(row)) return fmAutoColsOf();
+        const rc = paActive(row) ? paCol(paCfg.결과열) : null;
+        return rc ? [rc] : [];
+    };
+    const autoLockTipOf = (row) => (row && !fmActive(row) && paActive(row))
+        ? `자동 계산 칸 — ${paCfg.결과열} = ${paCfg.분자열} ÷ ${paCfg.분모열} × 100 · ${paCfg.분자열}·${paCfg.분모열}를 고치면 따라 바뀝니다 (${paCfg.분모열}가 비면 하위 합계)` : undefined;
     // _naItems(헤더명) → progressItems({설정키:false}) — 진행실적 팝업·실적 그래프 계산에서 미적용 항목 제외 (2026-07-21)
     const naToProgressItems = (row) => {
         const na = naItemsOf(row);
-        const emptyOff = t1EmptyOffOf(row);   // ★ 기술1팀 누계: 메인표 빈칸 PLC·ETOS·HMI = 없음 → 팝업·그래프·공정률에서 빠짐 · 자체 시운전은 항상 적용 (2026-09-29)
+        // ★ 빈칸 = 없음 → 팝업·그래프·공정률에서 빠짐: 기술1팀 누계 = t1EmptyOffOf(자체 시운전은 항상 적용, 2026-09-29) · 그 밖 팀 = genericEmptyOffOf (2026-09-30)
+        const emptyOff = (fmCum && fmActive(row) && !isSubListRow(row)) ? t1EmptyOffOf(row) : genericEmptyOffOf(row);
         if (!na.length && !Object.keys(emptyOff).length) return undefined;
         const pi = { ...emptyOff };
         na.forEach(h => {
@@ -1547,7 +1601,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             const c = String(h).replace(/\s/g, '');
             if (k) pi[k] = false;
             else if (c.includes('자체시운전')) pi.internalTest = false;
-            else if (c.includes('통합시운전')) pi.integratedTest = false;
+            else if (c.includes('통합시운전') || _isIntGroupName(h)) pi.integratedTest = false;   // 진행율 %·Point를 끔 = 통합시운전 끔 (2026-09-30 묶음)
         });
         return Object.keys(pi).length ? pi : undefined;
     };
@@ -2912,6 +2966,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (_ex.includes(editingCell.key)) patch._naItems = _ex.filter(x => x !== editingCell.key);
             if (!_ex.includes(editingCell.key) || defaultNaItems.includes(editingCell.key) || cardDefaultOffOf(srcRow).includes(editingCell.key)) patch._naOn = [...new Set([..._on, editingCell.key])];
         }
+        // 통합시운전 묶음 (2026-09-30): 진행율 %·Point 중 한 칸에 값을 넣으면 묶음 전체를 다시 켬 (다른 칸·'통합시운전'을 꺼 둔 경우 포함)
+        if (srcRow && !isXOff && isIntGroupCol(editingCell.key) && String(patch[editingCell.key] ?? '').trim() !== '' && intGroupOffOf(srcRow)) {
+            const _ex0 = Array.isArray(patch._naItems) ? patch._naItems : (Array.isArray(srcRow._naItems) ? srcRow._naItems : []);
+            patch._naItems = _ex0.filter(x => !_isIntGroupName(x));
+        }
         // ★ 수행번호 중복 차단 (2026-08-28 팀장님): 같은 연도 다른 메인 행(초안 포함)과 겹치면 키인 단계에서 거부
         if (srcRow && isExecAssignRowCol(srcRow, editingCell.key) && !isSubListRow(srcRow)) {
             const dup = execDupOf(srcRow._id, srcRow._year, editingCell.key, patch[editingCell.key]);
@@ -2961,7 +3020,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             await queueLedger(() => syncProgressCellToLedger(srcRow, editingCell.key, editingCell.value));
             {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 저장 전체 중단 (2026-08-25)
                 const accR = await queueLedger(() => syncAccPointToLedger(srcRow, editingCell.key, editingCell.value));
-                if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur)); setEditingCell({ id: null, key: null, value: '' }); return; }
+                if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur, accR.wk)); setEditingCell({ id: null, key: null, value: '' }); return; }
             }
             const updater = rows => rows.map(r => {
                 if (r._id !== editingCell.id) return r;
@@ -2999,7 +3058,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         {   // Point(실적) 키인 → 장부 증분 동기화 — 감소면 메인표 저장까지 전체 중단 (2026-08-25)
             //   Point 칸일 때만 장부를 읽으므로(왕복 1회) PLC·ETOS·HMI 등은 대기 없이 통과
             const accR = await queueLedger(() => syncAccPointToLedger(row, editingCell.key, editingCell.value, { checkOnly: true }));
-            if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur)); setEditingCell({ id: null, key: null, value: '' }); return; }
+            if (!accR.ok) { setAlertMsg(accSyncBlockMsg(editingCell.value, accR.sum, accR.cur, accR.wk)); setEditingCell({ id: null, key: null, value: '' }); return; }
         }
         // ★ 낙관적 저장 (2026-08-25 팀장님 "키인 너무 느림·멈춤"): 종전엔 충돌검사 getDoc → 장부 getDoc+setDoc → 행 setDoc을
         //   전부 기다린 뒤에야 편집창이 닫혀 Enter마다 클라우드 왕복 3~4회를 그대로 체감. 이제 행 저장을 먼저 던지고(Firestore가
@@ -3083,10 +3142,15 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     // ★ 기술1팀 누계 (2026-09-29 전수 점검): 자동 칸 = 새 행(빈 장부) 기준으로 계산 · 노란 새 행에 친 PLC·ETOS·HMI는 장부에도 (기존 행 [저장]과 같은 규칙)
                     const fin0 = { _id: id, ...patch };
                     const t1New = fmCum && fmActive(fin0) && !isSubListRow(fin0);
-                    const patchN = t1New ? { ...patch, ...fmDeriveCum(fin0, {}) } : patch;
+                    const patchN = t1New ? { ...patch, ...fmDeriveCum(fin0, {}) }
+                        : (paActive(fin0) && !isSubListRow(fin0)) ? { ...patch, ...paRecalc(fin0) } : patch;   // 진행율 % 자동 (2026-09-30)
                     await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patchN, ...(devC ? devSavePatch({}, patchN, devC, null, devWho) : {}) }));   // 처음 완료예정 보관 (2026-09-17)
                     recordAudit(AUDIT_ACTIONS.ADD, { _id: id, ...patchN }, []);
                     if (t1New) for (const k of Object.keys(edited)) await queueLedger(() => syncProgressCellToLedger({ _id: id, ...patchN }, k, edited[k]));
+                    if (!t1New && !isSubListRow(fin0)) for (const k of Object.keys(edited)) {   // 기술2·3팀 등 (2026-09-30): 노란 새 행에 친 PLC·ETOS·HMI·Point = 장부에도 (기존 행 [저장]과 같은 함수)
+                        await queueLedger(() => syncProgressCellToLedger({ _id: id, ...patchN }, k, edited[k]));
+                        await queueLedger(() => syncAccPointToLedger({ _id: id, ...patchN }, k, edited[k]));
+                    }
                     okNew++;
                 } else if (sv) {
                     let hist = Array.isArray(sv._changeHistory) ? sv._changeHistory : [];
@@ -3108,7 +3172,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     for (const k of Object.keys(edited)) {
                         await queueLedger(() => syncProgressCellToLedger(finalRow, k, edited[k]));
                         const accR = await queueLedger(() => syncAccPointToLedger(finalRow, k, edited[k]));
-                        if (accR && accR.ok === false) setAlertMsg(accSyncBlockMsg(edited[k], accR.sum, accR.cur));
+                        if (accR && accR.ok === false) setAlertMsg(accSyncBlockMsg(edited[k], accR.sum, accR.cur, accR.wk));
                     }
                     await t1AfterSave(finalRow, Object.keys(edited));   // 작업을 완료로·종료 날짜 → 종료 달 뒤 기록 = 종료 주 (2026-09-29)
                     okRows++; okCells += Object.keys(edited).length;
@@ -3274,7 +3338,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   ★ HEADER_MAP(ProgressModal)의 정확한 역매핑 — 공백/대소문자 무시 후 대조.
     const PROG_COL_TO_KEY = { '도면입수':'drawing', 'I/OMAP':'iomap', '화면작성':'screen', '기준정보':'baseinfo', 'PLC':'plc', 'ETOS':'etos', 'ETOST/S':'etos', 'HMI':'hmi' };   // ETOS T/S = 기술1팀 열 이름 (2026-08-19 팀장님: ETOS와 동일)
     const progItemKeyOf = (header) => PROG_COL_TO_KEY[String(header ?? '').replace(/\s+/g, '').toUpperCase()];
-    const syncProgressCellToLedger = async (row, header, value, forceItemKey) => {
+    const syncProgressCellToLedger = async (row, header, value, forceItemKey, opts = {}) => {   // opts.atNow = NAS 자동 반영·[진행실적 심기] — 종전대로 이번 주 (2026-09-30)
         const itemKey = forceItemKey || progItemKeyOf(header);          // forceItemKey: 수식 자동값(자체시운전) 반영용 (2026-08-19)
         if (!itemKey || !row) return;                                   // 공정률 7개가 아니면 무시(포인트·시운전·날짜·상태 등)
         const _sv = String(value ?? '').replace(/[,%]/g, '').trim();     // '50%'처럼 붙여 넣어도 숫자만 (2026-08-27)
@@ -3312,6 +3376,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             else { const snap = await getDoc(ref); data = snap.exists() ? snap.data() : { docKey, execNo: (row['실행번호'] || row.execNo || '') }; }
             const weekly = { ...(data.weekly || {}) };
             const itemWeeks = { ...(weekly[itemKey] || {}) };
+            // ★ 사람이 친 값 (2026-09-30 팀장님 "3월에 넣은 값이 합계로 — 오늘 날짜로 또 적지 마", 기술2·3팀): 종전엔 무조건 이번 주 칸 →
+            //   완료 프로젝트에도 오늘 날짜 기록이 생기고, 팝업 3월 칸에 넣어도 합계 = 더 뒤인 이번 주 값이었음.
+            //   ① 장부 합계와 같은 값 ② 기록 없는 항목에 0 = 안 씀 ③ 끝난 프로젝트 = 새 날짜 안 만듦(마지막 기록 칸만 고침 · 기록 없으면 안 씀 → 팝업·그래프는 메인표 값)
+            //   수식 팀(기술1팀 누계)은 위 종료 주 규칙 그대로 · 진행 중 프로젝트 = 아래 종전대로 이번 주
+            if (!fmCfg && !forceItemKey && !opts.atNow && !isClear) {
+                const hp = handPctTarget(itemWeeks, num, isRowClosed(row), cy, cm);
+                if (hp.skip) return;
+                if (hp.wk) {   // 끝난 프로젝트: 마지막 기록 칸의 값만 바꿈 (날짜 그대로)
+                    itemWeeks[hp.wk] = num;
+                    weekly[itemKey] = itemWeeks;
+                    await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+                    ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
+                    if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });
+                    return;
+                }
+            }
             // 이번 달에서 '현재 주차보다 뒤(미래)' 주차값 제거 → 현재 주차가 '누적 최신값'이 되어 팝업 합계와 일치.
             //   (지난 버전이 기준월 마지막주에 넣어둔 잔재도 여기서 함께 정리됨)
             Object.keys(itemWeeks).forEach(wk => {
@@ -3380,6 +3460,22 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });
                 return { ok: true };
             }
+            // ★ 사람이 친 Point (2026-09-30 팀장님, 기술2·3팀): 장부 합과 같은 값·기록 없는 항목의 0 = 안 씀 · 끝난 프로젝트 = 새 날짜 안 만듦
+            //   (마지막 기록 칸에서 늘리거나 줄임 · 기록이 없으면 장부에 안 씀 → 팝업·그래프는 메인표 Point를 합계로) — handPointTarget
+            if (!opts.atNow) {
+                const hp = handPointTarget(iw, num, isRowClosed(row));
+                if (hp.skip) return { ok: true };
+                if (hp.block) return { ok: false, sum: hp.sum, cur: hp.cur, wk: hp.wk };
+                if (hp.wk) {
+                    if (opts.checkOnly) return { ok: true };
+                    iw[hp.wk] = hp.val;
+                    weekly.intCommissioning = iw;
+                    await setDoc(ref, { ...data, weekly, updatedAt: new Date().toISOString() });
+                    ledgerFreshRef.current[docKey] = { at: Date.now(), data: { ...data, weekly } };
+                    if (onProgressSaved) onProgressSaved({ docKey, weeklyData: weekly });
+                    return { ok: true };
+                }
+            }
             const otherSum = Object.entries(iw).reduce((s2, [wk, v]) => (wk === curWKey ? s2 : s2 + (Number(v) || 0)), 0);
             if (num < otherSum) return { ok: false, sum: otherSum, cur: Number(iw[curWKey] || 0) };   // 감소 → 저장 중단 (호출부에서 경고)
             if (opts.checkOnly) return { ok: true };                              // 초안 단계 = 검사만 (쓰기는 [저장] 때)
@@ -3393,7 +3489,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         } catch (e) { console.warn('[accSync] Point→장부 반영 실패:', e); }
         return { ok: true };
     };
-    const accSyncBlockMsg = (num, sum, cur = 0) => `Point(실적) ${num}점은 저장할 수 없습니다.\n\n진행실적 장부에 지난 주차까지 ${sum}점이 기록돼 있습니다\n(이번 주 ${cur}점 포함 총 ${sum + cur}점).\n지난 주차 합(${sum})보다 작은 값은 주간 기록이 어긋나 막습니다.\n\n실적을 줄이려면 진행실적 팝업에서\n해당 주차 값을 직접 고쳐주세요.`;   // 2026-08-25 테스트: '185인데 왜 135?' 혼동 방지 — 총합 병기
+    const accSyncBlockMsg = (num, sum, cur = 0, wk = null) => { const wp = wk ? String(wk).split('-') : null; const wl = wp ? `마지막 기록 주(${wp[1]}월 ${wp[2]}주)` : '이번 주', bf = wp ? '그 전' : '지난'; return `Point(실적) ${num}점은 저장할 수 없습니다.\n\n진행실적 장부에 ${bf} 주차까지 ${sum}점이 기록돼 있습니다\n(${wl} ${cur}점 포함 총 ${sum + cur}점).\n${bf} 주차 합(${sum})보다 작은 값은 주간 기록이 어긋나 막습니다.\n\n실적을 줄이려면 진행실적 팝업에서\n해당 주차 값을 직접 고쳐주세요.`; };   // wk = 끝난 프로젝트의 마지막 기록 주 (2026-09-30)   // 2026-08-25 테스트: '185인데 왜 135?' 혼동 방지 — 총합 병기
 
     // ─── NAS 진척자료 자동 반영 (2026-07-22) ─────────────────────────────────
     //   개념: 원본은 NAS 폴더의 최신 진척 엑셀(복사본 안 올림). 이 PC에 '폴더 읽기 허가증'을 한 번 받아두면
@@ -3753,7 +3849,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     for (const [cn2, v2] of Object.entries(p._sub.want)) {
                         const nn2 = String(cn2).replace(/\s+/g, '').toUpperCase();
                         if (nn2 === _accNmU) await extSeedIntLedger(subObjC, v2);
-                        else if (nn2 !== '포인트') await syncProgressCellToLedger(subObjC, hOfA(cn2), v2);   // 공정률 4개만 통과(자체·통합%는 자동 무시)
+                        else if (nn2 !== '포인트') await syncProgressCellToLedger(subObjC, hOfA(cn2), v2, undefined, { atNow: true });   // 공정률 4개만 통과(자체·통합%는 자동 무시)
                     }
                     if (subObjC._pid && onProgressSaved) { try { const s3 = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, subObjC._pid)); if (s3.exists()) onProgressSaved({ docKey: subObjC._pid, weeklyData: s3.data().weekly || {} }); } catch (e3) {} }
                     continue;
@@ -3777,7 +3873,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     for (const c2 of p._sub.changes) {
                         const nn3 = String(c2.col).replace(/\s+/g, '').toUpperCase();
                         if (nn3 === _accNmU2) await extSeedIntLedger(subRow, c2.to);
-                        else if (nn3 !== '포인트') await syncProgressCellToLedger(subRow, hOfA(c2.col), c2.to);
+                        else if (nn3 !== '포인트') await syncProgressCellToLedger(subRow, hOfA(c2.col), c2.to, undefined, { atNow: true });
                     }
                     const dkS = subRow._pid || '';
                     if (dkS && onProgressSaved) { try { const s4 = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', `progressRecords_${currentTeam}`, dkS)); if (s4.exists()) onProgressSaved({ docKey: dkS, weeklyData: s4.data().weekly || {} }); } catch (e4) {} }
@@ -3806,7 +3902,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 }
                 await setDoc(rowDocRef(currentTeam, row._id), stampSave(patch), { merge: true });
                 recordAudit(AUDIT_ACTIONS.EDIT, { ...row, [tgtH]: valStr }, [{ field: tgtH + ' (NAS 자동)', from: entry.changes[0].from, to: valStr }]);
-                await syncProgressCellToLedger(row, tgtH, p.to);
+                await syncProgressCellToLedger(row, tgtH, p.to, undefined, { atNow: true });   // NAS = 파일의 지금 값 → 이번 주 (사람 입력 규칙 제외, 2026-09-30)
                 // 누적(진행 pt) 반영 시 — 심기와 동일하게 통합시운전 주간장부에도 기록 → 그래프·팝업 일치
                 if (tn === String(extWebCol('누적')).replace(/\s+/g, '').toUpperCase()) { try {
                     const _dk2 = row._pid || row.pid || row['실행번호'] || row.execNo || String(row._id || '');
@@ -4012,7 +4108,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setIsLoading(true);
         try {
             for (const { r, cells, seedInt } of targets) {
-                for (const { h, val } of cells) { await syncProgressCellToLedger(r, h, val); }
+                for (const { h, val } of cells) { await syncProgressCellToLedger(r, h, val, undefined, { atNow: true }); }   // 심기 = 확인창에 적힌 이번 주 그대로 (2026-09-30)
                 if (seedInt) {
                     // 누적(진행 포인트) → 통합시운전 주간장부(이번 주차 — 재실행해도 같은 칸 덮어쓰기라 안전) + %칸 자동
                     const _dk = r._pid || r.pid || r['실행번호'] || r.execNo || String(r._id || r.id || '');
@@ -4435,6 +4531,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         // 수행번호는 복사하지 않음 (2026-08-28): 선택 행의 번호가 그대로 따라오면 중복 — 빈칸으로 두고 저장 후 메인표 [+]로 받는다
         activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; });
         if (baseRow) t1BlankProgress(newRow);   // 기술1팀 누계: 진행 값(PLC·ETOS·HMI·자동 칸)은 복사 안 함 — 새 프로젝트는 0에서 (2026-09-29)
+        if (baseRow) blankProgressCopyOf(newRow);   // 기술2·3팀 등: PLC·ETOS·HMI·진행율 %·Point도 복사 안 함 (2026-09-30 — 새 장부 0 ↔ 메인표 값 어긋남 방지)
         setAddingRow(newRow);
     };
 
@@ -4534,12 +4631,20 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         const { _id, ...data0 } = rowToAdd;
         // ★ 기술1팀 누계 (2026-09-29 전수 점검): 자동 칸 = 새 행(빈 장부) 기준으로 계산해 저장 · 추가 팝업에 친 PLC·ETOS·HMI는 장부에도 → 팝업·그래프 = 메인표
         const t1Add = fmCum && fmActive(rowToAdd) && !isSubListRow(rowToAdd);
-        const data = t1Add ? { ...data0, ...fmDeriveCum(rowToAdd, {}) } : data0;
+        const data = t1Add ? { ...data0, ...fmDeriveCum(rowToAdd, {}) }
+            : (paActive(rowToAdd) && !isSubListRow(rowToAdd)) ? { ...data0, ...paRecalc(rowToAdd) } : data0;   // 진행율 % 자동 = 추가 때도 계산 (2026-09-30 — 상세·추가 팝업에서 잠금)
         try {
             await setDoc(rowDocRef(currentTeam, _id), stampSave(data)); recordAudit(AUDIT_ACTIONS.ADD, rowToAdd, []); setAddingRow(null);
             if (t1Add) for (const nm of ['PLC', 'ETOS T/S', 'HMI']) {
                 const c = fmCol(nm), v = String(data[c] ?? '').trim();
                 if (v !== '') await queueLedger(() => syncProgressCellToLedger({ _id, ...data }, c, v));
+            }
+            // ★ 기술2·3팀 등 (2026-09-30): 추가 팝업에 친 PLC·ETOS·HMI·Point = 진행실적 장부에도 (셀 키인과 같은 함수) — 새 장부 0 ↔ 메인표 값 어긋남 방지
+            if (!t1Add && !isSubListRow(rowToAdd)) for (const h of (activeHeaders || [])) {
+                const v = String(data[h] ?? '').trim();
+                if (v === '' || !(['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) || isIntGroupCol(h))) continue;
+                await queueLedger(() => syncProgressCellToLedger({ _id, ...data }, h, v));
+                await queueLedger(() => syncAccPointToLedger({ _id, ...data }, h, v));
             }
         }
         catch (err) { setAlertMsg(`저장 오류: ${err.message}`); }
@@ -4573,6 +4678,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             pid,
             _year: row._year || '',   // 수식 팀(연도 게이트) 판정용 — 없으면 그래프 쪽 수식 분기가 안 탐 (2026-08-20 미반영 원인)
             progressItems: naToProgressItems(row) || (linked ? linked.progressItems : undefined),   // 프로젝트별 미적용 → 그래프 공정률서 제외 (2026-07-21)
+            mainBase: mainBaseOf(row, activeHeaders, teamProfile),   // 장부에 기록 없는 항목 = 메인표 값 (2026-09-30 — 진행실적 팝업 합계와 같은 규칙)
             execNo: row[EXEC_NO_COL] || linked?.execNo,
             project: nm,
             totalCommissioningPoints: _spTot || linked?.totalCommissioningPoints || linked?.point || 0,
@@ -4749,7 +4855,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         let pctSum = 0, pctN = 0;
         mains.forEach(r => {
-            const vals = useCols.map(c => parseFloat(String(r[c] ?? '').replace(/%/g, ''))).filter(Number.isFinite);
+            const vals = useCols.filter(c => !isNaItemCell(r, c)).map(c => parseFloat(String(r[c] ?? '').replace(/%/g, ''))).filter(Number.isFinite);   // 스위치로 끈 칸(값 보관)은 평균에서 빼기 — 팝업 진척률과 같은 규칙 (2026-09-30)
             if (vals.length) { pctSum += vals.reduce((a, b) => a + b, 0) / vals.length; pctN += 1; }
         });
         const accCol = activeHeaders.find(h => norm(h) === '누적')
@@ -5952,6 +6058,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; }); // 수행번호는 복사 안 함 — [+]로
                 if (noC) newRow[noC] = '';   // 번호 = 수동 키인 (중복 차단은 셀 키인·초안 저장에서)
                 t1BlankProgress(newRow);     // 기술1팀 누계: 진행 값(PLC·ETOS·HMI·자동 칸)은 복사 안 함 — 새 프로젝트는 0에서 (2026-09-29)
+                blankProgressCopyOf(newRow); // 기술2·3팀 등: PLC·ETOS·HMI·진행율 %·Point도 (2026-09-30)
                 // ★ 즉시 저장 → 초안 (2026-09-16 팀장님: 확인 없이 클라우드에 들어가 [저장]/[취소]가 안 뜨던 것)
                 //   표 맨 아래 노란 행으로 보이고, [저장]을 눌러야 실제로 만들어진다. [취소]면 사라진다.
                 addDraftRow(newRow);
@@ -6735,6 +6842,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     <ProgressModal
                         row={progressRow}
                         progressItems={naToProgressItems(progressRow)}   /* 미적용 항목 → 팝업 진척률서 제외 (2026-07-21) */
+                        mainBase={mainBaseOf(progressRow, activeHeaders, teamProfile)}   /* 장부에 기록 없는 항목 = 메인표 값이 합계 (2026-09-30 — 끝난 프로젝트는 메인표에서 값을 넣어도 날짜를 안 만듦) */
                         lockedItems={extLockedItemKeysAllOf(progressRow)}   /* NAS 자동 항목만 잠금 — 팝업 자체시운전은 메인표와 별개 운영·직접 키인 (2026-08-20 팀장님) */
                         sumAsPct={fmActive(progressRow) && !fmCum}   /* 수식 팀(8/20): 진척률 자체 성분 = 그 달 포인트÷총물량 · ★누계(2026-09-29) = 지금까지 포인트÷총물량, 합계 칸 = 지금까지 합 */
                         team={currentTeam}
@@ -6761,7 +6869,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
                     cardDefaultOff={cardDefaultOffOf(detailRow)}
-                    progSwitch={detailRow && fmCum && fmActive(detailRow) && !isSubListRow(detailRow) ? { cols: ['PLC', 'ETOS T/S', 'HMI', '자체 시운전', '통합 시운전'].map(fmCol), alwaysCols: [fmCol('자체 시운전'), fmCol('통합 시운전')] } : null}   /* 기술1팀 누계 (2026-09-29): PLC·ETOS·HMI = 값 있으면 적용 · 자체 시운전 = 항상 적용 — 메인표·진행실적 팝업과 같은 규칙 */
+                    progSwitch={progSwitchOf(detailRow)}   /* 진행 항목 스위치 = 이 프로젝트에 적용(진행실적 팝업 줄) — 기술1팀 누계(2026-09-29) · 그 밖 팀 PLC·ETOS·HMI 값 규칙 + 통합시운전 묶음(2026-09-30) */
+                    intColAlias={teamProfile?.시운전?.통합열 || null}   /* 통합열('진행율 %') = 통합시운전의 메인표 칸 → 상세 보기에 '통합시운전 · 열 없음' 줄을 따로 안 띄움 (2026-09-30) */
                     currentTeam={currentTeam}
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
@@ -6771,7 +6880,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     plainKeyinCols={teamProfile?.일반입력열 || []}
                     subPtInfo={detailRow ? getSubPt(detailRow._id) : null}
                     extLockedCols={detailRow ? extLockedColsRow(detailRow) : []}
-                    autoLockedCols={detailRow && fmActive(detailRow) && !isSubListRow(detailRow) ? fmAutoColsOf() : []}   /* 수식 자동 칸 = 보기 전용 (2026-09-29 전수 점검 — 메인표 셀 잠금과 같음) */
+                    autoLockedCols={autoLockedColsOf(detailRow)}   /* 자동 칸 = 보기 전용: 기술1팀 수식 칸(2026-09-29) · 기술2·3팀 진행율 %(2026-09-30) — 메인표 셀 잠금과 같음 */
+                    autoLockTip={autoLockTipOf(detailRow)}
                     autoPctCols={(teamProfile?.표시?.퍼센트표기열 || []).map(fmCol)}
                     execLockedCols={detailRow && !isSubListRow(detailRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(detailRow, h)) : []}
                     startLockedCols={detailRow && devC?.start && isStartLocked(detailRow._id, devC.start) ? [devC.start] : []}
@@ -6833,12 +6943,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     setDetailRow={setAddingRow}
                     onSave={saveAddingRow}
                     execLockedCols={addingRow && !isSubListRow(addingRow) ? (activeHeaders || []).filter(h => isExecAssignRowCol(addingRow, h)) : []}
-                    autoLockedCols={addingRow && fmActive(addingRow) && !isSubListRow(addingRow) ? fmAutoColsOf() : []}   /* 수식 자동 칸 = 추가 후 자동 계산 (2026-09-29) */
+                    autoLockedCols={autoLockedColsOf(addingRow)}   /* 자동 칸 = 추가 후 자동 계산: 기술1팀 수식 칸(2026-09-29) · 기술2·3팀 진행율 %(2026-09-30) */
+                    autoLockTip={autoLockTipOf(addingRow)}
                     autoPctCols={(teamProfile?.표시?.퍼센트표기열 || []).map(fmCol)}
                     activeHeaders={activeHeaders}
                     activeColGroups={activeColGroups}
                     cardDefaultOff={cardDefaultOffOf(addingRow)}
-                    progSwitch={addingRow && fmCum && fmActive(addingRow) && !isSubListRow(addingRow) ? { cols: ['PLC', 'ETOS T/S', 'HMI', '자체 시운전', '통합 시운전'].map(fmCol), alwaysCols: [fmCol('자체 시운전'), fmCol('통합 시운전')] } : null}   /* 기술1팀 누계 (2026-09-29): PLC·ETOS·HMI = 값 있으면 적용 · 자체 시운전 = 항상 적용 — 메인표·진행실적 팝업과 같은 규칙 */
+                    progSwitch={progSwitchOf(addingRow)}   /* 진행 항목 스위치 — 상세 보기와 같은 규칙 (2026-09-29 · 2026-09-30) */
+                    intColAlias={teamProfile?.시운전?.통합열 || null}
                     currentTeam={currentTeam}
                     statusOptions={STATUS_OPTIONS}
                     assignees={ASSIGNEES}
@@ -8536,9 +8648,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                 && !(isPointCol(h) && (getSubPt(row._id)?.sum > 0))
                                                 && !(h === projectNameCol && isSubListRow(row))
                                                 && !(isExecNoCol(h) && !isSubListRow(row));
-                                            const cellOff = isNaItemCell(row, h) || nasX || (isGrayEmptyCol(h) && _dispEmpty);
+                                            // 상세 보기에서 켠 빈 진행 항목(2026-09-30) = 적용 중 → × 대신 흰 빈칸 (진행실적 팝업에 줄이 있으니 — '× = 팝업에 없음')
+                                            const exOnEmpty = _dispEmpty && isExOnProgCell(row, h);
+                                            const cellOff = isNaItemCell(row, h) || (nasX && !exOnEmpty) || (isGrayEmptyCol(h) && _dispEmpty && !exOnEmpty);
                                             const offTip = isNaItemCell(row, h) ? '사용 안 함 (스위치 off · 진척률/그래프 제외) — 값을 키인하면 다시 켜집니다'
                                                 : nasX ? 'NAS 진척자료(엑셀)에 없는 항목 — 이 프로젝트는 대상 아님'
+                                                : (['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) || isIntGroupCol(h)) ? '빈칸 — 이 프로젝트엔 없는 항목 (진행실적 팝업·진척률·그래프에서도 빠짐) · 값 키인 = 사용 · x 키인 = 사용 안 함'
                                                 : '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함';
                                             return (
                                                 <td key={h}
@@ -8553,7 +8668,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         ${isMultiLineCol(h)?'cell-ml':''}
                                                         ${(draft[row._id] && Object.prototype.hasOwnProperty.call(draft[row._id].patch || {}, h)) ? 'cell-draft' : ''}${_ffCls}`}
                                                     style={{width: getW(h)||40, minWidth: getW(h)||40, maxWidth: getW(h)||40, '--cw': `${getW(h)||40}px`, ...(centerCol(h)?{textAlign:'center'}:{}), ...(isFrz(h)?{position:'sticky',left:frozenOffsets[h],background: isHl?'#fef3c7':rowBg}:{}), ..._ffSty}}
-                                                    title={cellOff ? offTip : autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
+                                                    title={cellOff ? offTip : exOnEmpty ? '적용 — 아직 빈칸 (상세 보기에서 켬 · 진행실적 팝업에 줄이 있음) · x 키인 = 사용 안 함' : autoTip ? (autoTip + (val ? ' — ' + val : '')) : (val||'')}
                                                     onDoubleClick={e => {   // 번호 칸: 클릭=행 선택이라 편집은 더블클릭 (2026-08-31)
                                                         if (!isProjNoCol(h)) return;
                                                         e.stopPropagation();
