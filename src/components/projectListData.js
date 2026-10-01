@@ -610,3 +610,147 @@ export const extLockedItemKeysAllOf = (row) => {
     if (st) cols.push(...Object.keys(st.parentCols || {}), '통합시운전');
     return [...new Set(cols.map(t => EXT_KEY_MAP[extNorm(t)]).filter(Boolean))];
 };
+
+// ── 행 순서 · 중간 삽입 (2026-10-01 팀장님: 복사한 행을 맨 끝이 아니라 원하는 프로젝트 위/아래에) ──────────
+//   기본 순서 = 내부 ID(_id) 글자순 — 엑셀로 올린 행 = 엑셀 순서 · 웹에서 만든 행(row_manual_…) = 맨 뒤 (종전 그대로).
+//   중간에 넣은 행에만 '자리 쪽지' _place = { id: 기준 행 _id, side: 'after'|'before', at: 시각(ms) } 를 붙여
+//   그 행 바로 아래/위에 보이게 한다 → 기존 행은 하나도 안 바뀜(쓰기 = 새 행 1건). 번호(순번)는 손대지 않음(A안 —
+//   엑셀 반영·확정 저장이 '연도+번호'로 짝을 찾으므로 번호를 밀면 옛 엑셀이 엉뚱한 프로젝트를 덮어씀).
+//   · 묶음 = 메인 행 + 바로 뒤 하위(공종) 행들. 하위는 '바로 위 메인 행'을 부모로 보므로(Σ포인트·삭제 동반·표시)
+//     묶음째로만 옮긴다 — 쪼개면 하위가 엉뚱한 프로젝트에 붙는다.
+//   · 같은 기준 행에 여러 번 넣으면 엑셀처럼 나중 것이 기준 행 쪽 (아래 삽입 = 바로 아래 · 위 삽입 = 바로 위).
+//   · 쪽지가 가리키는 행이 없음(완전 삭제)·다른 연도·하위 행·자기 자신·꼬리 물기(순환)면 쪽지 무시 = 원래 자리.
+//   · 쪽지가 하나도 없으면 _id 정렬 그대로 (종전과 100% 동일). 행 객체는 복사하지 않고 순서만 바꾼다(화면 재사용 유지).
+//   쓰는 곳: List 표(구독)·연도별 1:1 검증·휴대폰 카드·기술1팀 월간보고 / 검사: tests/list/row_insert_test.js
+export const isSubRowByExec = (r) => { const e = String(r?.['실행번호'] || '').trim().toLowerCase(); return e === 's' || e.startsWith('-'); };   // List isSubListRow와 같은 규칙
+const placeOk = (p) => !!(p && p.id && (p.side === 'after' || p.side === 'before'));
+export function orderListRows(rows, isSub = isSubRowByExec) {
+    const base = [...(rows || [])].sort((a, b) => String(a._id).localeCompare(String(b._id)));
+    if (!base.some(r => r && placeOk(r._place))) return base;
+    const blocks = []; let cur = null;
+    base.forEach((r, i) => {
+        if (!isSub(r)) { cur = { head: r, items: [r], idx: i }; blocks.push(cur); }
+        else if (cur) cur.items.push(r);
+        else blocks.push({ head: null, items: [r], idx: i });   // 맨 앞 부모 없는 하위(비정상 데이터) = 제자리
+    });
+    const byId = new Map(); blocks.forEach(b => { if (b.head) byId.set(String(b.head._id), b); });
+    const anc = new Map();   // 묶음 → { b: 기준 묶음, side, at }
+    blocks.forEach(b => {
+        const p = b.head && b.head._place;
+        if (!placeOk(p)) return;
+        const t = byId.get(String(p.id));
+        if (!t || t === b || String(t.head._year || '') !== String(b.head._year || '')) return;
+        anc.set(b, { b: t, side: p.side, at: Number(p.at) || 0 });
+    });
+    // 꼬리 물기(순환) 끊기 — 화면 조작으로는 안 생기지만 데이터가 꼬여도 행이 사라지지 않게 (한 번 확인한 길은 다시 안 걷기)
+    const okB = new Set();
+    blocks.forEach(b => {
+        const path = [], seen = new Set(); let c = b;
+        while (c && anc.has(c) && !okB.has(c)) {
+            if (seen.has(c)) { anc.delete(c); break; }
+            seen.add(c); path.push(c); c = anc.get(c).b;
+        }
+        path.forEach(x => okB.add(x));
+    });
+    const kids = new Map();   // 기준 묶음 → { before:[], after:[] }
+    anc.forEach((a, b) => { if (!kids.has(a.b)) kids.set(a.b, { before: [], after: [] }); kids.get(a.b)[a.side].push(b); });
+    kids.forEach(k => {
+        k.after.sort((x, y) => (anc.get(y).at - anc.get(x).at) || (x.idx - y.idx));    // 아래 삽입: 최신 = 바로 아래
+        k.before.sort((x, y) => (anc.get(x).at - anc.get(y).at) || (x.idx - y.idx));   // 위 삽입: 최신 = 바로 위
+    });
+    const out = [];
+    const emit = (b) => { const k = kids.get(b); if (k) k.before.forEach(emit); out.push(...b.items); if (k) k.after.forEach(emit); };
+    blocks.forEach(b => { if (!anc.has(b)) emit(b); });
+    return out;
+}
+// 저장 전 새 행(노란 행)의 표시 자리 (2026-10-01): 기준 행이 화면에 있으면 바로 위/아래, 없으면 맨 아래(종전).
+//   오래된 쪽지부터 넣어 최신이 기준 행 쪽 = 저장 뒤 순서(orderListRows)와 같은 규칙 ([저장] 때 at = 저장 순간으로 다시 찍음).
+//   여러 행을 한꺼번에 넣으면 둘째 행부터 '앞 새 행 바로 아래' 쪽지 — 앞 행이 자리를 잡은 뒤 들어간다.
+export function placeDraftRows(list, drafts, isSub = isSubRowByExec) {
+    if (!drafts || !drafts.length) return list;
+    const out = [...list];
+    let todo = drafts.filter(d => placeOk(d._place)).sort((a, b) => (Number(a._place.at) || 0) - (Number(b._place.at) || 0));
+    const rest = drafts.filter(d => !placeOk(d._place));
+    for (let moved = true; todo.length && moved;) {
+        moved = false;
+        const next = [];
+        todo.forEach(d => {
+            const i = out.findIndex(r => r._id === d._place.id);
+            if (i < 0) { next.push(d); return; }
+            let j = i;
+            if (d._place.side === 'after') { j = i + 1; while (j < out.length && isSub(out[j])) j++; }   // 기준 행의 하위 묶음 뒤
+            out.splice(j, 0, d); moved = true;
+        });
+        todo = next;
+    }
+    return [...out, ...todo, ...rest];
+}
+// [완전 삭제] 때 쪽지 옮겨 달기 (2026-10-01): 지우는 행(X)을 기준으로 넣은 행들이 맨 뒤로 튀지 않고 제자리에 남게.
+//   목표 순서 = 지우기 전 화면에서 X(+하위)만 뺀 것 → 그 목표에서 X의 직접 자식마다 기준을 '바로 앞 메인 행'으로
+//   (맨 앞이면 '바로 뒤 메인 행'의 위 — 같이 옮겨 다는 형제 묶음은 건너뜀: 서로 기대면 꼬리 물기).
+//   opt.view = 지우기 전 화면 순서(그 해 전체 · 노란 행 포함 — 없으면 rows로 계산) / opt.only = 옮겨 달 대상만(예: 노란 행).
+//   저장된 행은 저장된 행끼리, 노란 행은 노란 행 포함 화면으로 따로 계산해도 같은 목표를 보므로 어긋나지 않는다.
+//   반환 = [{ id, place }] (place = null → 쪽지 지움 = 원래 자리). 쓰는 쪽은 _place 한 칸만 merge로 저장.
+export function planReanchorOnDelete(rows, delId, isSub = isSubRowByExec, now = Date.now(), opt = {}) {
+    const del = String(delId);
+    const x = (rows || []).find(r => String(r._id) === del);
+    if (!x || isSub(x)) return [];
+    const yr = String(x._year || '');
+    const same = (rows || []).filter(r => String(r._year || '') === yr);
+    const old = opt.view || orderListRows(same, isSub);
+    const xi = old.findIndex(r => String(r._id) === del);
+    if (xi < 0) return [];
+    let xe = xi + 1; while (xe < old.length && isSub(old[xe])) xe++;
+    const mains = [...old.slice(0, xi), ...old.slice(xe)].filter(r => !isSub(r));   // 목표 순서의 메인 행들
+    const kids = mains.filter(r => placeOk(r._place) && String(r._place.id) === del && (!opt.only || opt.only(r)));
+    if (!kids.length) return [];
+    return reanchorInView(mains, kids, now);
+}
+// (공용) 목표 순서(mains = 메인 행만)에서 kids 각각의 새 쪽지 — 바로 앞 메인 행 '아래',
+//   맨 앞이면 '바로 뒤 메인 행'의 위 (같이 옮겨 다는 형제 묶음은 건너뜀: 서로 기대면 꼬리 물기). 완전 삭제·잘라내기 옮기기가 같이 씀.
+function reanchorInView(mains, kids, now) {
+    const pos = new Map(mains.map((r, i) => [String(r._id), i]));
+    const kidsOf = new Map();
+    mains.forEach(r => { if (placeOk(r._place)) { const k = String(r._place.id); if (!kidsOf.has(k)) kidsOf.set(k, []); kidsOf.get(k).push(r); } });
+    const span = (r) => {   // 그 행 + 쪽지로 이어진 후손이 차지한 목표 구간 [처음, 끝]
+        let lo = Infinity, hi = -Infinity; const seen = new Set(), st = [r];
+        while (st.length) {
+            const c = st.pop(), id = String(c._id);
+            if (seen.has(id)) continue; seen.add(id);
+            const p = pos.get(id); if (p !== undefined) { if (p < lo) lo = p; if (p > hi) hi = p; }
+            (kidsOf.get(id) || []).forEach(k => st.push(k));
+        }
+        return [lo, hi];
+    };
+    const spans = kids.map(d => ({ d, s: span(d) })).sort((p, q) => p.s[0] - q.s[0]);
+    return spans.map(({ d, s }) => {
+        if (s[0] > 0) return { id: d._id, place: { id: mains[s[0] - 1]._id, side: 'after', at: now } };
+        let j = s[1] + 1;
+        for (let k = 0; k < spans.length; k++) { const o = spans[k].s; if (j >= o[0] && j <= o[1]) { j = o[1] + 1; k = -1; } }   // 형제 묶음이면 그 끝 다음으로 (처음부터 다시 확인)
+        if (j < mains.length) return { id: d._id, place: { id: mains[j]._id, side: 'before', at: now } };
+        return { id: d._id, place: null };
+    });
+}
+// [잘라내기 → 옮기기] (2026-10-01 팀장님: 엑셀처럼 Ctrl+X) — 잘라낸 행들(하위 묶음째)을 기준 행 위/아래로 '자리만' 옮긴다.
+//   복사·삭제가 아니라 그 행에 쪽지만 바꿔 다는 것 → 수행번호·진행실적·이력·내부 ID 전부 그대로.
+//   · 잘라낸 행 = 화면 순서대로 첫 행이 기준 행 위/아래, 나머지는 앞 행 바로 아래 (순서 유지)
+//   · 잘라낸 행에 기대어 있던 다른 행(그 아래 넣었던 행 등)은 제자리에 남김 = 완전 삭제 때와 같은 계산
+//   · 시각: 남는 행 = now, 옮기는 행 = now+1 → 같은 기준 행에 서로 붙어도 옮긴 행이 기준 행 쪽 (엑셀 '잘라낸 셀 삽입'과 같은 자리)
+//   rows = 지금 화면 기준 행들(저장값 + 저장 전 옮기기 초안) · 같은 연도 메인 행만 · 실패(기준이 잘라낸 행/하위/다른 연도 등) = null
+export function planMoveRows(rows, cutIds, targetId, side, isSub = isSubRowByExec, now = Date.now()) {
+    const cut = new Set((cutIds || []).map(String));
+    const tgt = (rows || []).find(r => String(r._id) === String(targetId));
+    if (!tgt || isSub(tgt) || cut.has(String(tgt._id)) || (side !== 'before' && side !== 'after') || !cut.size) return null;
+    const yr = String(tgt._year || '');
+    const old = orderListRows((rows || []).filter(r => String(r._year || '') === yr), isSub);
+    const cutRows = old.filter(r => !isSub(r) && cut.has(String(r._id)));
+    if (cutRows.length !== cut.size) return null;   // 다른 연도·하위·없는 행이 섞임
+    let inCut = false;
+    const mains = [];
+    old.forEach(r => { if (!isSub(r)) { inCut = cut.has(String(r._id)); if (!inCut) mains.push(r); } });   // 잘라낸 묶음을 뺀 순서 = 남는 행들의 목표
+    const kids = mains.filter(r => placeOk(r._place) && cut.has(String(r._place.id)));
+    const plan = kids.length ? reanchorInView(mains, kids, now) : [];
+    cutRows.forEach((r, i) => plan.push({ id: r._id, place: i === 0 ? { id: tgt._id, side, at: now + 1 } : { id: cutRows[i - 1]._id, side: 'after', at: now + 1 } }));
+    return plan;
+}
+// ── 행 순서 · 중간 삽입 끝 ──

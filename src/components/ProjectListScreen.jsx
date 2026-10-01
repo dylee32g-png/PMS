@@ -7,7 +7,7 @@ import {
     Edit2, Save, ChevronUp, ChevronDown, Check, Copy,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
     FileText, LayoutList, Link2, BarChart3, TrendingUp,
-    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home, Palette, CalendarClock
+    PanelRight, Link, Link2Off, Users, ZoomIn, RotateCcw, CornerDownRight, Hash, Home, Palette, CalendarClock, ArrowUpToLine, ArrowDownToLine
 } from 'lucide-react';
 import { collection, doc, setDoc, updateDoc, deleteDoc, deleteField, getDoc, getDocs, getDocFromServer, getDocsFromServer, query, where, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 import ProgressModal from './ProgressModal';
@@ -18,6 +18,7 @@ import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import { loadXLSX, loadExcelJS, loadFileSaver, generatePid, mapLegacyStatus } from '../utils';
 import { isFilterable, isDateCol, isDropdownCol, isStatusCol, isAssigneeCol, isClientCol, isVendorAssCol, toDateInputVal, parseDateFlex, MAIN_COL_KEYWORDS, STATUS_CHIP_COLORS, STATUS_COLOR_PRESETS, DEFAULT_STATUS_OPTIONS, ASSIGNEE_LIST, normalizeAssignee, extractName, toExcelAssignee, splitAssigneeCell, isProgressContentCol, isProgressDateCol, isManagerCol } from './projectColumns';
 import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDelete, computeMergePreview, computeMergePlan, parseExcelHeaders, padProjectNo, extRulesOf, extLockedColsOf, pickLatestExtFile, extNameDate, computeExtRuleValue, computeExtSubTable, extLockedItemKeysAllOf, NAS_SYNC_ENABLED, RULE_UI_ENABLED, extRulesRawOf, readerStatusRef, readerRequestRef, snapshotDocRef, backupStatusRef, emptyProgOffOf, mainBaseOf, handPctTarget, handPointTarget, isClosedStatusVal } from './projectListData';
+import { orderListRows, placeDraftRows, planReanchorOnDelete, planMoveRows } from './projectListData';   // 행 순서 · 중간 삽입 (2026-10-01 팀장님: 복사한 행을 원하는 프로젝트 위/아래에)
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 import { t1DateToYmd, t1WeekKeyOfYmd, t1CumDerive, t1PlanDoneMove, t1LatestPct } from './tech1Progress';   // 기술1팀 진행 수치 누계 계산 (2026-09-29)
 
@@ -374,6 +375,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ── 수행번호 (2026-08-21 팀장님, 기술1팀): 형식 YY-NNN 고정(26-01→26-001) · 빈칸 [+] = 그 해 최대번호+1 자동 부여 · 회수 ✕
     const execCfg = teamProfile?.수행번호 || null;
     const execNoNorm = (v) => { const s = String(v ?? '').trim(); const m = s.match(/^(\d{2})\s*-\s*(\d{1,3})([A-Za-z가-힣]*)$/); return m ? `${m[1]}-${m[2].padStart(3, '0')}${m[3]}` : s; };
+    // ★ 수행번호 직접 입력 (2026-10-01 팀장님: 회수 등으로 빈 번호(예: 26-002)를 다시 넣을 때) — 설정 [수행번호 직접 입력] → 다음 클릭 1번만 키인 허용
+    //   (한 번 열리면 자동 꺼짐 = 8/28 '[+] 옆을 눌러 엉뚱한 값' 사고 방지 유지) · 전 사용자 · [+](최대+1)·✕는 그대로
+    //   숫자만 키인 = 그 행 연도 YY-NNN (2 → 26-002) · 형식·중복(같은 연도 다른 행·초안 포함) 검사 · 지금 마지막 번호보다 크면 확인창
+    const [execManual, setExecManual] = useState(false);
+    const execManualRef = useRef(false);
+    const setExecManualMode = (on) => { execManualRef.current = !!on; setExecManual(!!on); };
+    useEffect(() => { execManualRef.current = false; setExecManual(false); }, [currentTeam]);
+    const execDigitsToNo = (row, v) => { const s = String(v ?? '').trim(); if (!/^\d{1,3}$/.test(s)) return s; return `${String((row && row._year) || new Date().getFullYear()).slice(-2)}-${s.padStart(3, '0')}`; };
     const execColBase = execCfg ? (execCfg.열 || teamProfile?.열?.번호 || null) : null;   // 수행번호 칸 — 카드 수행번호.열 우선 (2026-08-24: 기술2팀은 매칭키 '번호'와 분리)
     const isExecNoCol = (h) => !!execColBase && aliasCol(execColBase) === h;
     // [+] 자동부여·✕회수·YY-NNN 정형화는 실제 이름이 카드의 수행번호 열('수행번호')인 칸만 —
@@ -599,9 +608,9 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             //   행 메모(MemoRow)가 전부 '바뀜'으로 보고 다시 그린다. docChanges로 바뀐 문서만 새 객체.
             const _prevMap = new Map((_memRowsCache[currentTeam] || []).map(x => [x._id, x]));
             const _chg = new Set(snap.docChanges().map(c => c.doc.id));
-            const r = snap.docs
-                .map(d => { const pv = _prevMap.get(d.id); return (pv && !_chg.has(d.id)) ? pv : { _id: d.id, ...d.data() }; })
-                .sort((a, b) => String(a._id).localeCompare(String(b._id)));
+            // 순서 = _id 글자순 + 중간 삽입 쪽지(_place) (2026-10-01) — 쪽지가 없으면 종전과 같음 · 행 객체 재사용 그대로
+            const r = orderListRows(snap.docs
+                .map(d => { const pv = _prevMap.get(d.id); return (pv && !_chg.has(d.id)) ? pv : { _id: d.id, ...d.data() }; }));
             _memRowsCache[currentTeam] = r;
             setFbRows(r);
             setFbLoaded(true);
@@ -651,10 +660,26 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     //   표에는 맨 아래에 노란 행으로 보인다(칩·건수 판정은 저장된 값 기준 — 2026-09-15 원칙 유지).
     const draftNewRows = useMemo(() => Object.entries(draft).filter(([, v]) => v && v.__new).map(([id, v]) => ({ _id: id, ...v.patch })), [draft]);
     const draftNewCount = draftNewRows.length;
-    const draftTotal = draftCellCount + draftNewCount;   // [저장]/[취소]·이동 가드 기준 = 고친 칸 + 새 행
+    // 옮긴 행 (잘라내기 → 옮기기, 2026-10-01) = 초안에 __moved 표시 · 그 때문에 자리만 다시 단 행(_place만)은 세지 않음
+    const draftMoveCount = useMemo(() => Object.values(draft).filter(d => d && d.__moved).length, [draft]);
+    const draftTotal = draftCellCount + draftNewCount + draftMoveCount;   // [저장]/[취소]·이동 가드 기준 = 고친 칸 + 새 행 + 옮긴 행
     const isDraftNew = (id) => !!(draftRef.current[id] && draftRef.current[id].__new);
+    // 저장 전 '옮기기' 초안이 있나 — 있으면 붙여넣기·완전 삭제·상세 보기 저장을 막음 (자리 계산이 서로 엇갈리지 않게, 2026-10-01)
+    const hasPendingMove = () => Object.values(draftRef.current).some(d => d && !d.__new && d.patch && Object.prototype.hasOwnProperty.call(d.patch, '_place'));
+    // ★ 되돌리기 Ctrl+Z (2026-10-01 팀장님: 엑셀처럼) — 저장 전(노란 표시) 작업만 한 단계씩.
+    //   한 동작(칸 키인·Del/x 범위·붙여넣기·잘라내기 옮기기·[+]/✕·드롭다운·노란 새 행 삭제) = 1단계: 그 동작이 초안을 처음 바꾸기 직전 상태를 쌓음
+    //   (같은 순간 여러 번 바꿔도 1번 — 자동 상태 따라가기 등). [저장]·[취소]·팀 이동·상세 보기 저장·완전 삭제 = 기록 비움 (저장된 것은 안 되돌림)
+    const undoRef = useRef([]);
+    const undoTickRef = useRef(false);
+    const pushUndoOnce = () => {
+        if (undoTickRef.current) return;
+        undoTickRef.current = true; Promise.resolve().then(() => { undoTickRef.current = false; });
+        undoRef.current.push(draftRef.current);
+        if (undoRef.current.length > 100) undoRef.current.shift();
+    };
     const addDraftRow = (row) => {
         const { _id, ...rest } = row;
+        pushUndoOnce();
         setDraft(prev => ({ ...prev, [_id]: { __new: true, patch: rest, orig: {}, edited: {}, entries: [] } }));
     };
     const activeRows = useMemo(() => {
@@ -665,6 +690,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const activeRowsRef = useRef([]); activeRowsRef.current = activeRows;   // 클릭 핸들러(캐시된 행 렌더)에서도 최신 목록 (2026-08-28)
     const hasDraftCell = (rowId, key) => !!(draftRef.current[rowId] && draftRef.current[rowId].orig && Object.prototype.hasOwnProperty.call(draftRef.current[rowId].orig, key));
     const addDraft = (rowId, patch, orig, edited, entry) => {
+        pushUndoOnce();
         setDraft(prev => {
             const d = prev[rowId] || { patch: {}, orig: {}, edited: {}, entries: [] };
             const nOrig = { ...d.orig };
@@ -673,7 +699,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         });
     };
     //   라벨은 짧게 — 헤더 한 줄 예산 (2026-09-18): 칸만 '3칸' · 새 행만 '새 행 1건' · 둘 다 '3칸+새 행 1건'
-    const draftLabel = () => `${draftCellCount ? `${draftCellCount}칸` : ''}${draftNewCount ? `${draftCellCount ? '+' : ''}새 행 ${draftNewCount}건` : ''}`;
+    const draftLabel = () => [draftCellCount ? `${draftCellCount}칸` : '', draftNewCount ? `새 행 ${draftNewCount}건` : '', draftMoveCount ? `옮김 ${draftMoveCount}건` : ''].filter(Boolean).join('+');   // + 옮김 N건 (2026-10-01)
     const draftNavBlock = () => { setAlertMsg(`임시 편집 ${draftLabel()}이 아직 저장되지 않았습니다.\n\n헤더의 [저장] 또는 [취소]를 누른 뒤 이동해 주세요.`); };
     const guardNav = (fn) => () => { if (draftTotal > 0) { draftNavBlock(); return; } fn && fn(); };
     // 브라우저 뒤로가기(←/→)도 같은 가드 (2026-09-07 팀장님: 팀 이동은 확인창이 뜨는데 ←는 그냥 나감) — App.js popstate가 이 창구를 먼저 확인
@@ -684,6 +710,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 초안 보관 — 이 PC(localStorage) 팀별. F5·재접속해도 노란 칸 유지 (2026-08-27)
     const draftKey = (t) => `pms_list_draft_${t}`;
     useEffect(() => {
+        undoRef.current = [];   // 되돌리기 기록 = 팀마다 (2026-10-01)
         try { const s = localStorage.getItem(draftKey(currentTeam)); const d = s ? JSON.parse(s) : {}; setDraft(d && typeof d === 'object' ? d : {}); } catch (e) { setDraft({}); }
     }, [currentTeam]);
     useEffect(() => {
@@ -1091,7 +1118,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     const fmAutoTip = (h) => (fmCum && fmNorm(h) === fmNorm('통합 시운전'))
         ? `'통합 시운전' 칸은 자동 계산됩니다 (자체 시운전과 같은 식).\n`
           + `· 통합 시운전 = 진행실적 팝업 '통합시운전' 줄 포인트 합 ÷ 총물량 %\n`
-          + `· 2026년 프로젝트는 기본 꺼짐(×) — 쓰려면 상세 보기에서 '통합 시운전' 스위치를 켜세요 (켜면 공정률 평균에 들어감)\n\n`
+          + `· 2026년 프로젝트는 기본 꺼짐(회색 칸) — 쓰려면 상세 보기에서 '통합 시운전' 스위치를 켜세요 (켜면 공정률 평균에 들어감)\n\n`
           + `포인트는 진행실적 팝업의 통합시운전 줄에 넣습니다.`
         : fmCum
         ? `'${dispHeader(h)}' 칸은 자동 계산됩니다 (진행실적 장부 기준 · 이번 달 = 오늘 달).\n`
@@ -1613,6 +1640,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         if (acc && acc !== '포인트' && s.toUpperCase() === acc.toUpperCase()) return false;
         return s === '포인트' || /^point$/i.test(s);
     };
+    // ★ 진행 숫자 칸 (2026-10-01 팀장님): x 키인 = '사용 안 함'은 이 칸들에서만 — 그 밖의 칸(견적 제출·공사기안·착·완 같은 O/X 칸 등)은 X = 글자 그대로 값.
+    //   = 공정 항목(PLC·ETOS·HMI·도면입수 등) · 시운전/진행율/공정률 % 칸 · 통합시운전 묶음(진행율 %·Point) · 포인트(총점) · 카드 시운전 총점열(기술1팀 총물량)·누적열
+    const isProgNumCol = (h) => !!progItemKeyOf(h) || isPctCol(h) || isIntGroupCol(h) || isPointCol(h) || isAccPointCol(h)
+        || (!!teamProfile?.시운전?.총점열 && fmNorm(h) === fmNorm(teamProfile.시운전.총점열));
     // 번호 칸 판별 — 정확히 '번호'만 (실행번호·전화번호 등 제외). 값 패딩은 padProjectNo (2026-07-20)
     const isProjNoCol = (h) => ['번호', '순번'].includes(String(h).replace(/\s/g, ''));   // '순번'(기술1팀)도 3자리 통일 (2026-08-27 팀장님: 설정 [번호 3자리 정리]가 순번을 못 찾던 문제)
 
@@ -2358,7 +2389,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 웹 저장본 ↔ 엑셀 시트 전수 대조: ① 열 이름·순서 ② 행 수 ③ 모든 셀 값
     const yearCompare = (sh) => {
         const webH = (fbByYear && fbByYear[sh.year] && fbByYear[sh.year].headers) || [];
-        const webRows = fbRows.filter(r => String(r._year || '') === String(sh.year)).sort((a, b) => String(a._id).localeCompare(String(b._id)));
+        const webRows = orderListRows(fbRows.filter(r => String(r._year || '') === String(sh.year)));   // 화면과 같은 순서(중간 삽입 포함) (2026-10-01)
         const lines = [];
         const hdrOk = JSON.stringify(webH) === JSON.stringify(sh.headers);
         lines.push(`① 열: ${hdrOk ? `일치 (${sh.headers.length}개, 순서 동일)` : `불일치 — 웹 ${webH.length}개 / 엑셀 ${sh.headers.length}개`}`);
@@ -2926,11 +2957,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             showExtToast('시작일은 처음 저장한 뒤 잠겨 있습니다 — 바꾸려면 관리자에게 요청하세요', true);
             setEditingCell({ id: null, key: null, value: '' }); return;
         }
-        // ★ x 키인 = 이 프로젝트에서 이 항목 사용 안 함 (2026-09-10 팀장님): 값은 비우고 스위치 off(_naItems) → 메인표 ×·팝업 미적용·진척률/그래프 제외.
+        // ★ x 키인 = 이 프로젝트에서 이 항목 사용 안 함 (2026-09-10 팀장님): 값은 비우고 스위치 off(_naItems) → 메인표 회색·팝업 미적용·진척률/그래프 제외.
         //   Del(빈칸)은 값만 지움(항목은 계속 사용). x·X·×·ㅌ(한글 자판의 x) 인정. 번호·수행번호 칸은 제외. 다시 쓰려면 그 칸에 값을 키인(자동 켜짐).
+        //   ★ 진행 숫자 칸(isProgNumCol)만 (2026-10-01 팀장님): O/X로 쓰는 칸이 있어 그 밖의 칸은 X = 글자 그대로 값 (x·×·ㅌ → 'X' · 날짜 칸은 날짜 검사 그대로)
         const _xIn = String(editingCell.value ?? '').trim().toLowerCase();
-        const isXOff = !!srcRow && (_xIn === 'x' || _xIn === '×' || _xIn === 'ㅌ') && !isProjNoCol(editingCell.key) && !isExecAssignRowCol(srcRow, editingCell.key);
+        const _xKey = (_xIn === 'x' || _xIn === '×' || _xIn === 'ㅌ') && !isProjNoCol(editingCell.key) && !isExecAssignRowCol(srcRow, editingCell.key);
+        const isXOff = !!srcRow && _xKey && isProgNumCol(editingCell.key);
         if (isXOff) editingCell = { ...editingCell, value: '' };
+        else if (_xKey && !isDateCol(editingCell.key)) editingCell = { ...editingCell, value: 'X' };
         // ★ 직원 이름 칸 직책 자동 (2026-09-04 팀장님): 담당자·관리자 칸에 이름만 키인해도 팀 명단에서 찾아 '이름 직책'으로 완성
         //   (기술 1팀 담당자식 칸은 '이름만 저장'이 원칙이라 제외 · 발주처 고객 담당자 칸도 제외 · 명단에 없는 이름은 그대로)
         if ((isAssigneeCol(editingCell.key) || isManagerCol(editingCell.key)) && !isCustAsgCol(editingCell.key) && !isCardAsgCol(editingCell.key)
@@ -2952,7 +2986,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         // ② 내용↔날짜 연동: '내용' 칸을 실제로 바꿨으면 같은 줄 '날짜'도 오늘로 함께 저장
         // 포인트 칸 = 엑셀 '포인트' 값 그대로 편집·저장 (2026-07-21 팀장님: '실적/총점' 복합표시 폐지)
-        const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecAssignRowCol(srcRow, editingCell.key) ? execNoNorm(editingCell.value) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN은 당해 연도 실제 수행번호 칸만 (2026-08-24)
+        const patch = { [editingCell.key]: isProjNoCol(editingCell.key) ? padProjectNo(editingCell.value) : isExecAssignRowCol(srcRow, editingCell.key) ? execNoNorm(execDigitsToNo(srcRow, editingCell.value)) : editingCell.value };   // 번호 3자리 통일 (2026-07-20) · 수행번호 YY-NNN은 당해 연도 실제 수행번호 칸만 (2026-08-24) · 숫자만 → YY-NNN (2026-10-01 직접 입력)
         if (isXOff) {
             const _ex = Array.isArray(srcRow._naItems) ? srcRow._naItems : [];
             const _on = Array.isArray(srcRow._naOn) ? srcRow._naOn : [];
@@ -2973,8 +3007,16 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         }
         // ★ 수행번호 중복 차단 (2026-08-28 팀장님): 같은 연도 다른 메인 행(초안 포함)과 겹치면 키인 단계에서 거부
         if (srcRow && isExecAssignRowCol(srcRow, editingCell.key) && !isSubListRow(srcRow)) {
+            const _ev = String(patch[editingCell.key] ?? '').trim();
+            // 형식 (2026-10-01 직접 입력): YY-NNN(+글자) — 숫자만 친 값은 위에서 '26-002'로 맞춰 둠
+            if (_ev && !/^\d{2}-\d{3}[A-Za-z가-힣]*$/.test(_ev)) { setAlertMsg(`수행번호 형식이 아닙니다: '${_ev}'\n\n예: 26-002 (숫자만 쳐도 됩니다 — 2 → 26-002)`); setEditingCell({ id: null, key: null, value: '' }); return; }
             const dup = execDupOf(srcRow._id, srcRow._year, editingCell.key, patch[editingCell.key]);
             if (dup) { setAlertMsg(execDupMsg(patch[editingCell.key], dup)); setEditingCell({ id: null, key: null, value: '' }); return; }
+            // 지금 마지막 번호보다 큰 번호 = 다음 [+]가 그 번호 뒤부터 나옴 → 확인 (2026-10-01)
+            const { yy: _eyy, max: _emax } = execMaxOf(srcRow._year, editingCell.key);
+            const _em = _ev.match(/^(\d{2})-(\d{3})/);
+            if (_em && _em[1] === _eyy && Number(_em[2]) > _emax
+                && !window.confirm(`${_ev}은(는) 지금 마지막 번호(${_eyy}-${String(_emax).padStart(3, '0')})보다 큽니다.\n저장하면 다음 [+]는 ${_eyy}-${String(Number(_em[2]) + 1).padStart(3, '0')}부터 나옵니다.\n\n계속할까요?`)) { setEditingCell({ id: null, key: null, value: '' }); return; }
         }
         // ★ 프로젝트 번호 중복 차단 (2026-09-01 팀장님): 번호 수동 키인 — 같은 연도 다른 메인 행(초안 포함)과 겹치면(001=01=1) 키인 단계에서 거부
         if (srcRow && isProjNoCol(editingCell.key) && !isSubListRow(srcRow) && String(patch[editingCell.key] ?? '').trim() !== '') {
@@ -3132,7 +3174,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             }
         }
         setDraftSaving(true);
-        let okRows = 0, okCells = 0, okNew = 0;
+        let okRows = 0, okCells = 0, okNew = 0, okMoved = 0;
+        const placeAt = Date.now();   // 중간 삽입 쪽지 시각 = 저장 순간 (2026-10-01)
+        undoRef.current = [];         // 저장하면 되돌리기 기록 비움 — 저장된 것은 Ctrl+Z 대상 아님 (2026-10-01)
+        // 옮기기 쪽지 시각 기준 = 저장 전 옮기기들 중 가장 이른 시각 → 저장 순간 + (옮긴 순서 간격) (2026-10-01)
+        const _movAts = ids.map(x => d[x]).filter(x => x && !x.__new && x.patch && x.patch._place && x.patch._place.at).map(x => Number(x.patch._place.at) || 0);
+        const movMin = _movAts.length ? Math.min(..._movAts) : 0;
         try {
             for (const id of ids) {
                 const sv = fbRows.find(r => r._id === id);
@@ -3140,10 +3187,13 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (__new) {
                     // 새 행(붙여넣기) — 문서 신규 생성. 여기서 처음으로 서버에 올라간다 (2026-09-16)
                     // ★ 기술1팀 누계 (2026-09-29 전수 점검): 자동 칸 = 새 행(빈 장부) 기준으로 계산 · 노란 새 행에 친 PLC·ETOS·HMI는 장부에도 (기존 행 [저장]과 같은 규칙)
-                    const fin0 = { _id: id, ...patch };
+                    // ★ 중간 삽입 쪽지(_place) 시각 = 저장 순간 (2026-10-01): 노란 행이 보이던 자리(기준 행 바로 위/아래) 그대로 저장 —
+                    //   같은 기준 행에 넣은 행이 여럿이면 최신이 기준 행 쪽 (+okNew = 한 번의 저장 안에서도 넣은 순서 유지)
+                    const patchP = patch._place ? { ...patch, _place: { ...patch._place, at: placeAt + okNew } } : patch;
+                    const fin0 = { _id: id, ...patchP };
                     const t1New = fmCum && fmActive(fin0) && !isSubListRow(fin0);
-                    const patchN = t1New ? { ...patch, ...fmDeriveCum(fin0, {}) }
-                        : (paActive(fin0) && !isSubListRow(fin0)) ? { ...patch, ...paRecalc(fin0) } : patch;   // 진행율 % 자동 (2026-09-30)
+                    const patchN = t1New ? { ...patchP, ...fmDeriveCum(fin0, {}) }
+                        : (paActive(fin0) && !isSubListRow(fin0)) ? { ...patchP, ...paRecalc(fin0) } : patchP;   // 진행율 % 자동 (2026-09-30)
                     await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patchN, ...(devC ? devSavePatch({}, patchN, devC, null, devWho) : {}) }));   // 처음 완료예정 보관 (2026-09-17)
                     recordAudit(AUDIT_ACTIONS.ADD, { _id: id, ...patchN }, []);
                     if (t1New) for (const k of Object.keys(edited)) await queueLedger(() => syncProgressCellToLedger({ _id: id, ...patchN }, k, edited[k]));
@@ -3159,7 +3209,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                     // ★ 기술1팀 누계 자동 칸 = 저장하는 순간 다시 계산 (2026-09-29 전수 점검): 노란 칸을 만든 뒤 다른 사람이 팝업 [적용하기]로 장부를 바꿨으면
                     //   편집 때 계산해 둔 자동 칸 값이 그 최신 값을 옛 값으로 되돌림 → 서버 행 + 내 초안 + 최신 장부로 다시 계산해 저장
                     const patchS = (fmCum && fmActive({ ...sv, ...patch }) && !isSubListRow(sv)) ? { ...patch, ...fmDeriveCum({ ...sv, ...patch }) } : patch;
-                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patchS, ...devExtra, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
+                    // 옮기기 쪽지 (2026-10-01): 시각 = 저장 순간 + 옮긴 순서 간격 → 그 사이 다른 사람이 같은 자리에 넣었어도 내가 본 자리 그대로 · null = 쪽지 지움
+                    const patchW = Object.prototype.hasOwnProperty.call(patchS, '_place')
+                        ? { ...patchS, _place: patchS._place ? { ...patchS._place, at: placeAt + Math.max(0, (Number(patchS._place.at) || 0) - movMin) } : deleteField() } : patchS;
+                    await setDoc(rowDocRef(currentTeam, id), stampSave({ ...patchW, ...devExtra, _changeHistory: hist }), { merge: true });   // 변경 칸만(merge) · 행당 1회
                     const allChanges = entries.flatMap(en => (en && en.changes) || []);
                     if (allChanges.length) {   // 백로그 1건/행 — 상태를 보류·삭제로 바꿨으면 그 동작으로 기록
                         let act = AUDIT_ACTIONS.EDIT;
@@ -3175,12 +3228,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         if (accR && accR.ok === false) setAlertMsg(accSyncBlockMsg(edited[k], accR.sum, accR.cur, accR.wk));
                     }
                     await t1AfterSave(finalRow, Object.keys(edited));   // 작업을 완료로·종료 날짜 → 종료 달 뒤 기록 = 종료 주 (2026-09-29)
-                    okRows++; okCells += Object.keys(edited).length;
+                    okRows++; okCells += Object.keys(edited).length; if (d[id] && d[id].__moved) okMoved++;
                 }
                 // 행 단위로 초안 비움 (중간 오류 시 남은 행만 노란 칸으로 남음 · 사라진 행의 초안은 버림)
                 setDraft(prev => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n; });
             }
-            showExtToast(`저장 완료 — ${okRows}행 ${okCells}칸${okNew ? ` · 새 행 ${okNew}건 추가` : ''}`);
+            showExtToast(`저장 완료 — ${okRows}행 ${okCells}칸${okNew ? ` · 새 행 ${okNew}건 추가` : ''}${okMoved ? ` · 옮김 ${okMoved}건` : ''}`);
         } catch (err) {
             setAlertMsg(`저장 오류: ${err.message}\n\n저장되지 않은 행은 노란 칸으로 남아 있습니다 — 다시 [저장]을 눌러 주세요.`);
         } finally { setDraftSaving(false); }
@@ -3188,10 +3241,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     saveDraftRef.current = () => saveDraft();
     const discardDraft = () => {
         if (!draftTotal || draftSaving) return;
-        const msg = draftNewCount
-            ? `임시 편집 ${draftLabel()}을 모두 되돌릴까요?\n\n· 고친 칸 → 서버 값으로 복구\n· 붙여넣은 새 행 ${draftNewCount}건 → 사라집니다(저장된 적 없음)`
+        const msg = (draftNewCount || draftMoveCount)
+            ? `임시 편집 ${draftLabel()}을 모두 되돌릴까요?\n\n· 고친 칸 → 서버 값으로 복구${draftNewCount ? `\n· 붙여넣은 새 행 ${draftNewCount}건 → 사라집니다(저장된 적 없음)` : ''}${draftMoveCount ? `\n· 옮긴 행 ${draftMoveCount}건 → 원래 자리로` : ''}`
             : `임시 편집 ${draftCellCount}칸을 모두 되돌릴까요? (서버 값으로 복구)`;
         if (!window.confirm(msg)) return;
+        undoRef.current = [];
         setDraft({});
     };
 
@@ -4268,6 +4322,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
     const saveDetailRow = async (force) => {
         if (!detailRow) return;
+        if (hasPendingMove()) { setAlertMsg('옮긴 행(자리 이동)이 아직 저장 전입니다.\n먼저 헤더의 [저장] 또는 [취소]를 누른 뒤 상세 보기를 저장해 주세요.'); return; }   // 2026-10-01
         const isForce = (force === true);   // ★ onClick 이벤트 객체가 들어와도 강제저장으로 오인하지 않도록 엄격 비교
         // ⑨ 동시수정 보완 + ② 내용↔날짜:
         //   팝업이 열린 사이 표(인라인)에서 같은 행을 고쳤을 수 있으니, '현재 최신 원본(latest)'에
@@ -4325,6 +4380,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             await setDoc(rowDocRef(currentTeam, _id), stampSave(data));
             if (entry) recordAudit(AUDIT_ACTIONS.EDIT, working, entry.changes);   // 백로그: 상세팝업 수정
             setDraft(prev => { if (!prev[_id]) return prev; const n = { ...prev }; delete n[_id]; return n; });   // 팝업이 행 전체를 썼으니 그 행 초안은 해소 (2026-08-27)
+            undoRef.current = [];   // 되돌리기 기록에 이 행의 옛 초안이 남아 있으면 팝업 저장값을 덮을 수 있어 비움 (2026-10-01)
             setDetailRow(null); setDetailRowOriginal(null);
             // ★ 진행 % → 진행실적 장부 (2026-09-29 전수 점검): 상세 보기에서 PLC·ETOS·HMI 등을 고쳐도 메인표만 바뀌고 장부는 그대로였음
             //   → 팝업·그래프와 어긋나고, 다음 팝업 [적용하기] 때 옛 장부 값으로 메인표가 되돌아감. 메인표 셀 키인과 같은 함수·같은 규칙(이번 주 · 완료는 종료 주)
@@ -4698,12 +4754,27 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             if (dataSource === 'local')   setLocalData(p => ({ ...p, rows: updater(p.rows) }));
             return;
         }
+        if (hasPendingMove()) { setAlertMsg('옮긴 행(자리 이동)이 아직 저장 전입니다.\n먼저 헤더의 [저장] 또는 [취소]를 누른 뒤 삭제해 주세요.'); return; }   // 2026-10-01
+        // ★ 중간 삽입 쪽지 옮겨 달기 (2026-10-01): 이 행을 기준으로 넣은 행(저장된 행·노란 새 행)이 맨 뒤로 튀지 않고
+        //   지우기 전 화면 순서 그대로 남게 — 바뀌는 칸은 그 행들의 _place 하나뿐(merge · 행 사본 통째 쓰기 금지)
+        //   저장된 행은 저장된 행끼리만 기준으로 삼는다(노란 행에 기대면 그 노란 행을 [취소]할 때 기준을 잃고 맨 뒤로 감) ·
+        //   노란 행은 노란 행 포함 화면(지우기 전 그 해 전체)에서 — 둘 다 '지우기 전 화면에서 이 행만 뺀 순서'가 목표라 서로 어긋나지 않음
+        const movesSaved = planReanchorOnDelete(fbRows, id, isSubListRow);
+        const _dRow = draftNewRows.find(r => r._id === id) || fbRows.find(r => r._id === id);
+        const _dYr = String((_dRow && _dRow._year) || '');
+        const _dYrDrafts = draftNewRows.filter(r => String(r._year || '') === _dYr);
+        const movesDraft = _dYrDrafts.length ? planReanchorOnDelete([...fbRows, ...draftNewRows], id, isSubListRow, Date.now(),
+            { view: placeDraftRows(orderListRows(fbRows.filter(r => String(r._year || '') === _dYr)), _dYrDrafts, isSubListRow), only: r => isDraftNew(r._id) }) : [];
+        const moveDrafts = (n) => { movesDraft.forEach(m => { const d0 = n[m.id]; if (!d0 || !d0.__new) return; const pt = { ...d0.patch }; if (m.place) pt._place = m.place; else delete pt._place; n[m.id] = { ...d0, patch: pt }; }); };
         // 아직 저장 전인 새 행(붙여넣기) = 서버에 없음 → 초안에서 빼면 끝 (2026-09-16)
-        if (isDraftNew(id)) { setDraft(prev => { const n = { ...prev }; delete n[id]; return n; }); return; }
+        if (isDraftNew(id)) { pushUndoOnce(); setDraft(prev => { const n = { ...prev }; delete n[id]; moveDrafts(n); return n; }); return; }
         const delRow = fbRows.find(r => r._id === id);   // 삭제 전 정보 확보(백로그용)
         try {
             await deleteDoc(rowDocRef(currentTeam, id));
             recordAudit(AUDIT_ACTIONS.DELETE, delRow || { _id: id }, []);   // 백로그: 프로젝트 삭제
+            if (movesDraft.length) setDraft(prev => { const n = { ...prev }; moveDrafts(n); return n; });
+            undoRef.current = [];   // 완전 삭제(바로 저장됨) 뒤에는 그 전 초안 상태로 되돌리지 않음 (2026-10-01)
+            for (const m of movesSaved) await setDoc(rowDocRef(currentTeam, m.id), stampSave({ _place: m.place || deleteField() }), { merge: true });
         }
         catch (err) { setAlertMsg(`삭제 오류: ${err.message}`); }
     };
@@ -5175,9 +5246,18 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // 표시 단계에서만 초안(노란 칸) 덧입힘 — 행 구성·순서는 위(저장값 기준) 그대로, 값만 초안으로 (2026-09-15)
     const sortedRows = useMemo(() => {
         if (dataSource !== 'firebase' || !Object.keys(draft).length) return sortedRowsBase;
-        const shown = sortedRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
-        return draftNewRows.length ? [...shown, ...draftNewRows] : shown;   // 새 행(붙여넣기)은 칩·정렬과 무관하게 맨 아래 (2026-09-16)
-    }, [sortedRowsBase, draft, dataSource, draftNewRows]); // eslint-disable-line
+        let shown = sortedRowsBase.map(r => draft[r._id] ? { ...r, ...draft[r._id].patch } : r);
+        // 옮기기(잘라내기) 초안 = 보이는 순서도 초안대로 (2026-10-01) — 판정(칩·건수·필터)은 저장값 그대로, 순서만. 정렬(▲▼) 중엔 정렬 순서
+        if (!sortConfig.key && Object.values(draft).some(d => d && !d.__new && d.patch && Object.prototype.hasOwnProperty.call(d.patch, '_place'))) {
+            const ord = orderListRows(activeRowsBase.map(r => (draft[r._id] && !draft[r._id].__new) ? { ...r, ...draft[r._id].patch } : r));
+            const at = new Map(ord.map((r, i) => [r._id, i]));
+            shown = [...shown].sort((a, b) => (at.has(a._id) ? at.get(a._id) : 1e9) - (at.has(b._id) ? at.get(b._id) : 1e9));
+        }
+        if (!draftNewRows.length) return shown;
+        // 새 행(붙여넣기)은 칩·정렬과 무관하게 맨 아래 (2026-09-16) — 단 우클릭 [이 행 위에/아래에 삽입] 행은 기준 행 바로 위/아래 (2026-10-01).
+        //   정렬(▲▼) 중이거나 기준 행이 화면에 없으면(칩·검색에 걸림) 종전처럼 맨 아래. 저장 뒤 자리 = orderListRows(같은 규칙)
+        return sortConfig.key ? [...shown, ...draftNewRows] : placeDraftRows(shown, draftNewRows, isSubListRow);
+    }, [sortedRowsBase, draft, dataSource, draftNewRows, sortConfig.key, activeRowsBase]); // eslint-disable-line
 
     // ★ 표시 행이 바뀌면(칩·검색·정렬·기준월) 내용맞춤 열 너비가 같이 변함 → 틀고정 오프셋 재실측 신호 (2026-08-18)
     //   frzTick은 sortedRows에 영향을 주지 않으므로 무한루프 없음. ±2px 허용 오차가 2중 장치.
@@ -5748,7 +5828,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // mode 'clear' = Del(값만 지움) · 'off' = x(사용 안 함: 값 비움 + 스위치 off, 2026-09-10 팀장님) — 번호·수행번호·잠금·드롭다운 칸은 건너뜀
     const clearSelectedCells = (mode = 'clear') => {
         const offMode = mode === 'off';
-        const canOffCell = (row, h) => !isProjNoCol(h) && !isExecAssignRowCol(row, h) && canClearCell(row, h, true);
+        const canOffCell = (row, h) => isProgNumCol(h) && !isProjNoCol(h) && !isExecAssignRowCol(row, h) && canClearCell(row, h, true);   // 진행 숫자 칸만 (2026-10-01 — O/X 칸 X는 값)
         const sel = selRef.current; if (!sel) return;
         if (dataSource !== 'firebase') { setAlertMsg((offMode ? '범위 x(사용 안 함)' : '드래그 지우기') + '는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
         const rows = sortedRowsRef.current;
@@ -5791,7 +5871,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             adds[row._id] = { patch: p2, orig, edited, entry: { datetime: new Date().toISOString(), changes } };
         }
         clearSelPaint(); selRef.current = null;
-        if (!Object.keys(adds).length) { if (skipped) setAlertMsg(offMode ? '선택한 칸은 번호·수행번호·잠금·자동 계산·드롭다운 칸이라 사용 안 함으로 바꿀 수 없습니다.' : '선택한 칸은 잠금·자동 계산·드롭다운 칸이라 지울 수 없습니다.'); return; }
+        if (!Object.keys(adds).length) { if (skipped) setAlertMsg(offMode ? 'x(사용 안 함)는 진행 숫자 칸(PLC·ETOS·HMI·Point·진행율 % 등)에서만 됩니다.\n선택한 칸은 그 밖의 칸이거나 잠금·자동 계산 칸입니다.\n\nO/X 칸에 X를 넣으려면 그 칸을 클릭해 x 키인 → Enter' : '선택한 칸은 잠금·자동 계산·드롭다운 칸이라 지울 수 없습니다.'); return; }
+        pushUndoOnce();   // 되돌리기 1단계 (2026-10-01)
         setDraft(prev => {
             const n = { ...prev };
             Object.keys(adds).forEach(id => {
@@ -5802,7 +5883,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             });
             return n;
         });
-        showExtToast(`${cleared}칸 ${offMode ? '사용 안 함(×, 임시)' : '지움(임시)'} — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · 잠금 ${skipped}칸 건너뜀` : ''));
+        showExtToast(`${cleared}칸 ${offMode ? '사용 안 함(회색, 임시)' : '지움(임시)'} — 위 [저장] 버튼으로 확정, [취소]로 복구` + (skipped ? ` · ${offMode ? '진행 숫자 칸 아님·잠금' : '잠금'} ${skipped}칸 건너뜀` : ''));
     };
     const clearSelectedCellsRef = useRef(() => {}); clearSelectedCellsRef.current = clearSelectedCells;
     // ── 엑셀식 키보드 (2026-09-03 팀장님: 표를 엑셀처럼 — 직원들이 엑셀에 친숙) ──────────
@@ -6026,33 +6107,51 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
     // ── 행 복사(Ctrl+C) → 새 프로젝트로 붙여넣기(Ctrl+V) (2026-08-31 팀장님: 엑셀처럼) ──
     //   번호 칸 클릭 = 행 전체 선택(Shift+클릭 = 여러 행) → Ctrl+C = 내부 보관 + 엑셀용 텍스트도 클립보드에
     //   → Ctrl+V = 즉시 새 프로젝트로 추가(번호 = 그 연도 마지막+1 연속 부여 · 수행번호 빈칸 · 새 ID/등록일)
-    const rowClipRef = useRef(null);          // { team, rows:[{...행}] }
+    const rowClipRef = useRef(null);          // { team, rows:[{...행}], cut?: true(잘라내기 2026-10-01) }
+    // ★ 잘라내기 (2026-10-01 팀장님: 엑셀처럼 Ctrl+X) — 잘라낸 행 = 초록 점선(Esc = 취소) · 옮긴 행(저장 전) = 번호 칸 노란 표시
+    //   행 그리기(MemoRow)를 다시 하지 않도록 표시는 <style> 한 장으로 (행 data-row-id 선택자)
+    const [cutIds, setCutIds] = useState([]);
+    useEffect(() => { if (rowClipRef.current && rowClipRef.current.cut) rowClipRef.current = null; setCutIds([]); }, [currentTeam]);
+    const movedIds = useMemo(() => Object.entries(draft).filter(([, d]) => d && d.__moved).map(([id]) => id), [draft]);
+    const rowMarkCss = useMemo(() => {
+        const esc = (id) => (window.CSS && window.CSS.escape) ? window.CSS.escape(String(id)) : String(id);
+        const parts = [];
+        if (cutIds.length) parts.push(`${cutIds.map(id => `tbody tr[data-row-id="${esc(id)}"] > td`).join(',')}{border-top:2px dashed #059669 !important;border-bottom:2px dashed #059669 !important;}`);
+        if (movedIds.length) parts.push(`${movedIds.map(id => `tbody tr[data-row-id="${esc(id)}"] > td:first-child`).join(',')}{background-color:#fde68a !important;box-shadow:inset 4px 0 0 #d97706 !important;}`);
+        return parts.join('\n');
+    }, [cutIds, movedIds]);
     const pasteBusyRef = useRef(false);
     const copySelectedRows = () => {
         const sel = selRef.current; if (!sel) { showExtToast('먼저 번호 칸을 클릭해 행을 선택하세요'); return; }
         const rows = [];
         for (let r = sel.r1; r <= sel.r2; r++) { const row = sortedRowsRef.current[r]; if (row && !isSubListRow(row)) rows.push({ ...row }); }
         if (!rows.length) { showExtToast('복사할 메인 행이 없습니다 (하위 행은 제외)'); return; }
-        rowClipRef.current = { team: currentTeam, rows };
+        rowClipRef.current = { team: currentTeam, rows }; setCutIds([]);   // 복사 = 잘라내기 취소 (2026-10-01)
         const TAB = String.fromCharCode(9), NL = String.fromCharCode(10);   // 엑셀 호환 탭 구분 텍스트
         const tsv = rows.map(r => mainVisibleHeaders.map(h => String(r[h] ?? '')).join(TAB)).join(NL);
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tsv).catch(() => {});
-        showExtToast(`${rows.length}행 복사됨 — Ctrl+V = 새 프로젝트로 추가 (번호는 비워짐 — 붙여넣기 후 직접 키인)`);
+        showExtToast(`${rows.length}행 복사됨 — Ctrl+V = 맨 아래에 추가 · 중간에 넣기 = 넣을 행 우클릭 → [이 행 위에/아래에 삽입] (번호는 비워짐 — 직접 키인)`);
     };
-    const pasteCopiedRows = async () => {
+    // target = { row, side: 'before'|'after' } — 우클릭 [이 행 위에/아래에 삽입] (2026-10-01 팀장님). 없으면(Ctrl+V) 종전대로 맨 아래
+    const pasteCopiedRows = async (target) => {
         const clip = rowClipRef.current;
-        if (!clip || !clip.rows.length || pasteBusyRef.current) return;
+        if (!clip || !clip.rows.length || pasteBusyRef.current || clip.cut) return;
+        if (hasPendingMove()) { setAlertMsg('옮긴 행(자리 이동)이 아직 저장 전입니다.\n먼저 헤더의 [저장] 또는 [취소]를 누른 뒤 붙여넣어 주세요.'); return; }   // 2026-10-01
         if (dataSource !== 'firebase') { setAlertMsg('붙여넣기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
         if (clip.team !== currentTeam) { setAlertMsg('다른 팀 화면에서 복사한 행입니다. 같은 팀에서만 붙여넣을 수 있습니다.'); return; }
         pasteBusyRef.current = true;
         try {
-            const yr = String(selectedYear || new Date().getFullYear());
+            const anchor = target && target.row && target.row._id ? target.row : null;
+            const yr = String((anchor && anchor._year) || selectedYear || new Date().getFullYear());   // 중간 삽입 = 기준 행의 연도
             const noC = projNoColOf();   // ★ 번호 수동 키인 (2026-09-01 팀장님, 구 자동+1 폐지): 붙여넣은 행은 번호 빈칸 — 더블클릭으로 키인(중복 자동 차단)
             const _d = new Date();
             const regDate = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+            // 새 ID = 한 번에 붙인 행끼리 복사한 순서대로 정렬되게 (2026-10-01): 같은 1/1000초에 만들어지면 종전엔 뒤 무작위 글자가 순서를 정해
+            //   저장 뒤 여러 행 순서가 뒤섞일 수 있었음 → 시각 1번 + 3자리 순번
+            const pasteTs = Date.now(); let prevId = null;
             for (let i = 0; i < clip.rows.length; i++) {
                 const src = clip.rows[i];
-                const newId = `row_manual_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                const newId = `row_manual_${pasteTs}_${String(i).padStart(3, '0')}${Math.random().toString(36).slice(2, 7)}`;
                 const newRow = { _id: newId, _pid: generatePid(), _year: yr, _regDate: regDate };
                 activeHeaders.forEach(h => { newRow[h] = src[h] || ''; });                         // 엑셀 항목만 복사(_ 내부필드 제외 = NAS 규칙·이력 안 따라옴)
                 activeHeaders.forEach(h => { if (isExecAssignRowCol(newRow, h)) newRow[h] = ''; }); // 수행번호는 복사 안 함 — [+]로
@@ -6061,21 +6160,99 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 blankProgressCopyOf(newRow); // 기술2·3팀 등: PLC·ETOS·HMI·진행율 %·Point도 (2026-09-30)
                 // ★ 즉시 저장 → 초안 (2026-09-16 팀장님: 확인 없이 클라우드에 들어가 [저장]/[취소]가 안 뜨던 것)
                 //   표 맨 아래 노란 행으로 보이고, [저장]을 눌러야 실제로 만들어진다. [취소]면 사라진다.
+                // 자리 쪽지 (2026-10-01): 첫 행 = 기준 행 위/아래 · 둘째 행부터 = 앞 새 행 바로 아래 (복사한 순서 그대로)
+                if (anchor) newRow._place = prevId ? { id: prevId, side: 'after', at: pasteTs } : { id: anchor._id, side: target.side === 'before' ? 'before' : 'after', at: pasteTs };
                 addDraftRow(newRow);
+                prevId = newId;
             }
             clearSelPaint(); selRef.current = null;
-            showExtToast(`${clip.rows.length}건 새 행으로 붙여넣음 (아직 저장 전) — 노란 행의 번호를 더블클릭해 키인한 뒤 [저장]을 누르세요`);
+            if (anchor) {
+                const nm = String((projectNameCol && anchor[projectNameCol]) || '').trim() || '선택한 행';
+                showExtToast(`${clip.rows.length}건을 '${nm}' ${target.side === 'before' ? '위' : '아래'}에 넣음 (아직 저장 전) — 노란 행의 번호를 더블클릭해 키인한 뒤 [저장]을 누르세요`);
+            } else showExtToast(`${clip.rows.length}건 새 행으로 붙여넣음 (아직 저장 전) — 노란 행의 번호를 더블클릭해 키인한 뒤 [저장]을 누르세요`);
         } catch (err) {
             setAlertMsg(`붙여넣기 오류: ${err.message}`);
         } finally { pasteBusyRef.current = false; }
     };
+    // ── 잘라내기(Ctrl+X) → 옮기기 (2026-10-01 팀장님) ── 복사·삭제가 아니라 '자리만' 바꿈 → 수행번호·진행실적·이력 그대로
+    //   번호 칸 클릭(행 선택) → Ctrl+X = 초록 점선 · 옮길 자리의 행 번호 칸 클릭 → Ctrl+V = 그 행 위로 (엑셀 '잘라낸 셀 삽입')
+    //   또는 그 행 우클릭 → [이 행 위에/아래에 삽입] · 저장 전 노란 표시 → [저장] 확정 · [취소]·Ctrl+Z = 원래 자리
+    const cutSelectedRows = () => {
+        const sel = selRef.current; if (!sel) return;
+        if (dataSource !== 'firebase') { setAlertMsg('잘라내기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
+        const rows = [];
+        for (let r = sel.r1; r <= sel.r2; r++) { const row = sortedRowsRef.current[r]; if (row && !isSubListRow(row)) rows.push(row); }
+        if (!rows.length) { showExtToast('잘라낼 메인 행이 없습니다 (하위 행은 부모와 함께 움직입니다)'); return; }
+        if (rows.some(r => isDraftNew(r._id))) { setAlertMsg('저장 전 새 행(노란 행)은 잘라낼 수 없습니다.\n먼저 [저장]한 뒤 옮겨 주세요.'); return; }
+        rowClipRef.current = { team: currentTeam, rows: rows.map(r => ({ ...r })), cut: true };
+        setCutIds(rows.map(r => r._id));
+        const TAB = String.fromCharCode(9), NL = String.fromCharCode(10);   // 엑셀에 붙일 수 있게 글자도 클립보드에 (복사와 같음)
+        const tsv = rows.map(r => mainVisibleHeaders.map(h => String(r[h] ?? '')).join(TAB)).join(NL);
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tsv).catch(() => {});
+        showExtToast(`${rows.length}행 잘라냄 — 옮길 자리의 행 번호 칸 클릭 → Ctrl+V = 그 행 위로 · 또는 그 행 우클릭 → [이 행 위에/아래에 삽입] · Esc = 취소`);
+    };
+    const cancelCut = () => { if (rowClipRef.current && rowClipRef.current.cut) { rowClipRef.current = null; setCutIds([]); return true; } return false; };
+    const moveCutRows = (targetRow, side) => {
+        const clip = rowClipRef.current;
+        if (!clip || !clip.cut || !clip.rows.length) return;
+        if (dataSource !== 'firebase') { setAlertMsg('옮기기는 확정 저장된(클라우드) 데이터에서만 동작합니다.'); return; }
+        if (clip.team !== currentTeam) { setAlertMsg('다른 팀 화면에서 잘라낸 행입니다. 같은 팀에서만 옮길 수 있습니다.'); return; }
+        if (sortConfig.key) { setAlertMsg('열 정렬(▲▼) 중에는 옮길 수 없습니다.\n화면 아래 [해제]를 누른 뒤 옮겨 주세요.'); return; }
+        if (draftNewRows.length) { setAlertMsg('붙여넣은 새 행(노란 행)이 아직 저장 전입니다.\n먼저 [저장]하거나 [취소]한 뒤 옮겨 주세요.'); return; }
+        if (!targetRow || isSubListRow(targetRow) || isDraftNew(targetRow._id)) { showExtToast('옮길 자리는 메인 행이어야 합니다 (하위 행·저장 전 새 행 제외)'); return; }
+        const ids = clip.rows.map(r => r._id);
+        if (ids.includes(targetRow._id)) { showExtToast('잘라낸 행 자신에게는 옮길 수 없습니다 — 다른 행을 고르세요'); return; }
+        if (clip.rows.some(r => String(r._year || '') !== String(targetRow._year || ''))) { setAlertMsg('다른 연도로는 옮길 수 없습니다 (같은 연도 안에서만 자리를 바꿀 수 있습니다).'); return; }
+        // 지금 화면 기준 = 저장값 + 저장 전 옮기기 초안 (여러 번 옮겨도 이어서 계산)
+        const ov = activeRowsBase.map(r => (draft[r._id] && !draft[r._id].__new) ? { ...r, ...draft[r._id].patch } : r);
+        if (ids.some(id => !ov.some(r => r._id === id))) { cancelCut(); setAlertMsg('잘라낸 행이 그 사이 지워졌습니다. 다시 잘라내 주세요.'); return; }
+        const plan = planMoveRows(ov, ids, targetRow._id, side, isSubListRow, Date.now());
+        if (!plan) { setAlertMsg('옮길 수 없습니다 — 같은 연도의 메인 행끼리만 옮길 수 있습니다.'); return; }
+        const nmOf = (r) => String((projectNameCol && r[projectNameCol]) || '').trim() || '(이름 없음)';
+        const where = `'${nmOf(targetRow)}' ${side === 'before' ? '위' : '아래'}`;
+        pushUndoOnce();
+        setDraft(prev => {
+            const n = { ...prev };
+            plan.forEach(m => {
+                const d0 = n[m.id] || { patch: {}, orig: {}, edited: {}, entries: [] };
+                const primary = ids.includes(m.id);   // 옮긴 행 = 이력·백로그에 '자리' 기록 · 노란 표시 / 그 밖 = 제자리 유지용 쪽지만
+                const entry = primary ? { datetime: new Date().toISOString(), changes: [{ field: '자리', from: '', to: `${where}로 옮김` }] } : null;
+                n[m.id] = { ...d0, patch: { ...d0.patch, _place: m.place }, ...(primary ? { __moved: true } : {}), entries: entry ? [...(d0.entries || []), entry] : (d0.entries || []) };
+            });
+            return n;
+        });
+        cancelCut();
+        clearSelPaint(); selRef.current = null;
+        showExtToast(`${ids.length}행을 ${where}로 옮김 (아직 저장 전) — [저장]으로 확정 · Ctrl+Z = 되돌리기`);
+    };
+    const moveCutToSel = () => {   // Ctrl+V (잘라낸 행) = 선택한 행 위로
+        const sel = selRef.current;
+        if (!sel) { showExtToast('옮길 자리의 행 번호 칸을 먼저 클릭하세요 — Ctrl+V = 그 행 위로 옮김'); return; }
+        moveCutRows(sortedRowsRef.current[sel.r1], 'before');
+    };
+    const undoDraft = () => {
+        if (draftSaving) { showExtToast('저장 중입니다 — 끝난 뒤 다시 해 주세요'); return; }
+        if (!undoRef.current.length) { showExtToast('되돌릴 작업이 없습니다 — [저장]한 작업은 되돌릴 수 없습니다'); return; }
+        const prev = undoRef.current.pop();
+        setDraft(prev || {});
+        showExtToast(`되돌림 — 한 단계 전으로${undoRef.current.length ? ` (${undoRef.current.length}단계 더 되돌릴 수 있음)` : ''}`);
+    };
+    const cutRowsRef = useRef(() => {}); cutRowsRef.current = cutSelectedRows;
+    const moveCutToSelRef = useRef(() => {}); moveCutToSelRef.current = moveCutToSel;
+    const undoDraftRef = useRef(() => {}); undoDraftRef.current = undoDraft;
+    const cancelCutRef = useRef(() => false); cancelCutRef.current = cancelCut;
     const copyRowsRef = useRef(() => {}); copyRowsRef.current = copySelectedRows;
     const pasteRowsRef = useRef(() => {}); pasteRowsRef.current = pasteCopiedRows;
     useEffect(() => {
         const onKey = (e) => {
             const t = e.target;
             const inEdit = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);   // 편집창 안 키는 원래대로
-            if (e.key === 'Escape') { if (!inEdit && selRef.current) { selRef.current = null; selActiveRef.current = null; selAnchor2Ref.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); } return; }
+            if (e.key === 'Escape') {
+                if (!inEdit && execManualRef.current) { setExecManualMode(false); showExtToast('수행번호 직접 입력을 취소했습니다'); }   // 2026-10-01
+                if (!inEdit && cancelCutRef.current()) showExtToast('잘라내기를 취소했습니다');   // 2026-10-01
+                if (!inEdit && selRef.current) { selRef.current = null; selActiveRef.current = null; selAnchor2Ref.current = null; clearSelPaint(); if (fmtBarRef.current) setFmtSelTick(k => k + 1); }
+                return;
+            }
             const k = String(e.key).toLowerCase();
             if ((e.ctrlKey || e.metaKey) && k === 'c') {   // 복사: 행 전체 선택=행 복사(8/31) / 셀 범위=엑셀용 TSV(2026-09-03)
                 if (inEdit || !selRef.current) return;
@@ -6084,10 +6261,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 if (isFullRowSelRef.current()) copyRowsRef.current(); else copyCellRangeRef.current();
                 return;
             }
-            if ((e.ctrlKey || e.metaKey) && k === 'v') {   // 새 프로젝트로 붙여넣기 (2026-08-31)
+            if ((e.ctrlKey || e.metaKey) && (k === 'x' || e.code === 'KeyX')) {   // 잘라내기 (2026-10-01 팀장님: 엑셀처럼) — 행 전체 선택(번호 칸 클릭)만
+                if (inEdit || !selRef.current) return;
+                if (window.getSelection && String(window.getSelection())) return;   // 글자 드래그는 원래대로
+                e.preventDefault();
+                if (isFullRowSelRef.current()) cutRowsRef.current(); else showExtToast('잘라내기는 번호 칸을 클릭해 행을 선택한 뒤 Ctrl+X 입니다 (칸 값만 잘라내기는 지원하지 않음)');
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (k === 'z' || e.code === 'KeyZ')) {   // 되돌리기 — 저장 전 작업만 한 단계씩 (2026-10-01)
+                if (inEdit) return;   // 편집창 안 = 글자 되돌리기(브라우저 기본)
+                e.preventDefault();
+                undoDraftRef.current();
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && (k === 'v' || e.code === 'KeyV')) {   // 복사한 행 = 새 프로젝트로 맨 아래 (2026-08-31) · 잘라낸 행 = 선택한 행 위로 옮김 (2026-10-01)
                 if (inEdit || !rowClipRef.current) return;
                 e.preventDefault();
-                pasteRowsRef.current();
+                if (rowClipRef.current.cut) moveCutToSelRef.current(); else pasteRowsRef.current();
                 return;
             }
             if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -6097,7 +6287,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 clearSelectedCellsRef.current();
                 return;
             }
-            // 범위(2칸 이상) 선택 + x = 사용 안 함 일괄 (2026-09-10 팀장님). 1칸은 아래 '타이핑 시작'으로 편집창에 x → Enter (실수 방지)
+            // 범위(2칸 이상) 선택 + x = 사용 안 함 일괄 (2026-09-10 팀장님 · 2026-10-01 진행 숫자 칸만). 1칸은 아래 '타이핑 시작'으로 편집창에 x → Enter (실수 방지)
             if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey && !inEdit && selRef.current
                 && !(selRef.current.r1 === selRef.current.r2 && selRef.current.c1 === selRef.current.c2)) {
                 e.preventDefault();
@@ -6473,12 +6663,24 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </>
             )}
 
+            {/* 잘라낸 행(초록 점선)·옮긴 행(번호 칸 노란) 표시 (2026-10-01) */}
+            {rowMarkCss && <style>{rowMarkCss}</style>}
+            {/* ── 수행번호 직접 입력 안내 띠 (2026-10-01) — 켜진 동안만 · 칸 클릭 1번 또는 [취소]/Esc로 꺼짐 ── */}
+            {execManual && (
+                <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-[7600] flex items-center gap-3 px-4 py-2.5 rounded-xl shadow-2xl border border-indigo-300 bg-indigo-50 text-indigo-900 text-sm font-bold">
+                    <Hash size={16} className="text-indigo-600"/>
+                    수행번호 직접 입력 — 넣을 행의 수행번호 칸을 클릭하세요 <span className="text-[11px] font-normal text-indigo-700">(숫자만 쳐도 됨 · 한 번 입력하면 자동으로 꺼짐)</span>
+                    <button onClick={() => setExecManualMode(false)} className="ml-1 px-2.5 py-1 rounded-lg bg-white border border-indigo-300 text-indigo-700 text-xs font-black hover:bg-indigo-100">취소</button>
+                </div>
+            )}
             {/* ── 우클릭 컨텍스트 메뉴 ── */}
             {contextMenu && (
                 <>
                     <div className="fixed inset-0 z-[8000]" onClick={() => setContextMenu(null)}/>
-                    <div className="fixed z-[8001] bg-white border border-[#c4ccd8] shadow-2xl rounded-lg py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
-                        style={{ top: Math.min(contextMenu.y, window.innerHeight-370), left: Math.min(contextMenu.x, window.innerWidth-200) }}
+                    <div ref={el => { if (!el) return; /* 메뉴 실제 높이로 화면 안에 맞춤 (2026-10-01 — 삽입 줄 추가로 길어짐, 종전 370 고정 추정은 아래쪽 우클릭 때 잘림) */
+                            const t = Math.max(8, Math.min(contextMenu.y, window.innerHeight - el.offsetHeight - 8)); if (el.style.top !== `${t}px`) el.style.top = `${t}px`; }}
+                        className="fixed z-[8001] bg-white border border-[#c4ccd8] shadow-2xl rounded-lg py-1.5 w-48 animate-in fade-in zoom-in duration-100 overflow-hidden"
+                        style={{ top: Math.min(contextMenu.y, window.innerHeight-370), left: Math.min(contextMenu.x, window.innerWidth-200), maxHeight: window.innerHeight - 16, overflowY: 'auto' }}
                         onClick={e => e.stopPropagation()}>
                         <div className="px-3 py-1.5 border-b border-[#e5eaf3] mb-1">
                             <p className="text-[10px] font-black text-[#888] uppercase tracking-wider truncate">
@@ -6520,6 +6722,32 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-3 text-sm font-bold text-[#222] transition-colors">
                             <Palette size={16} className="text-[#d97706]"/> 서식 (색·굵기)
                         </button>
+                        {/* ★ 복사한 행을 이 행 위/아래에 삽입 (2026-10-01 팀장님: 맨 끝이 아니라 중간에) — 번호 칸 클릭 → Ctrl+C 해 둔 행이 있을 때만.
+                            정렬(▲▼) 중엔 정렬 순서가 먼저라 흐리게(하단 [해제] 후 사용). 하위 행·저장 전 새 행에서는 숨김. Ctrl+V는 종전대로 맨 아래 */}
+                        {(() => {
+                            const clip = rowClipRef.current;
+                            if (!clip || !clip.rows.length || clip.team !== currentTeam || dataSource !== 'firebase'
+                                || isSubListRow(contextMenu.row) || isDraftNew(contextMenu.row._id)) return null;
+                            const isCut = !!clip.cut;   // 잘라낸 행 = 옮기기 (2026-10-01) · 잘라낸 행 자신에서는 메뉴 없음
+                            if (isCut && clip.rows.some(r => r._id === contextMenu.row._id)) return null;
+                            const off = !!sortConfig.key;
+                            const go = (side) => { const r = contextMenu.row; setContextMenu(null); if (isCut) moveCutRows(r, side); else pasteCopiedRows({ row: r, side }); };
+                            const cls = `w-full text-left px-4 py-2 flex items-center gap-3 text-sm font-bold transition-colors ${off ? 'text-[#b6bcc7] cursor-not-allowed' : 'text-[#222] hover:bg-emerald-50'}`;
+                            const ic = off ? 'text-[#cbd2db]' : 'text-[#059669]';
+                            return (
+                                <>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                    <p className={`px-4 py-0.5 text-[10px] font-black ${off ? 'text-[#d97706]' : 'text-[#888]'}`}>{off ? '정렬 중 — [해제] 후 사용' : isCut ? `잘라낸 ${clip.rows.length}행 옮기기` : `복사한 ${clip.rows.length}행 붙여넣기`}</p>
+                                    <button disabled={off} onClick={() => go('before')} className={cls}>
+                                        <ArrowUpToLine size={16} className={ic}/> 이 행 위에 삽입
+                                    </button>
+                                    <button disabled={off} onClick={() => go('after')} className={cls}>
+                                        <ArrowDownToLine size={16} className={ic}/> 이 행 아래에 삽입
+                                    </button>
+                                    <div className="border-t border-[#e5eaf3] my-1"/>
+                                </>
+                            );
+                        })()}
                         {/* ★ 이 행 복사해서 추가 (2026-08-31 팀장님: 행 복/붙 — 값을 초기값으로 복사한 추가 팝업. 번호=새 번호·수행번호=빈칸) */}
                         {!isSubListRow(contextMenu.row) && (
                             <button onClick={() => { handleOpenAddRow(contextMenu.row); setContextMenu(null); }}
@@ -6567,6 +6795,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             평소 운영은 진행현황을 '삭제'로 바꾸는 방식(soft, 행 보존) 권장 — 이 메뉴는 테스트·오등록 정리용. */}
                         <button onClick={() => {
                             const row = contextMenu.row;
+                            if (hasPendingMove()) { setContextMenu(null); setAlertMsg('옮긴 행(자리 이동)이 아직 저장 전입니다.\n먼저 헤더의 [저장] 또는 [취소]를 누른 뒤 삭제해 주세요.'); return; }   // 2026-10-01
                             const nm = row['Project'] || row['프로젝트명'] || row['공사명'] || row['프로젝트'] || '(이름 없음)';
                             const no = row['번호'] ? `번호 ${row['번호']} · ` : '';
                             // 하위(공종) 행도 함께 삭제 — 부모만 지우면 남은 하위가 앞 프로젝트에 잘못 붙는 사고 방지 (2026-07-16)
@@ -8157,6 +8386,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     )}
                                     </>)}
 
+                                    {/* ── 입력 도구 ── 모두 (2026-10-01 팀장님: 자주 안 쓰니 설정에 · 관리자 전용 아님) */}
+                                    {execCfg && dataSource === 'firebase' && (<>
+                                    <MenuSec t="입력 도구"/>
+                                    <button onClick={() => { setSettingsOpen(false); setExecManualMode(true); showExtToast('수행번호 직접 입력 — 넣을 행의 수행번호 칸을 클릭하세요 (한 번 입력하면 자동으로 꺼짐 · Esc = 취소)'); }}
+                                        className="w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold text-[#333] flex items-center gap-2 transition-colors">
+                                        <Hash size={14} className="text-indigo-600"/> 수행번호 직접 입력 <span className="text-[10px] text-[#999] font-normal">빈 번호 채우기 · 1번만</span>
+                                    </button>
+                                    </>)}
                                     {/* ── ⑤ 내 화면 (이 PC) ── 모두 */}
                                     <MenuSec t="내 화면 · 이 PC만"/>
                                     {/* 열 표시/숨기기 */}
@@ -8642,7 +8879,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             // NAS 연결 행에서 규칙이 안 다루는 PLC·ETOS·HMI = 그 프로젝트 엑셀에 없는 항목 → ×표시 (2026-08-20 팀장님. 값이 남아있으면 값 우선)
                                             const nasX = ['PLC', 'ETOS', 'HMI'].includes(String(h).replace(/\s/g, ''))
                                                 && extRulesOf(row).length > 0 && !isExtLockedCell(row, h) && !String(val || '').trim();
-                                            // ★ 칸 상태 2가지 (2026-09-10 팀장님): 값 있음 = 행 줄무늬 그대로 / off = 짙은 회색 ×.
+                                            // ★ 칸 상태 2가지 (2026-09-10 팀장님): 값 있음 = 행 줄무늬 그대로 / off = 짙은 회색 (2026-10-01: × 표시 없이 색만 — O/X 칸의 진짜 X와 헷갈림).
                                             //   off = 스위치 off(_naItems·기본 미적용) · NAS 미포함 · 빈칸(카드 빈칸회색). 화면에 값이 보이는 칸(하위 Σ 포인트·하위 마커·수행번호 [+])은 빈칸이어도 제외
                                             const _dispEmpty = String(val ?? '').trim() === ''
                                                 && !(isPointCol(h) && (getSubPt(row._id)?.sum > 0))
@@ -8654,7 +8891,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             const offTip = isNaItemCell(row, h) ? '사용 안 함 (스위치 off · 진척률/그래프 제외) — 값을 키인하면 다시 켜집니다'
                                                 : nasX ? 'NAS 진척자료(엑셀)에 없는 항목 — 이 프로젝트는 대상 아님'
                                                 : (['plc', 'etos', 'hmi'].includes(progItemKeyOf(h)) || isIntGroupCol(h)) ? '빈칸 — 이 프로젝트엔 없는 항목 (진행실적 팝업·진척률·그래프에서도 빠짐) · 값 키인 = 사용 · x 키인 = 사용 안 함'
-                                                : '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함';
+                                                : isProgNumCol(h) ? '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함'
+                                                : '빈칸 (값 없음)';
                                             return (
                                                 <td key={h}
                                                     className={`${tdPx} align-middle cursor-text hover:bg-emerald-950/20
@@ -8681,7 +8919,11 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                                         if (fmtBarRef.current) { fmtSelectCell(row._id, h); return; }   // 서식 팔레트 켜짐 = 클릭은 대상 선택 (편집은 팔레트 닫고, 2026-09-01)
                                                         // (2026-09-10 팀장님) 스위치 off(×) 칸도 클릭·키인 가능 — 값을 넣으면 켜짐 (종전 7/21 편집 잠금 폐지)
                                                         // ★ 수행번호(당해 연도) 손 키인 금지 (2026-08-28 팀장님: [+] 옆 빈 곳을 눌러 편집창이 열려 '011' 같은 값이 들어가는 사고) — [+] 자동 부여·✕ 회수만
-                                                        if (isExecAssignRowCol(row, h) && !isSubListRow(row)) { showExtToast('수행번호는 손으로 키인할 수 없습니다 — 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수'); return; }
+                                                        //   직접 입력 (2026-10-01): 설정 [수행번호 직접 입력] 뒤 첫 클릭 1번만 편집창 — 열리는 순간 모드 꺼짐 (Enter = 저장 · Esc = 취소)
+                                                        if (isExecAssignRowCol(row, h) && !isSubListRow(row)) {
+                                                            if (!execManualRef.current) { showExtToast('수행번호는 손으로 키인할 수 없습니다 — 빈칸의 [+] = 다음 번호 자동 부여, ✕ = 회수 · 빈 번호를 넣으려면 ⚙ 설정 → [수행번호 직접 입력]'); return; }
+                                                            setExecManualMode(false);
+                                                        }
                                                         { const _cs = getComputedStyle(e.currentTarget); editWRef.current = Math.max(20, e.currentTarget.clientWidth - (parseFloat(_cs.paddingLeft) || 0) - (parseFloat(_cs.paddingRight) || 0)); }
                                                         if (nasX) { setAlertMsg(`'${h}'은(는) 이 프로젝트의 NAS 진척자료(엑셀)에 없는 항목입니다.
 NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키인하지 않습니다.`); return; }   // NAS 미포함 항목 (2026-08-20)
@@ -8743,7 +8985,7 @@ NAS 연결 프로젝트의 진행률은 원본 엑셀이 기준이라 직접 키
                                                                 style={{ border:'none', background:'transparent', color:'#94a3b8', fontSize:'10px', lineHeight:1, padding:'0 2px', cursor:'pointer' }}>✕</button></span>)
                                                         : (<button title={`다음 수행번호 자동 부여 (${execMaxOf(row._year, h).yy}-${String(execMaxOf(row._year, h).max + 1).padStart(3, '0')})`} onClick={e => { e.stopPropagation(); assignExecNo(row, h); }}
                                                             style={{ border:'1px dashed #94a3b8', background:'#fff', color:'#1e7ac8', fontSize:'11px', fontWeight:800, lineHeight:1, padding:'1px 6px', borderRadius:'4px', cursor:'pointer' }}>+</button>)
-                                                    ) : cellOff ? (<span title={offTip} style={{fontWeight:700,fontSize:'13px',color:'#4b5563'}}>×</span>)
+                                                    ) : cellOff ? null   /* 빈칸·사용 안 함 = 회색만, × 표시 없음 (2026-10-01 팀장님: O/X 칸의 진짜 X와 헷갈림) — 안내는 칸 title */
                                                     : isStatusCell(h) && val ? (() => {
                                                         const nv = String(val).toUpperCase() === 'HOLD' ? 'Hold' : val;
                                                         const disp = String(val).toLowerCase() === 'sub' ? '하위' : nv;

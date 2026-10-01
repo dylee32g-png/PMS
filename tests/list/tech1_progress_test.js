@@ -449,7 +449,7 @@ ok(src.includes('엑셀이 빈칸인 진행 값 <b>{um.t1Keeps.length}칸</b>'),
 
 // ═══ 11. 저장 경로·초기화·마감·안내 (⑤~⑨) ═════════════════════════════════════════════
 console.log('\n■ 11. 초안 [저장]·상세 보기 [저장]·진행실적 초기화·월간 마감·Point 동기화·클릭 안내');
-ok(!!sdSrc && sdSrc.includes('const patchS = (fmCum && fmActive({ ...sv, ...patch }) && !isSubListRow(sv)) ? { ...patch, ...fmDeriveCum({ ...sv, ...patch }) } : patch;') && sdSrc.includes('stampSave({ ...patchS, ...devExtra, _changeHistory: hist })'),
+ok(!!sdSrc && sdSrc.includes('const patchS = (fmCum && fmActive({ ...sv, ...patch }) && !isSubListRow(sv)) ? { ...patch, ...fmDeriveCum({ ...sv, ...patch }) } : patch;') && sdSrc.includes('const patchW = Object.prototype.hasOwnProperty.call(patchS, \'_place\')') && sdSrc.includes('stampSave({ ...patchW, ...devExtra, _changeHistory: hist })'),   // patchW = patchS + 옮기기 쪽지 시각 (2026-10-01)
    '초안 [저장]: 자동 칸 = 저장 순간 다시 계산 (편집 뒤 다른 사람이 팝업 [적용하기]로 바꾼 최신 값을 옛 값으로 되돌리지 않게)');
 const sdrSrc = grabTo(src, '    const saveDetailRow = async (force) => {', '\n    };');
 ok(!!sdrSrc && sdrSrc.includes('.filter(h => progItemKeyOf(h) && !isExtLockedCell(working, h))') && sdrSrc.includes('await queueLedger(() => syncProgressCellToLedger(working, h, working[h]))') && sdrSrc.includes('Object.keys(draftEdited)'),

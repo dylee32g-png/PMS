@@ -1482,7 +1482,7 @@ const ProgressModal = ({ row, team, onClose, subRows = [], weeklyLinks, getWeekl
                         {/* 적용 중인 진행 항목 없음 (2026-09-30): 메인표가 전부 × — 왜 줄이 없는지·어떻게 켜는지 */}
                         {noItemsOn && (
                             <div style={{ flexShrink:0, margin:'2px 18px 6px', padding:'8px 12px', borderRadius:8, background:'#f8fafc', border:'1px dashed #cbd5e1', fontSize:12, color:'#64748b', lineHeight:1.6 }}>
-                                이 프로젝트는 메인표에 값이 있는 진행 항목이 없어서 입력할 줄이 없습니다 (메인표가 전부 ×).<br/>
+                                이 프로젝트는 메인표에 값이 있는 진행 항목이 없어서 입력할 줄이 없습니다 (메인표가 전부 회색 빈칸).<br/>
                                 PC에서 행 우클릭 → [상세/수정]의 항목 스위치를 켜면 여기에 줄이 생깁니다 — 그다음 알맞은 주 칸에 넣고 [적용하기] (메인표 칸에 값을 넣어도 켜짐).
                             </div>
                         )}

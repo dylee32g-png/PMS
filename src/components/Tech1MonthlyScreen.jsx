@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ChevronLeft, FileText, ListChecks, Upload, Download, Search, BarChart3, X } from 'lucide-react';
 import { onSnapshot, getDoc, setDoc } from 'firebase/firestore';
-import { rowsColRef, snapshotDocRef, monthlyReportDocRef } from './projectListData';
+import { rowsColRef, snapshotDocRef, monthlyReportDocRef, orderListRows } from './projectListData';
 import { loadXLSX } from '../utils';
 import { logAudit, AUDIT_ACTIONS } from '../auditLog';
 
@@ -365,8 +365,7 @@ export default function Tech1MonthlyScreen({ currentTeam, user, onBack, onGoToLi
     useEffect(() => {
         setSnaps({}); setStatusFilter(null); setQuery('');
         const unsub1 = onSnapshot(rowsColRef(currentTeam), snap => {
-            const r = snap.docs.map(d => ({ _id: d.id, ...d.data() }))
-                .sort((a, b) => String(a._id).localeCompare(String(b._id)));
+            const r = orderListRows(snap.docs.map(d => ({ _id: d.id, ...d.data() })));   // List 화면과 같은 순서(중간 삽입 쪽지 포함) (2026-10-01)
             setRows(r); setLoaded(true);
         }, () => setLoaded(true));
         const unsub2 = onSnapshot(monthlyReportDocRef(currentTeam, YEAR), s => {

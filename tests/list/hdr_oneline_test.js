@@ -44,10 +44,12 @@ ok(/justify-end gap-1 shrink-0/.test(rowPart), '오른쪽 도구 줄 = shrink-0 
 // ── 2. draftLabel 단위 검사 ──────────────────────────────────────────────
 console.log('\n■ 2. [저장] 버튼 라벨 (짧아야 예산이 남는다)');
 const lblSrc = src.match(/const draftLabel = \(\) => [^\n]+/)[0];
-const mkLabel = new Function('draftCellCount', 'draftNewCount',
+const mkLabel = new Function('draftCellCount', 'draftNewCount', 'draftMoveCount',
     lblSrc.replace('const draftLabel = () =>', 'return') + ';');
 const LBL = [[3, 0, '3칸'], [0, 1, '새 행 1건'], [3, 1, '3칸+새 행 1건'], [12, 5, '12칸+새 행 5건']];
 LBL.forEach(([c, n, want]) => ok(mkLabel(c, n) === want, `칸 ${c} · 새 행 ${n} → "${want}"`, mkLabel(c, n)));
+// 옮김 (잘라내기 → 옮기기, 2026-10-01) — 새 행과는 동시에 생기지 않음(서로 막음)
+[[0, 0, 2, '옮김 2건'], [3, 0, 1, '3칸+옮김 1건']].forEach(([c, n, m, want]) => ok(mkLabel(c, n, m) === want, `칸 ${c} · 옮김 ${m} → "${want}"`, mkLabel(c, n, m)));
 ok(!mkLabel(0, 1).includes('0칸'), '새 행만 있을 때 "0칸"이 안 나옴', mkLabel(0, 1));
 
 // ── 3. 헤더 JSX 원문을 그대로 렌더 ───────────────────────────────────────

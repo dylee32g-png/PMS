@@ -112,7 +112,7 @@ const L0 = {
     progKey: line(src, /    const PROG_COL_TO_KEY = [^\n]+/) + '\n' + line(src, /    const progItemKeyOf = [^\n]+/),
     sub: line(src, /    const isSubListRow = [^\n]+/),
     pa: [/    const paCfg = [^\n]+/, /    const paActive = [^\n]+/, /    const paCol = [^\n]+/].map(re => line(src, re)).join('\n'),
-    cell: (() => { const a = src.indexOf("const nasX = ['PLC', 'ETOS', 'HMI']"); const e0 = ": '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함';"; const b = src.indexOf(e0, a); return a >= 0 && b > a ? src.slice(a, b + e0.length) : null; })(),
+    cell: (() => { const a = src.indexOf("const nasX = ['PLC', 'ETOS', 'HMI']"); const e0 = ": '빈칸 (값 없음)';"; const b = src.indexOf(e0, a); return a >= 0 && b > a ? src.slice(a, b + e0.length) : null; })(),
     act: grabTo(src, '        // 통합시운전 묶음 (2026-09-30): 진행율 %·Point 중 한 칸에', '\n        }\n'),
 };
 Object.entries(L0).forEach(([k, v]) => ok(!!v && !/^null$/m.test(String(v)), '원문 조각 찾음: ' + k));   // 한 줄 조각이 없으면 'null' 줄
@@ -122,9 +122,9 @@ const mkList = (profile, headers) => new Function('teamProfile', 'activeHeaders'
     profile, headers, fmNorm, false, () => false, null, (nm) => headers.find(h => fmNorm(h) === fmNorm(nm)) || nm, () => ({}), () => [], U.emptyProgOffOf);
 const L2 = mkList(t2, H2), L3 = mkList(t3, H2);
 ok(J(L2.intGroupCols) === J(['진행율 %', 'Point']) && J(L3.intGroupCols) === J(['진행율 %', 'Point']), 'List 통합시운전 묶음 칸 = 진행율 %·Point (기술2·3팀)');
-const cellOf = (L, row, h) => new Function('row', 'h', 'val', 'extRulesOf', 'isExtLockedCell', 'isPointCol', 'getSubPt', 'projectNameCol', 'isSubListRow', 'isExecNoCol', 'isNaItemCell', 'isGrayEmptyCol', 'isExOnProgCell', 'progItemKeyOf', 'isIntGroupCol',
+const cellOf = (L, row, h) => new Function('row', 'h', 'val', 'extRulesOf', 'isExtLockedCell', 'isPointCol', 'getSubPt', 'projectNameCol', 'isSubListRow', 'isExecNoCol', 'isNaItemCell', 'isGrayEmptyCol', 'isExOnProgCell', 'progItemKeyOf', 'isIntGroupCol', 'isProgNumCol',
     `${L0.cell}\nreturn { cellOff, offTip, exOnEmpty };`)(row, h, row[h], extRulesOf, (r, hh) => U.extLockedColsMainOf(r, t2).some(t => fmNorm(t) === fmNorm(hh)),
-    (hh) => hh === '포인트', () => null, 'Project', L.isSubListRow, (hh) => hh === '수행번호', L.isNaItemCell, L.isGrayEmptyCol, L.isExOnProgCell, L.progItemKeyOf, L.isIntGroupCol);
+    (hh) => hh === '포인트', () => null, 'Project', L.isSubListRow, (hh) => hh === '수행번호', L.isNaItemCell, L.isGrayEmptyCol, L.isExOnProgCell, L.progItemKeyOf, L.isIntGroupCol, (hh) => !!L.progItemKeyOf(hh) || L.isIntGroupCol(hh) || hh === '포인트');   // 진행 숫자 칸 (2026-10-01)
 const DM = loadModule(path.join(ROOT, 'src/components/DetailModal.jsx')).default;
 const dmHtml = (L, row, prof) => renderToStaticMarkup(React.createElement(DM, { detailRow: row, setDetailRow: () => {}, onSave: () => {}, activeHeaders: H2, activeColGroups: G2, mainVisibleHeaders: H2,
     cardDefaultOff: [], currentTeam: prof === t3 ? '기술3팀' : '기술2팀', progSwitch: L.progSwitchOf(row), intColAlias: prof.시운전.통합열,
@@ -177,7 +177,7 @@ const rOnPlc = R({ HMI: '10', _naOn: ['PLC'] });
 const cPlc = cellOf(L2, rOnPlc, 'PLC');
 ok(!cPlc.cellOff && cPlc.exOnEmpty, '상세 보기에서 켠 빈 PLC = 메인표 흰 빈칸 (× 아님 — 팝업에 줄이 있으니)', cPlc);
 ok(cellOf(L2, R({ HMI: '10' }), 'PLC').cellOff && /진행실적 팝업·진척률·그래프에서도 빠짐/.test(cellOf(L2, R({ HMI: '10' }), 'PLC').offTip), '안 켠 빈 PLC = × + 안내 "진행실적 팝업·진척률·그래프에서도 빠짐"');
-ok(cellOf(L2, R({}), '내용').cellOff && cellOf(L2, R({}), '내용').offTip === '빈칸 — 값 키인 = 사용 · x 키인 = 사용 안 함', '  └ 진행 항목이 아닌 빈칸(내용 등) = 종전 안내 그대로');
+ok(cellOf(L2, R({}), '내용').cellOff && cellOf(L2, R({}), '내용').offTip === '빈칸 (값 없음)', '  └ 진행 항목이 아닌 빈칸(내용 등) = 안내 "빈칸 (값 없음)" — x는 X 값으로 들어가는 칸 (2026-10-01)');
 const rOffPt = R({ '진행율 %': '100', Point: '4', _naItems: ['Point'] });
 ok(cellOf(L2, rOffPt, '진행율 %').cellOff && cellOf(L2, rOffPt, 'Point').cellOff, 'Point 스위치 끔 → 진행율 %·Point 둘 다 × (값 보관) = 팝업 통합시운전 없음');
 ok(!cellOf(L2, R({ _naOn: ['통합시운전'] }), '진행율 %').cellOff && !cellOf(L2, R({ _naOn: ['통합시운전'] }), 'Point').cellOff, '통합시운전 켬(값 없음) → 진행율 %·Point 흰 빈칸 (팝업에 줄)');

@@ -15,7 +15,7 @@ import { metaDocRef, rowsColRef, rowDocRef } from './projectListData';
 import { extractName, normalizeStatus } from './projectColumns';
 import { logAudit, AUDIT_ACTIONS, pickProjectName } from '../auditLog';
 import ProgressModal from './ProgressModal';
-import { naProgressItemsOf, extLockedItemKeysAllOf, extLockedColsMainOf, grayEmptyTestOf, mainBaseOf } from './projectListData';
+import { naProgressItemsOf, extLockedItemKeysAllOf, extLockedColsMainOf, grayEmptyTestOf, mainBaseOf, orderListRows } from './projectListData';
 import { getTeamProfile } from '../teamProfiles';   // 통합열 별칭 — 기술2·3팀 통합시운전 기본 ON (2026-08-25)
 
 // 모바일 입력 대상 팀 = 팀 카드 '기능.모바일입력'이 false가 아닌 팀 (2026-09-29 전수 점검): 기술1팀·Software팀 카드는 false인데 목록에 나왔음 —
@@ -46,9 +46,8 @@ const MobileInputScreen = ({ user, registeredUser, baseDate, onApplyProgressByPi
         try {
             const [metaSnap, rowsSnap] = await Promise.all([getDoc(metaDocRef(team)), getDocs(rowsColRef(team))]);
             const headers = metaSnap.exists() ? (metaSnap.data().headers || []) : [];
-            const rows = rowsSnap.docs
-                .map(d => ({ _id: d.id, ...d.data() }))
-                .sort((a, b) => String(a._id).localeCompare(String(b._id)));   // List 화면과 동일 정렬(하위 행 연결 유지)
+            const rows = orderListRows(rowsSnap.docs
+                .map(d => ({ _id: d.id, ...d.data() })));   // List 화면과 동일 순서(중간 삽입 쪽지 포함 · 하위 행 연결 유지) (2026-10-01)
             setTeamData(prev => ({ ...prev, [team]: { headers, rows } }));
         } catch (e) { console.warn('[모바일] ' + team + ' 불러오기 실패:', e); }
     }, []);
