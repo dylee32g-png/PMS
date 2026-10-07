@@ -8062,6 +8062,14 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
                 {/* 오른쪽: 버튼 (월간업무보고 동일 스타일) */}
                 <div className="flex items-center justify-end gap-1 shrink-0">
+                    {/* 기술2·3팀 공통 월간보고 — 완료 실적 요약과 홈 버튼 사이 */}
+                    {onGoToPms && (
+                        <button onClick={guardNav(onGoToPms)} title="월간보고"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#bcd6f0] bg-[#f0f7fd] hover:bg-[#e3effa] text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
+                            <FileText size={13}/> 월간보고
+                        </button>
+                    )}
+
                     {/* 홈 — 컴팩트 왼쪽 (2026-08-31 팀장님: 팀 탭 제거로 이동) */}
                     <button onClick={guardNav(onBack)} title="홈 — 팀 선택 화면으로"
                         className="flex items-center justify-center px-2.5 py-1.5 rounded border border-[#d8d4cf] bg-white hover:bg-gray-50 transition-all shrink-0">
@@ -8146,14 +8154,6 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
 
 
 
-
-                    {/* 월간 업무 보고 이동 버튼 */}
-                    {onGoToPms && (
-                        <button onClick={guardNav(onGoToPms)} title="월간 업무 보고"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#d8d4cf] bg-white hover:bg-[#f0f7fd] hover:border-[#bcd6f0] text-[#37352f] hover:text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
-                            <FileText size={13}/> 월간보고
-                        </button>
-                    )}
 
                     {/* 작업 백로그 이동 (2026-07-10) */}
                     {onGoToBacklog && (

@@ -484,3 +484,13 @@ body:not(.pms-kbnav) tbody tr:hover td.cell-na > span, tbody tr.row-cur td.cell-
 tbody tr.row-cur td.cell-draft { background-color: #fef3b2 !important; }
 tbody tr.row-cur td.cell-selr, body:not(.pms-kbnav) tbody tr:hover td.cell-selr { background-color: #c5dcf2 !important; }
 body.sel-noselect, body.sel-noselect * { user-select: none !important; }
+
+/* 기술2팀 월간보고 — List와 같은 빈칸·행 강조 규칙 */
+.tech2-monthly-table td.cell-na { background-color: #a7aeb9 !important; }
+.tech2-monthly-table tbody tr:hover td { background-color: #e8f0fe !important; }
+.tech2-monthly-table tbody tr:hover td.cell-na { background-color: #8797b3 !important; }
+.tech2-monthly-table th .monthly-col-resizer:hover { border-right-color: #1e7ac8 !important; background: rgba(30,122,200,0.08); }
+.tech2-monthly-table th.monthly-group-boundary,
+.tech2-monthly-table td.monthly-group-boundary { border-right: 1px solid #000 !important; }
+.tech2-monthly-table tbody td.monthly-point-data > span { color: #e00000 !important; font-weight: 800; }
+.tech2-monthly-table tbody td.monthly-selected-cell > span { color: #0f5a99 !important; font-weight: 900; }

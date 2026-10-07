@@ -24,6 +24,7 @@ import LoginScreen from './components/LoginScreen';
 import UserManagementScreen from './components/UserManagementScreen';
 import ProjectListScreen from './components/ProjectListScreen';
 import Tech1MonthlyScreen from './components/Tech1MonthlyScreen';   // 기술1팀 월간보고 = 엑셀 양식 웹 재현 (2026-08-13)
+import Tech2MonthlyScreen from './components/Tech2MonthlyScreen';
 import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
 import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
 import { LIST_TEAMS, getTeamProfile } from './teamProfiles';
@@ -456,6 +457,8 @@ const TechTeamPMS = () => {
   // ★ 월간보고 잠금 스위치 (2026-08-19 팀장님): 각 팀 프로젝트 List 완전 정리 후 재개 결정 — 그때까지 진입 차단.
   //   true로 바꾸면 전부 복원(홈 카드 [열기]·List 헤더 [월간보고]·우클릭 '업무현황 이동'). 코드·데이터는 그대로.
   const MONTHLY_REPORT_OPEN = false;
+  // ★ 메인화면 견적 버튼 임시 숨김 — 추후 재작업 시 true로 바꾸면 버튼만 다시 표시. 견적 화면·데이터는 그대로 보존.
+  const ESTIMATE_HOME_BUTTON_OPEN = false;
   const [backlogReturn, setBacklogReturn] = useState(null); // 백로그를 어디서 열었는지 기억 → 뒤로가기 복귀용 (2026-07-10)
   const [expandedTeam, setExpandedTeam] = useState(null); // ★ 아코디언 펼침 상태 관리용 (selectingTeamMode 대체)
 
@@ -6080,12 +6083,12 @@ const TechTeamPMS = () => {
                               >
                                   작업 백로그
                               </button>
-                              <button
+                              {ESTIMATE_HOME_BUTTON_OPEN && <button
                                   onClick={() => setCurrentMode('estimate')}
                                   className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-amber-600 hover:border-amber-300 hover:bg-amber-50 text-xs font-semibold transition-all rounded-lg"
                               >
                                   <Target size={11} /> 견적
-                              </button>
+                              </button>}
                           </div>
                       </div>
                   </div>
@@ -6109,9 +6112,16 @@ const TechTeamPMS = () => {
                   onExitToPc={() => setCurrentMode(null)}
                   onSignOut={handleSignOut}
               />
+          ) : currentMode === 'pms' && ['기술2팀', '기술3팀'].includes(currentTeam) ? (
+              <Tech2MonthlyScreen
+                  currentTeam={currentTeam}
+                  progressRecordsMap={progressRecordsMap}
+                  onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
+                  onGoToList={() => setCurrentMode('projectList')}
+              />
           ) : currentMode === 'pms' && currentTeam === '기술1팀' ? (
               /* 기술1팀 월간보고 (2026-08-13 팀장님 컨셉): List=뼈대·금월=실시간·전월=[월간 마감] 스냅샷.
-                 기술2·3팀 월간보고는 기존 화면 그대로(아래 분기). */
+                 기술2·3팀은 공통 List 연동 월간보고 화면을 사용한다. */
               <Tech1MonthlyScreen
                   currentTeam={currentTeam}
                   user={user}
@@ -6130,11 +6140,11 @@ const TechTeamPMS = () => {
                   onProgressOpened={() => setOpenProgressPid(null)}
                   onSwitchTeam={(t) => setCurrentTeam(t)}   /* 헤더 팀 탭 — projectList 화면 유지한 채 팀만 전환 (2026-08-11) */
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
-                  onGoToPms={!MONTHLY_REPORT_OPEN ? null : (execNo) => {   /* 잠금 시 null → List 헤더 [월간보고]·우클릭 '업무현황 이동' 자동 숨김 (2026-08-19) */
+                  onGoToPms={(['기술2팀', '기술3팀'].includes(currentTeam) || MONTHLY_REPORT_OPEN) ? (execNo) => {
                       setCurrentMode('pms');
                       if (execNo) setHighlightExecNoInReport(String(execNo));
                       setHighlightExecNoInList(null);
-                  }}
+                  } : null}
                   onGoToBacklog={() => { setBacklogReturn('projectList'); setCurrentMode('backlog'); }}
                   highlightExecNo={highlightExecNoInList}
                   allProjects={allProjects}
