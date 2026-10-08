@@ -5,6 +5,7 @@ import { Upload, ArrowLeft, ChevronLeft, ChevronRight, FileSpreadsheet,
          RefreshCw, CheckCircle2, Circle, BarChart3, Search } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { loadXLSX } from '../utils';
+import { displayTeamName } from '../teamNames';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 const STAGES = [
@@ -224,7 +225,7 @@ const WeeklyInputScreen = ({ db, teamId: propTeamId, onBack }) => {
                                     textAlign:'left',transition:'all 0.15s'}}
                                 onMouseEnter={e=>{e.currentTarget.style.borderColor='#34d399';e.currentTarget.style.background='#022c22';}}
                                 onMouseLeave={e=>{e.currentTarget.style.borderColor='#1a2540';e.currentTarget.style.background='#080f1e';}}>
-                                {team}
+                                {displayTeamName(team)}
                             </button>
                         ))}
                     </div>
@@ -248,7 +249,7 @@ const WeeklyInputScreen = ({ db, teamId: propTeamId, onBack }) => {
             <header style={S.header}>
                 <WBtn onClick={onBack}><ArrowLeft size={13}/> 나가기</WBtn>
                 <span style={{fontWeight:'bold',fontSize:14,color:'#e2e8f0'}}>주간보고 입력</span>
-                {teamId && <TeamBadge>{teamId}</TeamBadge>}
+                {teamId && <TeamBadge>{displayTeamName(teamId)}</TeamBadge>}
             </header>
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:32}}>
                 <div style={{maxWidth:440,width:'100%',textAlign:'center'}}>
@@ -283,13 +284,13 @@ const WeeklyInputScreen = ({ db, teamId: propTeamId, onBack }) => {
 
     // 메일 핸들러 (헤더에서도 접근)
     const handleMail = () => {
-        const subject = encodeURIComponent(`[주간보고] ${teamId} 진척률 요약 - ${formatWeekRange(weekOf)}`);
-        const body    = encodeURIComponent(buildMailText(teamId, weekOf, cats, entries));
+        const subject = encodeURIComponent(`[주간보고] ${displayTeamName(teamId)} 진척률 요약 - ${formatWeekRange(weekOf)}`);
+        const body    = encodeURIComponent(buildMailText(displayTeamName(teamId), weekOf, cats, entries));
         window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
     };
     const handleCopyHtml = async () => {
-        const html = buildHtmlTable(teamId, weekOf, cats, entries);
-        const text = buildMailText(teamId, weekOf, cats, entries);
+        const html = buildHtmlTable(displayTeamName(teamId), weekOf, cats, entries);
+        const text = buildMailText(displayTeamName(teamId), weekOf, cats, entries);
         try {
             await navigator.clipboard.write([
                 new ClipboardItem({
@@ -311,7 +312,7 @@ const WeeklyInputScreen = ({ db, teamId: propTeamId, onBack }) => {
             <header style={{...S.header, gap:8}}>
                 <WBtn onClick={onBack}><ArrowLeft size={13}/></WBtn>
                 <span style={{fontWeight:'bold',fontSize:13,color:'#e2e8f0'}}>주간보고 입력</span>
-                {teamId && <TeamBadge>{teamId}</TeamBadge>}
+                {teamId && <TeamBadge>{displayTeamName(teamId)}</TeamBadge>}
 
                 {/* 주 네비게이션 */}
                 <div style={{display:'flex',alignItems:'center',gap:2,marginLeft:4,

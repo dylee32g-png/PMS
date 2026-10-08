@@ -3,6 +3,7 @@ import { ChevronLeft, ClipboardList, Search, Clock, FolderOpen, ChevronDown, Che
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, appId } from '../firebase';
 import { subscribeAuditLog } from '../auditLog';
+import { displayTeamName } from '../teamNames';
 
 // ─────────────────────────────────────────────────────────────────────────
 // 작업 백로그 화면 — "누가·언제·무엇을 수정/추가/삭제/보류 했는지" 시간순.
@@ -148,7 +149,7 @@ export default function BacklogScreen({ teams, onBack }) {
     });
 
     const selSt = { fontSize: 12, fontWeight: 600, padding: '6px 10px', border: '1px solid #dcd8d2', borderRadius: 8, color: '#37352f', background: '#fff', outline: 'none', cursor: 'pointer' };
-    const titleTeam = multiTeam ? '전체 팀' : (teamList[0] || '');
+    const titleTeam = multiTeam ? '전체 팀' : displayTeamName(teamList[0] || '');
     const hasFilter = fTeam || fProject || fPerson || fAction || fPeriod !== '전체' || q;
 
     // 기록 한 건 렌더 — 시간순·프로젝트별 공용. inGroup이면 프로젝트명 줄 생략(카드 제목과 중복)
@@ -160,7 +161,7 @@ export default function BacklogScreen({ teams, onBack }) {
                     <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: '#a4a097', minWidth: 128 }}>{fmtDt(e.ts)}</span>
                     <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{e.action}</span>
                     {multiTeam && e._team && !inGroup && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px' }}>{e._team}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px' }}>{displayTeamName(e._team)}</span>
                     )}
                     <span style={{ fontSize: 13, fontWeight: 800, color: '#37352f' }}>{nameOf(e.who)}</span>
                     {!inGroup && (
@@ -226,7 +227,7 @@ export default function BacklogScreen({ teams, onBack }) {
                 {multiTeam && (
                     <select value={fTeam} onChange={e => setFTeam(e.target.value)} style={selSt}>
                         <option value="">팀 — 전체</option>
-                        {teamList.map(t => <option key={t} value={t}>{t}</option>)}
+                        {teamList.map(t => <option key={t} value={t}>{displayTeamName(t)}</option>)}
                     </select>
                 )}
                 {/* ★ 프로젝트 필터 — 최근 수정순 (2026-07-14) */}
@@ -289,7 +290,7 @@ export default function BacklogScreen({ teams, onBack }) {
                                         {g.execNo ? <span style={{ color: '#a4a097', fontWeight: 500 }}> · {g.execNo}</span> : null}
                                     </span>
                                     {multiTeam && g.team && (
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px', flexShrink: 0 }}>{g.team}</span>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: '#73716b', background: '#f3f1ee', border: '1px solid #e5e3df', borderRadius: 6, padding: '1px 6px', flexShrink: 0 }}>{displayTeamName(g.team)}</span>
                                     )}
                                     <span title="이 프로젝트를 고친 사람" style={{ fontSize: 11, color: '#73716b', flexShrink: 0, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {[...g.people].map(nameOf).join(', ')}

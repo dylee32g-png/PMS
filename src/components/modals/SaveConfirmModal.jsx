@@ -1,5 +1,6 @@
 import React from 'react';
 import { Save, AlertTriangle, Plus } from 'lucide-react';
+import { displayTeamName } from '../../teamNames';
 
 const SaveConfirmModal = ({ localUnsavedProjects, currentTeam, onClose, onOverwrite, onAppend }) => {
     return (
@@ -11,7 +12,7 @@ const SaveConfirmModal = ({ localUnsavedProjects, currentTeam, onClose, onOverwr
                 <p className="text-white text-xl font-bold mb-2">DB 확정 저장</p>
                 <p className="text-slate-400 text-sm mb-6 leading-relaxed">
                     현재 메인 화면에 임시 적용된 <strong className="text-amber-400">{localUnsavedProjects.length}건</strong>의 데이터를 클라우드 DB에 완전히 저장합니다.<br/>
-                    기존의 <strong>{currentTeam}</strong> 데이터를 모두 지우고 덮어쓰시겠습니까, 아니면 기존 데이터 아래에 추가하시겠습니까?
+                    기존의 <strong>{displayTeamName(currentTeam)}</strong> 데이터를 모두 지우고 덮어쓰시겠습니까, 아니면 기존 데이터 아래에 추가하시겠습니까?
                 </p>
                 <div className="flex flex-col gap-3">
                     <button onClick={onOverwrite} className="w-full px-4 py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2">

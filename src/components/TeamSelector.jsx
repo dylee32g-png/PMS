@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LayoutGrid, Wrench, Cpu, Monitor, TerminalSquare, FileText, ListChecks, ChevronRight } from 'lucide-react';
 import { initialTeamSettings } from '../constants';
+import { displayTeamName } from '../teamNames';
 
 // 서브메뉴가 있는 팀 목록 (추후 다른 팀도 추가 가능)
 const TEAM_SUBMENU = {
@@ -72,7 +73,7 @@ const TeamSelector = ({ teamSettings, onSelectTeam }) => {
                                             </span>
                                         )}
                                     </div>
-                                    <h2 className={`text-2xl font-bold mb-2 transition-colors ${isExpanded ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'}`}>{teamId}</h2>
+                                    <h2 className={`text-2xl font-bold mb-2 transition-colors ${isExpanded ? 'text-cyan-400' : 'text-white group-hover:text-cyan-400'}`}>{displayTeamName(teamId)}</h2>
                                     <p className="text-slate-500 font-medium">{descs[teamId]}</p>
                                 </button>
 

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { appId } from '../firebase';
+import { displayTeamName } from '../teamNames';
 
 // ─── 상수 ─────────────────────────────────────────────────────────────────────
 const TEAMS = ['기술1팀', '기술2팀', '기술3팀', 'Software팀'];
@@ -217,7 +218,7 @@ const WeeklySummaryScreen = ({ db, teamId: propTeamId, onBack }) => {
                     <h2 style={{ fontSize:17, fontWeight:'bold', marginBottom:6, textAlign:'center', color:'#e2e8f0' }}>팀 선택</h2>
                     <p style={{ color:'#64748b', fontSize:13, marginBottom:22, textAlign:'center' }}>보고서를 입력할 팀을 선택하세요.</p>
                     <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                        {TEAMS.map(t => <TeamBtn key={t} onClick={() => setTeamId(t)}>{t}</TeamBtn>)}
+                        {TEAMS.map(t => <TeamBtn key={t} onClick={() => setTeamId(t)}>{displayTeamName(t)}</TeamBtn>)}
                     </div>
                 </div>
             </Center>
@@ -282,7 +283,7 @@ const WeeklySummaryScreen = ({ db, teamId: propTeamId, onBack }) => {
             <Header>
                 <NavBtn onClick={onBack}><ArrowLeft size={13}/></NavBtn>
                 <Title>주간진척율요약</Title>
-                <TeamTag>{teamId}</TeamTag>
+                <TeamTag>{displayTeamName(teamId)}</TeamTag>
                 <WeekNav weekOf={weekOf} setWeekOf={setWeekOf}/>
                 <div style={{ display:'flex', alignItems:'center', gap:6, marginLeft:'auto' }}>
                     {(isSaving || isApplying) && <RefreshCw size={11} color="#475569" style={{ animation:'_spin 1s linear infinite' }}/>}

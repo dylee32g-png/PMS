@@ -23,11 +23,11 @@ import {
 import LoginScreen from './components/LoginScreen';
 import UserManagementScreen from './components/UserManagementScreen';
 import ProjectListScreen from './components/ProjectListScreen';
-import Tech1MonthlyScreen from './components/Tech1MonthlyScreen';   // 기술1팀 월간보고 = 엑셀 양식 웹 재현 (2026-08-13)
 import Tech2MonthlyScreen from './components/Tech2MonthlyScreen';
 import { fetchTeamStats, cachedTeamStats } from './components/teamStats';
 import { NOTICES } from './notices';   // 홈 공지사항 (2026-08-11 — 배포 시 자동 반영)   // 홈 팀 카드 미니 지표 (2026-08-11)
 import { LIST_TEAMS, getTeamProfile } from './teamProfiles';
+import { displayTeamName } from './teamNames';
 import { extractName } from './components/projectColumns';   // 이름↔팀 명단 매칭 (2026-09-07 팀 자동 진입)
 import ProgressModal from './components/ProgressModal';
 import EstimateScreen from './components/EstimateScreen';
@@ -454,9 +454,6 @@ const TechTeamPMS = () => {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // ★ 월간보고 잠금 스위치 (2026-08-19 팀장님): 각 팀 프로젝트 List 완전 정리 후 재개 결정 — 그때까지 진입 차단.
-  //   true로 바꾸면 전부 복원(홈 카드 [열기]·List 헤더 [월간보고]·우클릭 '업무현황 이동'). 코드·데이터는 그대로.
-  const MONTHLY_REPORT_OPEN = false;
   // ★ 메인화면 견적 버튼 임시 숨김 — 추후 재작업 시 true로 바꾸면 버튼만 다시 표시. 견적 화면·데이터는 그대로 보존.
   const ESTIMATE_HOME_BUTTON_OPEN = false;
   const [backlogReturn, setBacklogReturn] = useState(null); // 백로그를 어디서 열었는지 기억 → 뒤로가기 복귀용 (2026-07-10)
@@ -520,6 +517,13 @@ const TechTeamPMS = () => {
       const today = new Date();
       return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [monthlyReportDates, setMonthlyReportDates] = useState({});
+  const [isReportDateModalOpen, setIsReportDateModalOpen] = useState(false);
+  const [reportDateInput, setReportDateInput] = useState(() => {
+      const today = new Date();
+      return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
+  const [isReportDateSaving, setIsReportDateSaving] = useState(false);
   
   const [settingsTab, setSettingsTab] = useState('status'); 
   const [newItemInput, setNewItemInput] = useState('');
@@ -893,6 +897,9 @@ const TechTeamPMS = () => {
               setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'teamSettings'), data, { merge: true })
                 .catch(e => console.warn('상태 목록 마이그레이션 저장 실패:', e));
             }
+          } else if (d.id === 'monthlyReportDates') {
+            const savedDates = d.data()?.dates;
+            setMonthlyReportDates(savedDates && typeof savedDates === 'object' ? savedDates : {});
           }
         });
       }
@@ -1502,7 +1509,7 @@ const TechTeamPMS = () => {
               }
               setOriginalDynamicCols(data.cols || []);
               setOriginalDynamicData(data.rows || []);
-              addLog(`[${currentTeam}] 프로젝트 리스트 DB 로드 완료.`);
+              addLog(`[${displayTeamName(currentTeam)}] 프로젝트 리스트 DB 로드 완료.`);
           } else {
               if (!isDynamicUnsavedRef.current) {
                   setDynamicExcelCols([]);
@@ -3036,7 +3043,7 @@ const TechTeamPMS = () => {
   const handleExcelDownloadClick = () => {
       const teamPrefs = userPrefs[currentTeam] || {};
       if (teamPrefs.excelFormat) {
-          addLog(`[${currentTeam}] 저장된 기본 포맷(${teamPrefs.excelFormat})으로 바로 엑셀을 다운로드합니다.`);
+          addLog(`[${displayTeamName(currentTeam)}] 저장된 기본 포맷(${teamPrefs.excelFormat})으로 바로 엑셀을 다운로드합니다.`);
           executeExcelDownload(teamPrefs.excelFormat);
       } else {
           openExcelFormatModal();
@@ -3078,13 +3085,13 @@ const TechTeamPMS = () => {
           
           await setDoc(prefsRef, { [currentTeam]: payload }, { merge: true });
           setUserPrefs(prev => ({ ...prev, [currentTeam]: payload }));
-          addLog(`[${currentTeam}] 엑셀 기본 포맷이 [${tempExcelFormat}]으로 클라우드에 영구 저장되었습니다.`);
+          addLog(`[${displayTeamName(currentTeam)}] 엑셀 기본 포맷이 [${tempExcelFormat}]으로 클라우드에 영구 저장되었습니다.`);
       } else {
           // 체크 해제 시 설정 삭제 (다음에 또 묻게 됨)
           const prefsRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'preferences'), 'config');
           await setDoc(prefsRef, { [currentTeam]: { excelFormat: null, customTemplateBase64: null } }, { merge: true });
           setUserPrefs(prev => ({ ...prev, [currentTeam]: { excelFormat: null, customTemplateBase64: null } }));
-          addLog(`[${currentTeam}] 엑셀 기본 포맷 설정이 해제되었습니다.`);
+          addLog(`[${displayTeamName(currentTeam)}] 엑셀 기본 포맷 설정이 해제되었습니다.`);
       }
 
       // 선택한 포맷으로 다운로드 실행
@@ -3441,7 +3448,7 @@ const TechTeamPMS = () => {
           if (count > 0) await batch.commit();
 
           setLocalUnsavedProjects(prev => prev.filter(p => p.team !== currentTeam));
-          setAlertMessage(`${currentTeam}의 모든 데이터(${deletedCount}건)가 삭제되었습니다.`);
+          setAlertMessage(`${displayTeamName(currentTeam)}의 모든 데이터(${deletedCount}건)가 삭제되었습니다.`);
           setIsDeleteAllModalOpen(false);
       } catch (error) {
           console.error("전체 삭제 실패", error);
@@ -5534,6 +5541,27 @@ const TechTeamPMS = () => {
       </div>
   );
 
+  const saveMonthlyReportDate = async () => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDateInput)) return;
+      const monthKey = reportDateInput.slice(0, 7);
+      setIsReportDateSaving(true);
+      try {
+          const nextDates = { ...monthlyReportDates, [monthKey]: reportDateInput };
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'monthlyReportDates'), {
+              dates: nextDates,
+              updatedAt: new Date().toISOString(),
+              updatedBy: user?.email || '',
+          }, { merge: true });
+          setMonthlyReportDates(nextDates);
+          addLog(`[월간보고일] ${monthKey} = ${reportDateInput} 저장`);
+          setIsReportDateModalOpen(false);
+      } catch (error) {
+          setAlertMessage(`월간보고일 저장 실패\n${error.message}`);
+      } finally {
+          setIsReportDateSaving(false);
+      }
+  };
+
   // auth 상태 확인 중 — 스피너
   if (!isAuthReady) {
       return (
@@ -5644,6 +5672,49 @@ const TechTeamPMS = () => {
 
           {/* 도움말 모달 */}
           {isHelpOpen && <HelpModal onClose={() => setIsHelpOpen(false)} />}
+
+          {/* 월간보고일 설정 */}
+          {isReportDateModalOpen && (
+              <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={() => setIsReportDateModalOpen(false)}>
+                  <div onMouseDown={event => event.stopPropagation()} style={{ width: '100%', maxWidth: 440, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 16, padding: 22, boxShadow: '0 20px 60px rgba(15,23,42,0.28)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                          <span style={{ display: 'flex', padding: 8, borderRadius: 9, background: '#eff6ff', color: '#1e7ac8' }}><Calendar size={19}/></span>
+                          <div>
+                              <div style={{ fontSize: 17, fontWeight: 900, color: '#1e293b' }}>월간보고일 설정</div>
+                              <div style={{ marginTop: 2, fontSize: 11.5, color: '#64748b' }}>선택한 날짜의 연·월 보고일로 저장됩니다.</div>
+                          </div>
+                          <button type="button" onClick={() => setIsReportDateModalOpen(false)} style={{ marginLeft: 'auto', border: 0, background: 'transparent', color: '#64748b', cursor: 'pointer', padding: 5 }}><X size={18}/></button>
+                      </div>
+                      <div style={{ margin: '14px 0', padding: '10px 12px', borderRadius: 9, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12, lineHeight: 1.6, color: '#475569' }}>
+                          산출 기간은 <strong>이전 보고일 당일</strong>부터 <strong>이번 보고일 전날</strong>까지입니다.<br/>
+                          예: 9월 9일 · 10월 14일 등록 → 9월 9일~10월 13일
+                      </div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>보고 날짜</label>
+                      <input type="date" value={reportDateInput} onChange={event => setReportDateInput(event.target.value)}
+                          style={{ width: '100%', height: 42, padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: 9, fontSize: 14, fontWeight: 700, color: '#1e293b', outline: 'none' }}/>
+                      {Object.keys(monthlyReportDates).length > 0 && (
+                          <div style={{ marginTop: 14 }}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', marginBottom: 6 }}>저장된 보고일</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {Object.entries(monthlyReportDates).sort(([a], [b]) => b.localeCompare(a)).map(([month, date]) => (
+                                      <button key={month} type="button" onClick={() => setReportDateInput(date)}
+                                          style={{ padding: '5px 8px', border: reportDateInput === date ? '1px solid #1e7ac8' : '1px solid #dbe3ec', borderRadius: 7, background: reportDateInput === date ? '#eff6ff' : '#fff', color: '#334155', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>
+                                          {month} · {date.slice(5).replace('-', '/')}
+                                      </button>
+                                  ))}
+                              </div>
+                          </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+                          <button type="button" onClick={() => setIsReportDateModalOpen(false)} style={{ height: 38, padding: '0 15px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', color: '#475569', cursor: 'pointer', fontWeight: 800 }}>취소</button>
+                          <button type="button" disabled={isReportDateSaving || !reportDateInput} onClick={saveMonthlyReportDate}
+                              style={{ height: 38, padding: '0 17px', border: 0, borderRadius: 8, background: '#1e7ac8', color: '#fff', cursor: isReportDateSaving ? 'wait' : 'pointer', fontWeight: 800, opacity: isReportDateSaving ? 0.65 : 1 }}>
+                              {isReportDateSaving ? '저장 중…' : '저장'}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          )}
 
           {/* 로그아웃 확인 */}
           {confirmSignOutOpen && (
@@ -5830,7 +5901,7 @@ const TechTeamPMS = () => {
                               { id: '기술1팀', title: '기술1팀', desc: '해외(중국 외) 및 국내 파주외 지역 업무', icon: <Globe size={22} style={{ color: '#0f5a99' }} />, tint: '#dcecfa', hasSubMenu: true },
                               { id: '기술2팀', title: '기술2팀', desc: '파주 및 베트남 업무 (파주 LGD 중심)', icon: <Factory size={22} style={{ color: '#1e7ac8' }} />, tint: '#e3effa', hasSubMenu: true },
                               { id: '기술3팀', title: '기술3팀', desc: '구미 지역 업무 (LGD 외 기타)', icon: <MapPin size={22} style={{ color: '#116329' }} />, tint: '#d9f3e1', hasSubMenu: true },
-                              { id: 'Software팀', title: 'Software팀', desc: '사내 프로그램 개발·유지보수 (UMS·EPM·SMS 등)', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5', hasSubMenu: true }   // 2026-09-16 팀장님: 공사중 해제 — 프로젝트 List 가동 (별도 서식 카드 teamProfiles/sw.js)
+                              { id: 'Software팀', title: 'S/W팀', desc: '사내 프로그램 개발·유지보수 (UMS·EPM·SMS 등)', icon: <TerminalSquare size={22} style={{ color: '#5b21b6' }} />, tint: '#e6e0f5', hasSubMenu: true }   // 2026-09-16 팀장님: 공사중 해제 — 프로젝트 List 가동 (별도 서식 카드 teamProfiles/sw.js)
                           ].map(card => {
                               // eslint-disable-next-line no-unused-vars -- Software팀 공사중 표시 동안 미사용 (협의 완료 시 [열기] 행 복원용)
                               const handleCardClick = () => {
@@ -5973,19 +6044,7 @@ const TechTeamPMS = () => {
                                                   );
                                               })}
 
-                                              {/* 2. 월간 업무 보고 — 잠금 시 '추후 업데이트 예정' 안내 행 (2026-08-19) */}
-                                              {!MONTHLY_REPORT_OPEN ? (
-                                                  <div className="w-full flex items-center gap-3 px-5 py-2 border-t border-[#f0edea] cursor-default select-none opacity-70">
-                                                      <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] shrink-0">
-                                                          <FileText size={14} className="text-[#b8b4ac]" />
-                                                      </div>
-                                                      <div className="flex-1 min-w-0">
-                                                          <div className="text-[#8f8b84] font-semibold text-[13.5px]">월간 업무 보고</div>
-                                                          <div className="text-[#b8b4ac] text-xs mt-px">추후 업데이트 예정입니다</div>
-                                                      </div>
-                                                      <span className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full border border-[#e5e3df] text-[#b8b4ac] bg-[#faf9f7]">준비 중</span>
-                                                  </div>
-                                              ) : (
+                                              {/* 2. 월간 업무 보고 */}
                                               <button onClick={() => {
                                                   setCurrentTeam(card.id);
                                                   setCurrentMode('pms');
@@ -6004,7 +6063,6 @@ const TechTeamPMS = () => {
                                                   </div>
                                                   <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#1e7ac8] group-hover/btn:text-white group-hover/btn:border-[#1e7ac8] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
-                                              )}
 
                                           </div>
                                       )}
@@ -6083,6 +6141,19 @@ const TechTeamPMS = () => {
                               >
                                   작업 백로그
                               </button>
+                              <button
+                                  onClick={() => {
+                                      const saved = Object.values(monthlyReportDates).filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort().at(-1);
+                                      const today = new Date();
+                                      const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                                      setReportDateInput(saved || todayKey);
+                                      setIsReportDateModalOpen(true);
+                                  }}
+                                  className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-[#1e7ac8] hover:border-[#bcd6f0] hover:bg-[#f5f9fd] text-xs font-semibold transition-all rounded-lg"
+                                  title="월간보고 기준 날짜 설정"
+                              >
+                                  <Calendar size={11}/> 월간보고일
+                              </button>
                               {ESTIMATE_HOME_BUTTON_OPEN && <button
                                   onClick={() => setCurrentMode('estimate')}
                                   className="flex items-center gap-1.5 px-3.5 py-1.5 border border-[#e5e3df] bg-white text-[#73716b] hover:text-amber-600 hover:border-amber-300 hover:bg-amber-50 text-xs font-semibold transition-all rounded-lg"
@@ -6112,20 +6183,12 @@ const TechTeamPMS = () => {
                   onExitToPc={() => setCurrentMode(null)}
                   onSignOut={handleSignOut}
               />
-          ) : currentMode === 'pms' && ['기술2팀', '기술3팀'].includes(currentTeam) ? (
+          ) : currentMode === 'pms' && ['기술1팀', '기술2팀', '기술3팀', 'Software팀'].includes(currentTeam) ? (
               <Tech2MonthlyScreen
                   currentTeam={currentTeam}
                   progressRecordsMap={progressRecordsMap}
+                  monthlyReportDates={monthlyReportDates}
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
-                  onGoToList={() => setCurrentMode('projectList')}
-              />
-          ) : currentMode === 'pms' && currentTeam === '기술1팀' ? (
-              /* 기술1팀 월간보고 (2026-08-13 팀장님 컨셉): List=뼈대·금월=실시간·전월=[월간 마감] 스냅샷.
-                 기술2·3팀은 공통 List 연동 월간보고 화면을 사용한다. */
-              <Tech1MonthlyScreen
-                  currentTeam={currentTeam}
-                  user={user}
-                  onBack={() => setCurrentMode(null)}
                   onGoToList={() => setCurrentMode('projectList')}
               />
           ) : currentMode === 'backlog' ? (
@@ -6140,7 +6203,7 @@ const TechTeamPMS = () => {
                   onProgressOpened={() => setOpenProgressPid(null)}
                   onSwitchTeam={(t) => setCurrentTeam(t)}   /* 헤더 팀 탭 — projectList 화면 유지한 채 팀만 전환 (2026-08-11) */
                   onBack={() => { setCurrentTeam(null); setCurrentMode(null); }}
-                  onGoToPms={(['기술2팀', '기술3팀'].includes(currentTeam) || MONTHLY_REPORT_OPEN) ? (execNo) => {
+                  onGoToPms={['기술1팀', '기술2팀', '기술3팀', 'Software팀'].includes(currentTeam) ? (execNo) => {
                       setCurrentMode('pms');
                       if (execNo) setHighlightExecNoInReport(String(execNo));
                       setHighlightExecNoInList(null);
@@ -6178,7 +6241,7 @@ const TechTeamPMS = () => {
                           </div>
                           <div>
                               <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                                  {currentTeam} 프로젝트 리스트
+                                  {displayTeamName(currentTeam)} 프로젝트 리스트
                               </h1>
                               <p className="text-slate-400 text-xs mt-1">자유 양식의 엑셀 파일을 업로드하여 팀의 전체 목록을 관리합니다.</p>
                           </div>
@@ -6405,7 +6468,7 @@ const TechTeamPMS = () => {
                               </div>
                               <div className="flex items-center gap-2 min-w-0">
                                   <h1 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1.5 whitespace-nowrap">
-                                      {currentTeam} 업무 현황
+                                      {displayTeamName(currentTeam)} 업무 현황
                                   </h1>
                                   <div className="flex items-center px-2 py-1 rounded bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer shrink-0">
                                       <Calendar size={11} className="text-[#1e7ac8] mr-1" />
@@ -6915,7 +6978,7 @@ const TechTeamPMS = () => {
                   <div className="bg-white border border-gray-200 rounded-3xl max-w-lg w-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
                       <div className="p-6 border-b border-gray-200 bg-white flex items-center gap-3 shrink-0">
                           <FileSpreadsheet className="text-emerald-400" size={24} />
-                          <h3 className="text-xl font-bold text-gray-800">[{currentTeam}] 엑셀 다운로드 포맷 설정</h3>
+                          <h3 className="text-xl font-bold text-gray-800">[{displayTeamName(currentTeam)}] 엑셀 다운로드 포맷 설정</h3>
                       </div>
                       
                       <div className="p-6 space-y-4 text-left flex-1 overflow-y-auto custom-scrollbar">
@@ -7006,7 +7069,7 @@ const TechTeamPMS = () => {
                       <p className="text-gray-800 text-xl font-bold mb-2">DB 확정 저장</p>
                       <p className="text-gray-500 text-sm mb-6 leading-relaxed">
                           현재 메인 화면에 임시 적용된 <strong className="text-amber-400">{localUnsavedProjects.length}건</strong>의 데이터를 클라우드 DB에 완전히 저장합니다.<br/>
-                          기존의 <strong>{currentTeam}</strong> 데이터를 모두 지우고 덮어쓰시겠습니까, 아니면 기존 데이터 아래에 추가하시겠습니까?
+                          기존의 <strong>{displayTeamName(currentTeam)}</strong> 데이터를 모두 지우고 덮어쓰시겠습니까, 아니면 기존 데이터 아래에 추가하시겠습니까?
                       </p>
                       <div className="flex flex-col gap-3">
                           <button onClick={() => executeSaveUnsaved(true)} className="w-full px-4 py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition-all shadow-md flex items-center justify-center gap-2">
@@ -7064,7 +7127,7 @@ const TechTeamPMS = () => {
                       {pidMigModal.stage === 'ready' && (
                           <>
                               <div className="text-left text-sm text-gray-600 bg-gray-100 rounded-xl p-4 mb-4 leading-7">
-                                  <div>월간보고({currentTeam}): 전체 {pidMigModal.projTeamTotal}건 중 <b className="text-violet-300">{pidMigModal.projTargets.length}건</b> 발급 대상</div>
+                                  <div>월간보고({displayTeamName(currentTeam)}): 전체 {pidMigModal.projTeamTotal}건 중 <b className="text-violet-300">{pidMigModal.projTargets.length}건</b> 발급 대상</div>
                                   <div>프로젝트 List: 전체 {pidMigModal.listTotal}건 중 <b className="text-violet-300">{pidMigModal.listTargets.length}건</b> 발급 대상</div>
                                   <div className="text-gray-400 text-xs mt-2">이미 ID가 있는 항목은 건드리지 않습니다. 내용·실적 데이터는 변경되지 않습니다.</div>
                               </div>
@@ -7160,7 +7223,7 @@ const TechTeamPMS = () => {
               <div className="fixed inset-0 z-[200] flex justify-center items-center p-4 bg-gray-50/80 animate-in">
                   <div className="bg-white border border-rose-500/30 p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                           <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto mb-4 animate-pulse" />
-                          <p className="text-gray-800 text-lg font-bold mb-2">{currentTeam} 전체 데이터 삭제</p>
+                          <p className="text-gray-800 text-lg font-bold mb-2">{displayTeamName(currentTeam)} 전체 데이터 삭제</p>
                           <p className="text-rose-400 text-sm mb-2 font-bold">경고: 이 작업은 절대 되돌릴 수 없습니다!</p>
                           <p className="text-gray-500 text-xs mb-8">현재 팀의 모든 프로젝트와 실적 데이터가 영구적으로 삭제됩니다. 계속하시겠습니까?</p>
                           <div className="flex gap-3 justify-center">
@@ -7726,7 +7789,7 @@ const TechTeamPMS = () => {
                           <div style={{display:'flex',alignItems:'center',gap:8}}>
                               <BarChart3 size={16} color="var(--brand)"/>
                               <span style={{fontWeight:800,fontSize:14,color:'var(--txt-strong)'}}>팀 실적 그래프</span>
-                              <span style={{fontSize:12,color:'#444',fontWeight:600,marginLeft:4}}>{currentTeam}</span>
+                              <span style={{fontSize:12,color:'#444',fontWeight:600,marginLeft:4}}>{displayTeamName(currentTeam)}</span>
                               <span style={{fontSize:11,color:'#888',fontWeight:500}}>— 최근 12개월 월별 프로젝트 현황 (건수)</span>
                           </div>
                           <div style={{display:'flex',alignItems:'center',gap:10}}>

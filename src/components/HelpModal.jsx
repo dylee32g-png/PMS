@@ -100,7 +100,7 @@ const HELP_DATA = [
                                 { icon: <Database size={15} style={{color:'#06b6d4'}}/>,   label: '실시간 동기화', desc: 'Firebase Firestore로 여러 PC에서 동일 데이터 공유' },
                                 { icon: <LayoutGrid size={15} style={{color:'#6366f1'}}/>, label: '통합 관리',    desc: '월간보고·주간보고·List 관리를 하나의 앱에서' },
                                 { icon: <FileText size={15} style={{color:'#10b981'}}/>,   label: '엑셀 연동',    desc: '업로드·다운로드·보고서 자동 생성 지원' },
-                                { icon: <Users size={15} style={{color:'#8b5cf6'}}/>,       label: '팀별 분리',    desc: '기술1·2·3팀, Software팀 데이터 독립 관리' },
+                                { icon: <Users size={15} style={{color:'#8b5cf6'}}/>,       label: '팀별 분리',    desc: '기술1·2·3팀, S/W팀 데이터 독립 관리' },
                             ].map(item => (
                                 <div key={item.label} style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,padding:12,display:'flex',gap:10,alignItems:'flex-start'}}>
                                     <div style={{marginTop:1}}>{item.icon}</div>
@@ -129,7 +129,7 @@ const HELP_DATA = [
                                 { team: '기술1팀',    icon: <Wrench size={14} style={{color:'#6366f1'}}/>,        desc: '카드를 클릭하면 월간 업무 보고 화면으로 바로 이동합니다.' },
                                 { team: '기술2팀',    icon: <Cpu size={14} style={{color:'#06b6d4'}}/>,           desc: '▼ 메뉴 버튼을 클릭하면 「월간 업무 보고」와 「프로젝트 List 관리」 두 가지 서브메뉴가 펼쳐집니다.' },
                                 { team: '기술3팀',    icon: <Monitor size={14} style={{color:'#10b981'}}/>,       desc: '카드를 클릭하면 월간 업무 보고 화면으로 바로 이동합니다.' },
-                                { team: 'Software팀', icon: <TerminalSquare size={14} style={{color:'#8b5cf6'}}/>,desc: '카드를 클릭하면 월간 업무 보고 화면으로 바로 이동합니다.' },
+                                { team: 'S/W팀', icon: <TerminalSquare size={14} style={{color:'#8b5cf6'}}/>,desc: '카드를 클릭하면 월간 업무 보고 화면으로 바로 이동합니다.' },
                             ].map(item => (
                                 <div key={item.team} style={{display:'flex',alignItems:'flex-start',gap:10,background:'#f8fafc',borderRadius:10,padding:'10px 14px',border:'1px solid #e2e8f0'}}>
                                     <div style={{marginTop:2}}>{item.icon}</div>

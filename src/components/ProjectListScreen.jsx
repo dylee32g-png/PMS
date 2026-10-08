@@ -21,6 +21,7 @@ import { extractYear, metaDocRef, rowsColRef, rowDocRef, idbSave, idbLoad, idbDe
 import { orderListRows, placeDraftRows, planReanchorOnDelete, planMoveRows } from './projectListData';   // 행 순서 · 중간 삽입 (2026-10-01 팀장님: 복사한 행을 원하는 프로젝트 위/아래에)
 import { getTeamProfile, LIST_TEAMS } from '../teamProfiles';   // 팀 프로파일 카드 + 팀 탭 목록 (2026-08-11)
 import { t1DateToYmd, t1WeekKeyOfYmd, t1CumDerive, t1PlanDoneMove, t1LatestPct } from './tech1Progress';   // 기술1팀 진행 수치 누계 계산 (2026-09-29)
+import { displayTeamName } from '../teamNames';
 
 const VERSION = 'v6.8.7';
 
@@ -588,7 +589,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         setFbRows(memR || []); setFbLoaded(!!memR);
         setFbHeaders(memM?.headers || []); setFbColGroups(memM?.colGroups || []); setFbByYear(memM?.byYear || {}); setFbColMids(memM?.colMids || {});
         setFbMetaLoaded(!!memM);
-        addLog(`[Firebase] ${currentTeam} 구독 시작${memR ? ` (캐시 ${memR.length}행 선표시)` : ''}`);
+        addLog(`[Firebase] ${displayTeamName(currentTeam)} 구독 시작${memR ? ` (캐시 ${memR.length}행 선표시)` : ''}`);
 
         const unsubMeta = onSnapshot(metaDocRef(currentTeam), snap => {
             if (!_gotMeta) { _gotMeta = true; addLog(`[속도] 헤더 도착 +${Date.now() - _t0}ms (${snap.metadata.fromCache ? '로컬 캐시' : '서버'})`); }
@@ -1352,10 +1353,10 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         R.info[team + '|' + ym] = { ym, savedAt: new Date().toISOString(), auto: true, count: snap.count };
                         logAudit(team, { who: user?.email || '', action: AUDIT_ACTIONS.EDIT, projectName: '(월간 마감)',
                             note: `월간 마감 자동 저장: ${ym} · ${snap.count}건 (매월 1일 지난달 자동)` });
-                        addLog(`[자동 월간 마감] ${team} ${ym} ${snap.count}건`);
+                        addLog(`[자동 월간 마감] ${displayTeamName(team)} ${ym} ${snap.count}건`);
                         if (team === currentTeam) showExtToast(`${Number(ym.slice(5))}월 월간 마감 자동 저장 — ${snap.count}건`);
                     }
-                } catch (e) { R.tried[team] = Date.now(); addLog(`[자동 월간 마감] ${team} 건너뜀 (10분 뒤 다시): ${e.message}`); }
+                } catch (e) { R.tried[team] = Date.now(); addLog(`[자동 월간 마감] ${displayTeamName(team)} 건너뜀 (10분 뒤 다시): ${e.message}`); }
             }
         } finally { R.busy = false; setMcTick(x => x + 1); }
     };
@@ -2514,7 +2515,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             for (const team of LIST_TEAMS) {
                 const payload = await buildFullBackupFor(team);
                 await downloadFullBackup(payload, 'PMS전체백업', team);
-                lines.push(`· ${team}: 행 ${payload.rows.length}건 · 장부 ${Object.keys(payload.progressRecords).length}건 · 백로그 ${Object.keys(payload.auditLog).length}건 · 마감본 ${Object.keys(payload.snapshots).length}건 · 월간보고 ${Object.keys(payload.monthlyReport).length}건 · 팀설정 ${payload.teamSettings ? '포함' : '없음'}`);
+                lines.push(`· ${displayTeamName(team)}: 행 ${payload.rows.length}건 · 장부 ${Object.keys(payload.progressRecords).length}건 · 백로그 ${Object.keys(payload.auditLog).length}건 · 마감본 ${Object.keys(payload.snapshots).length}건 · 월간보고 ${Object.keys(payload.monthlyReport).length}건 · 팀설정 ${payload.teamSettings ? '포함' : '없음'}`);
             }
             setAlertMsg(`전체 백업 완료 — ${LIST_TEAMS.length}팀 파일 ${LIST_TEAMS.length}개 다운로드\n\n${lines.join('\n')}\n\n★ 내려받은 파일을 NAS 백업 폴더에 옮겨 두세요 (주 1회 권장)\n(크롬이 '여러 파일 다운로드 허용'을 물으면 허용)`);
         } catch (err) { setAlertMsg(`전체 백업 오류: ${err.message}`); }
@@ -2530,7 +2531,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         try {
             const bk = JSON.parse(await file.text());
             if (bk.format !== 'PMS-FULL-1') { setAlertMsg('전체 백업 파일이 아닙니다.\n[전체 백업]으로 만든 PMS전체백업_*.json만 복원할 수 있습니다.\n(옛 ProjectList백업 파일은 행·표구조만 담겨 있어 이 기능 대상이 아닙니다)'); return; }
-            if (bk.team !== currentTeam) { setAlertMsg(`팀이 다릅니다.\n백업 파일 = ${bk.team} / 현재 화면 = ${currentTeam}`); return; }
+            if (bk.team !== currentTeam) { setAlertMsg(`팀이 다릅니다.\n백업 파일 = ${displayTeamName(bk.team)} / 현재 화면 = ${displayTeamName(currentTeam)}`); return; }
             const bkRows = Array.isArray(bk.rows) ? bk.rows : [];
             const bkLedger = bk.progressRecords || {}, bkSnaps = bk.snapshots || {}, bkMonthly = bk.monthlyReport || {};
             if (!window.confirm(`[백업 복원] ${bk.team}\n백업 시점: ${String(bk.savedAt).slice(0, 16).replace('T', ' ')}\n\n지금 클라우드 데이터를 이 시점으로 되돌립니다:\n· 프로젝트 행 ${fbRows.length}건 → ${bkRows.length}건 (교체)\n· 진행실적 장부 → ${Object.keys(bkLedger).length}건 (교체)\n· 표 구조·마감본 ${Object.keys(bkSnaps).length}건·월간보고 ${Object.keys(bkMonthly).length}건·팀설정 → 백업 값으로\n· 백로그(감사 기록)는 지우지 않고 그대로 둡니다\n\n복원 직전, 현재 상태의 전체 백업이 자동 다운로드됩니다(안전망).\n진행할까요?`)) return;
@@ -7952,7 +7953,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                         <div className="relative shrink-0">
                             <h1 onClick={() => setTeamDropOpen(v => !v)} title="팀 전환 — 클릭"
                                 className="text-base font-bold text-gray-800 tracking-tight flex items-center gap-1 whitespace-nowrap cursor-pointer select-none">
-                                {currentTeam} <ChevronDown size={13} className="text-slate-400"/> 프로젝트 List
+                                {displayTeamName(currentTeam)} <ChevronDown size={13} className="text-slate-400"/> 프로젝트 List
                             </h1>
                             {teamDropOpen && (<>
                                 <div className="fixed inset-0 z-40" onClick={() => setTeamDropOpen(false)}/>
@@ -7960,7 +7961,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     {LIST_TEAMS.map(t => (
                                         <button key={t} onClick={() => { setTeamDropOpen(false); switchTeam(t); }}
                                             className={`w-full text-left px-3.5 py-1.5 text-[12px] font-bold hover:bg-blue-50 transition-colors ${t === currentTeam ? 'text-[#1e7ac8]' : 'text-[#37352f]'}`}>
-                                            {t}{t === currentTeam ? ' ✓' : ''}
+                                            {displayTeamName(t)}{t === currentTeam ? ' ✓' : ''}
                                         </button>
                                     ))}
                                 </div>
@@ -8301,7 +8302,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                     </>)}
                                     {bkStatus && bkStatus.at && (
                                         <div className="pl-8 pr-4 pb-1.5 text-[10px] leading-relaxed" style={{ color: bkStatus.ok === false ? '#dc2626' : '#64748b' }}>
-                                            마지막 자동 백업({currentTeam}): {rdTimeText(bkStatus.at)} {bkStatus.ok === false ? `✗ ${bkStatus.msg || ''}` : `✓ 행 ${bkStatus.rows}건 · 장부 ${bkStatus.ledger}건 → '${bkStatus.folder || ''}'`}
+                                            마지막 자동 백업({displayTeamName(currentTeam)}): {rdTimeText(bkStatus.at)} {bkStatus.ok === false ? `✗ ${bkStatus.msg || ''}` : `✓ 행 ${bkStatus.rows}건 · 장부 ${bkStatus.ledger}건 → '${bkStatus.folder || ''}'`}
                                         </div>
                                     )}
                                     <button onClick={() => { setSettingsOpen(false); if (restoreFileRef.current) { restoreFileRef.current.value = ''; restoreFileRef.current.click(); } }}
@@ -8333,8 +8334,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                                             const _next = _has ? extMainTeams.filter(t => t !== currentTeam) : [...extMainTeams, currentTeam];
                                             setExtMainTeams(_next); saveMainPcTeams(_next); setSettingsOpen(false);
                                             extLastRunRef.current = Date.now();
-                                            if (!_has) { showExtToast(`이 PC가 '${currentTeam}' 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.` + (_next.length > 1 ? `\n지켜볼 팀 ${_next.length}개 (${_next.join(', ')}) — 15분마다 화면을 번갈아 엽니다.` : '') + `\n(List 화면을 켜둔 상태여야 합니다)`); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
-                                            else showExtToast(`'${currentTeam}' 메인 PC 지정을 해제했습니다.` + (_next.length ? `\n남은 팀: ${_next.join(', ')}` : '\n자동 반영이 멈춥니다.'));
+                                            if (!_has) { showExtToast(`이 PC가 '${displayTeamName(currentTeam)}' 메인 PC로 지정되었습니다.\n30분마다 NAS를 확인해 자동 반영합니다.` + (_next.length > 1 ? `\n지켜볼 팀 ${_next.length}개 (${_next.map(displayTeamName).join(', ')}) — 15분마다 화면을 번갈아 엽니다.` : '') + `\n(List 화면을 켜둔 상태여야 합니다)`); setTimeout(() => { try { extAutoFnRef.current && extAutoFnRef.current(); } catch (e) {} }, 800); }
+                                            else showExtToast(`'${displayTeamName(currentTeam)}' 메인 PC 지정을 해제했습니다.` + (_next.length ? `\n남은 팀: ${_next.map(displayTeamName).join(', ')}` : '\n자동 반영이 멈춥니다.'));
                                         }}
                                         className={`w-full text-left px-4 py-2 hover:bg-blue-50 text-xs font-bold flex items-center gap-2 transition-colors ${extMainPc ? 'text-emerald-700' : 'text-[#333]'}`}>
                                         <HardDrive size={14} className={extMainPc ? 'text-emerald-600' : 'text-[#999]'}/>
