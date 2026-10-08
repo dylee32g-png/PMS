@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, Download, Eye, EyeOff, FileText, Home, ListChecks, Search } from 'lucide-react';
-import { onSnapshot } from 'firebase/firestore';
+import { ChevronDown, ChevronLeft, Download, Eye, EyeOff, FileText, Home, ListChecks, NotebookPen, Save, Search, X } from 'lucide-react';
+import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { orderListRows, rowsColRef, snapshotDocRef } from './projectListData';
 import { subscribeAuditLog } from '../auditLog';
 import { loadXLSX } from '../utils';
 import { displayTeamName } from '../teamNames';
+import { appId, db } from '../firebase';
 
 const norm = (value) => String(value ?? '').replace(/\s/g, '').toLowerCase();
 const numberOf = (value) => {
@@ -81,6 +82,8 @@ const COLUMN_WIDTHS_KEY = 'pms_tech2_monthly_column_widths';
 const FONT_SIZE_KEY = 'pms_tech2_monthly_font_size';
 const HIDDEN_PROJECTS_KEY = 'pms_monthly_hidden_projects_v1';
 const FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 16, 18, 20, 22, 24];
+const MEMO_FONT_SIZE_OPTIONS = [12, 14, 16, 18, 20, 22, 24, 28];
+const MEMO_COLOR_OPTIONS = ['#37352f', '#0f5a99', '#047857', '#b45309', '#dc2626', '#7c3aed'];
 const projectRowKey = (row) => String(row?._pid || row?.pid || row?._id || row?.id || row?.['수행번호'] || row?.['실행번호'] || row?.['Project'] || row?.['프로젝트명'] || row?.['공사명'] || '');
 const loadColumnWidths = () => {
     try {
@@ -141,7 +144,20 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
     });
     const [hiddenMenuOpen, setHiddenMenuOpen] = useState(false);
     const [rowContextMenu, setRowContextMenu] = useState(null);
+    const [memoOpen, setMemoOpen] = useState(false);
+    const [memoNotes, setMemoNotes] = useState({});
+    const [memoPeriodDate, setMemoPeriodDate] = useState('');
+    const [memoText, setMemoText] = useState('');
+    const [memoFontSize, setMemoFontSize] = useState(14);
+    const [memoColor, setMemoColor] = useState('#37352f');
+    const [memoBaseColor, setMemoBaseColor] = useState('#37352f');
+    const [memoDirty, setMemoDirty] = useState(false);
+    const [memoSaving, setMemoSaving] = useState(false);
+    const [memoMessage, setMemoMessage] = useState('');
+    const [memoPosition, setMemoPosition] = useState({ x: null, y: 70 });
     const resizeCleanupRef = useRef(() => {});
+    const memoEditorRef = useRef(null);
+    const memoSelectionRef = useRef(null);
 
     useEffect(() => () => resizeCleanupRef.current(), []);
     useEffect(() => {
@@ -234,6 +250,42 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
         }, () => setLoaded(true));
         return unsubscribe;
     }, [currentTeam]);
+
+    useEffect(() => {
+        setMemoNotes({});
+        const notesRef = collection(db, 'artifacts', appId, 'public', 'data', `monthlyReportNotes_${currentTeam}`);
+        return onSnapshot(notesRef, snapshot => {
+            const next = {};
+            snapshot.docs.forEach(item => { next[item.id] = { id: item.id, ...item.data() }; });
+            setMemoNotes(next);
+        }, () => setMemoNotes({}));
+    }, [currentTeam]);
+
+    useEffect(() => {
+        if (!memoOpen || memoDirty || !memoPeriodDate) return;
+        const saved = memoNotes[memoPeriodDate] || {};
+        setMemoText(String(saved.text || ''));
+        setMemoFontSize(MEMO_FONT_SIZE_OPTIONS.includes(Number(saved.fontSize)) ? Number(saved.fontSize) : 14);
+        setMemoColor(String(saved.color || '#37352f'));
+        setMemoBaseColor(String(saved.color || '#37352f'));
+        if (memoEditorRef.current) {
+            if (saved.html) memoEditorRef.current.innerHTML = String(saved.html);
+            else memoEditorRef.current.textContent = String(saved.text || '');
+        }
+    }, [memoDirty, memoNotes, memoOpen, memoPeriodDate]);
+
+    useEffect(() => {
+        if (!memoOpen) return undefined;
+        const trackSelection = () => {
+            const selection = window.getSelection?.();
+            const editor = memoEditorRef.current;
+            if (!selection || !editor || selection.rangeCount === 0) return;
+            const range = selection.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) memoSelectionRef.current = range.cloneRange();
+        };
+        document.addEventListener('selectionchange', trackSelection);
+        return () => document.removeEventListener('selectionchange', trackSelection);
+    }, [memoOpen]);
 
     useEffect(() => {
         setPreviousMonthSnapshot(null);
@@ -494,6 +546,146 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
         return <span style={{ ...style, color: selected ? '#0f5a99' : style.color, display: 'inline-block', borderWidth: 1, borderStyle: 'solid', borderRadius: 999, padding: '2px 8px', fontSize: selected ? Math.max(16, tableFontSize) : Math.max(10, tableFontSize - 1), fontWeight: selected ? 900 : 800 }}>{text}</span>;
     };
 
+    const memoPeriodOptions = (() => {
+        const options = new Map(reportPeriodOptions.map(option => [option.endDate, option]));
+        Object.values(memoNotes).forEach(note => {
+            if (!note?.reportDate || options.has(note.reportDate)) return;
+            options.set(note.reportDate, {
+                endDate: note.reportDate,
+                reportDate: note.reportDate,
+                startDate: note.startDate || '',
+                periodEndDate: note.periodEndDate || moveDate(note.reportDate, -1),
+            });
+        });
+        return [...options.values()].sort((a, b) => String(b.endDate).localeCompare(String(a.endDate)));
+    })();
+    const setMemoDraftForPeriod = (periodDate) => {
+        const saved = memoNotes[periodDate] || {};
+        setMemoPeriodDate(periodDate);
+        setMemoText(String(saved.text || ''));
+        setMemoFontSize(MEMO_FONT_SIZE_OPTIONS.includes(Number(saved.fontSize)) ? Number(saved.fontSize) : 14);
+        setMemoColor(String(saved.color || '#37352f'));
+        setMemoBaseColor(String(saved.color || '#37352f'));
+        if (memoEditorRef.current) {
+            if (saved.html) memoEditorRef.current.innerHTML = String(saved.html);
+            else memoEditorRef.current.textContent = String(saved.text || '');
+        }
+        memoSelectionRef.current = null;
+        setMemoDirty(false);
+        setMemoMessage(saved.updatedAt ? `저장됨 · ${new Date(saved.updatedAt).toLocaleString('ko-KR')}` : '새 메모');
+    };
+    const openMemo = () => {
+        const target = currentReportDate || memoPeriodOptions[0]?.endDate || '';
+        if (target) setMemoDraftForPeriod(target);
+        setMemoOpen(true);
+    };
+    const saveMemo = async () => {
+        if (!memoPeriodDate || memoSaving) return;
+        const option = memoPeriodOptions.find(item => item.endDate === memoPeriodDate) || {};
+        const previous = memoNotes[memoPeriodDate] || {};
+        const savedAt = new Date().toISOString();
+        setMemoSaving(true);
+        setMemoMessage('저장 중...');
+        try {
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', `monthlyReportNotes_${currentTeam}`, memoPeriodDate), {
+                team: currentTeam,
+                reportDate: memoPeriodDate,
+                startDate: option.startDate || previous.startDate || '',
+                periodEndDate: option.periodEndDate || previous.periodEndDate || moveDate(memoPeriodDate, -1),
+                text: (memoEditorRef.current?.innerText ?? memoText).replace(/\u200B/g, ''),
+                html: (memoEditorRef.current?.innerHTML || '').replace(/\u200B/g, ''),
+                fontSize: memoFontSize,
+                color: memoBaseColor,
+                createdAt: previous.createdAt || savedAt,
+                updatedAt: savedAt,
+            }, { merge: true });
+            setMemoDirty(false);
+            setMemoMessage(`저장 완료 · ${new Date(savedAt).toLocaleString('ko-KR')}`);
+        } catch (error) {
+            setMemoMessage('저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        } finally {
+            setMemoSaving(false);
+        }
+    };
+    const rememberMemoSelection = () => {
+        const selection = window.getSelection?.();
+        const editor = memoEditorRef.current;
+        if (!selection || !editor || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        if (editor.contains(range.commonAncestorContainer)) memoSelectionRef.current = range.cloneRange();
+    };
+    const applyMemoColor = (color) => {
+        const editor = memoEditorRef.current;
+        if (!editor || !memoPeriodDate) return;
+        setMemoColor(color);
+        let range = memoSelectionRef.current?.cloneRange();
+        editor.focus();
+        const selection = window.getSelection?.();
+        if (!selection) return;
+        if (!range || !editor.contains(range.commonAncestorContainer)) {
+            range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+        }
+        selection.removeAllRanges();
+        selection.addRange(range);
+        if (range.collapsed) {
+            const colorSpan = document.createElement('span');
+            colorSpan.style.setProperty('color', color, 'important');
+            colorSpan.setAttribute('data-memo-color', color);
+            const marker = document.createTextNode('\u200B');
+            colorSpan.appendChild(marker);
+            range.insertNode(colorSpan);
+            range.setStart(marker, marker.nodeValue.length);
+            range.collapse(true);
+        } else {
+            const colorSpan = document.createElement('span');
+            colorSpan.style.setProperty('color', color, 'important');
+            colorSpan.setAttribute('data-memo-color', color);
+            colorSpan.appendChild(range.extractContents());
+            colorSpan.querySelectorAll('*').forEach(element => {
+                element.removeAttribute('color');
+                element.style?.setProperty('color', color, 'important');
+            });
+            range.insertNode(colorSpan);
+            range.selectNodeContents(colorSpan);
+        }
+        selection.removeAllRanges();
+        selection.addRange(range);
+        memoSelectionRef.current = range.cloneRange();
+        rememberMemoSelection();
+        setMemoText((editor.innerText || '').replace(/\u200B/g, ''));
+        setMemoDirty(true);
+        setMemoMessage('저장하지 않은 변경사항');
+    };
+    const handleMemoInput = () => {
+        setMemoText((memoEditorRef.current?.innerText || '').replace(/\u200B/g, ''));
+        rememberMemoSelection();
+        setMemoDirty(true);
+        setMemoMessage('저장하지 않은 변경사항');
+    };
+    const handleMemoPaste = (event) => {
+        event.preventDefault();
+        document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));
+    };
+    const startMemoDrag = (event) => {
+        if (event.button !== 0 || event.target.closest('button, select, input')) return;
+        const panel = event.currentTarget.parentElement;
+        const rect = panel.getBoundingClientRect();
+        const offsetX = event.clientX - rect.left;
+        const offsetY = event.clientY - rect.top;
+        const onMove = moveEvent => setMemoPosition({
+            x: Math.max(8, Math.min(window.innerWidth - rect.width - 8, moveEvent.clientX - offsetX)),
+            y: Math.max(8, Math.min(window.innerHeight - rect.height - 8, moveEvent.clientY - offsetY)),
+        });
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    };
+
     const btnStyle = { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, background: '#fff', border: '1px solid #d8d4cf', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', color: '#37352f' };
     const th = { position: 'relative', padding: '7px 8px', fontSize: Math.max(10, tableFontSize - 1), fontWeight: 800, color: '#4b6076', background: '#f3f6fa', borderRight: '1px solid #dce3eb', borderBottom: '1px solid #cfd8e3', textAlign: 'center', whiteSpace: 'nowrap' };
     const statusOptions = isSoftware ? ['금월완료', '수정중', '개발중'] : ['금월완료', '진행중', '추진중'];
@@ -564,7 +756,7 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ position: 'relative' }} onClick={event => event.stopPropagation()}>
                         <button type="button" onClick={() => { setHiddenMenuOpen(open => !open); setRowContextMenu(null); }}
-                            style={{ ...btnStyle, height: 32, color: hiddenProjectRows.length ? '#b45309' : '#64748b', borderColor: hiddenProjectRows.length ? '#f5c980' : '#d8d4cf' }}
+                            style={{ ...btnStyle, height: 32, padding: '7px 9px', fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0, color: hiddenProjectRows.length ? '#b45309' : '#64748b', borderColor: hiddenProjectRows.length ? '#f5c980' : '#d8d4cf' }}
                             title="숨긴 프로젝트 다시 표시">
                             <EyeOff size={14}/> 숨기기{hiddenProjectRows.length ? ` ${hiddenProjectRows.length}` : ''}<ChevronDown size={12}/>
                         </button>
@@ -591,6 +783,11 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
                             </div>
                         )}
                     </div>
+                    <button type="button" onClick={openMemo}
+                        style={{ ...btnStyle, height: 32, padding: '7px 9px', fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0, color: memoOpen ? '#fff' : '#7c3aed', background: memoOpen ? '#7c3aed' : '#fff', borderColor: memoOpen ? '#7c3aed' : '#c4b5fd' }}
+                        title="기간별 월간보고 메모 열기">
+                        <NotebookPen size={14}/> 메모장
+                    </button>
                     <div style={{ position: 'relative' }}>
                         <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#8f8b84' }}/>
                         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="전체 검색..." style={{ width: 180, height: 32, padding: '0 10px 0 29px', border: '1px solid #d8d4cf', borderRadius: 8, background: '#fff', color: '#37352f', outline: 'none', fontSize: 12 }}/>
@@ -669,6 +866,75 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
                         <EyeOff size={14}/> 숨기기
                     </button>
                 </div>
+            )}
+
+            {memoOpen && (
+                <section aria-label="월간보고 메모장"
+                    style={{ position: 'fixed', top: memoPosition.y, left: memoPosition.x === null ? undefined : memoPosition.x, right: memoPosition.x === null ? 24 : undefined, zIndex: 110, width: 430, height: 510, display: 'flex', flexDirection: 'column', border: '1px solid #a9b8ca', borderRadius: 12, background: '#fff', boxShadow: '0 18px 50px rgba(15,23,42,0.25)', overflow: 'hidden' }}>
+                    <div onMouseDown={startMemoDrag}
+                        style={{ height: 46, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px 0 14px', background: '#f4f1ff', borderBottom: '1px solid #ddd6fe', cursor: 'move', userSelect: 'none' }}>
+                        <NotebookPen size={17} style={{ color: '#7c3aed' }}/>
+                        <strong style={{ color: '#4c1d95', fontSize: 14 }}>월간보고 메모장</strong>
+                        <span style={{ color: '#8b80a8', fontSize: 10.5, fontWeight: 700 }}>표를 보면서 작성할 수 있습니다</span>
+                        <button type="button" onClick={() => setMemoOpen(false)} title="메모장 닫기"
+                            style={{ marginLeft: 'auto', width: 28, height: 28, display: 'grid', placeItems: 'center', border: 0, borderRadius: 7, background: 'transparent', color: '#64748b', cursor: 'pointer' }}>
+                            <X size={17}/>
+                        </button>
+                    </div>
+                    <div style={{ padding: '11px 13px 9px', display: 'grid', gap: 9, borderBottom: '1px solid #edf0f4', background: '#fbfcfe' }}>
+                        <label style={{ display: 'grid', gap: 4, color: '#64748b', fontSize: 10.5, fontWeight: 800 }}>
+                            메모 기간
+                            <select value={memoPeriodDate} disabled={memoPeriodOptions.length === 0}
+                                onChange={event => setMemoDraftForPeriod(event.target.value)}
+                                style={{ width: '100%', height: 34, padding: '0 9px', border: '1px solid #cbd5e1', borderRadius: 7, background: '#fff', color: '#334155', fontSize: 13, fontWeight: 800, outline: 'none' }}>
+                                {memoPeriodOptions.length === 0 && <option value="">등록된 월간보고 기간이 없습니다</option>}
+                                {memoPeriodOptions.map(option => (
+                                    <option key={option.endDate} value={option.endDate}>
+                                        {displayDateKey(option.startDate)} ~ {displayDateKey(option.periodEndDate)}{memoNotes[option.endDate]?.text ? ' · 메모 있음' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b', fontSize: 10.5, fontWeight: 800 }}>
+                                글자 크기
+                                <select value={memoFontSize} onChange={event => { setMemoFontSize(Number(event.target.value)); setMemoDirty(true); setMemoMessage('저장하지 않은 변경사항'); }}
+                                    style={{ height: 30, padding: '0 7px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', color: '#334155', fontSize: 12, fontWeight: 800 }}>
+                                    {MEMO_FONT_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size}px</option>)}
+                                </select>
+                            </label>
+                            <span style={{ color: '#64748b', fontSize: 10.5, fontWeight: 800 }}>글자 색</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                {MEMO_COLOR_OPTIONS.map(color => (
+                                    <button key={color} type="button" aria-label={`글자 색 ${color}`} onMouseDown={event => { event.preventDefault(); applyMemoColor(color); }}
+                                        style={{ width: 19, height: 19, padding: 0, borderRadius: '50%', border: memoColor === color ? '3px solid #94a3b8' : '1px solid #cbd5e1', background: color, cursor: 'pointer' }}/>
+                                ))}
+                                <input type="color" value={memoColor} title="다른 색 선택" onMouseDown={rememberMemoSelection} onChange={event => applyMemoColor(event.target.value)}
+                                    style={{ width: 27, height: 25, padding: 1, border: '1px solid #cbd5e1', borderRadius: 5, background: '#fff', cursor: 'pointer' }}/>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#fffef9' }}>
+                        {!memoText && (
+                            <span style={{ position: 'absolute', top: 15, left: 15, color: '#a8a29e', fontSize: memoFontSize, pointerEvents: 'none' }}>이 기간의 월간보고 메모를 입력하세요...</span>
+                        )}
+                        <div ref={memoEditorRef} contentEditable={Boolean(memoPeriodDate)} suppressContentEditableWarning
+                            role="textbox" aria-multiline="true" aria-label="월간보고 메모 입력"
+                            onInput={handleMemoInput} onMouseUp={rememberMemoSelection} onKeyUp={rememberMemoSelection} onFocus={rememberMemoSelection} onPaste={handleMemoPaste}
+                            style={{ height: '100%', width: '100%', padding: 15, border: 0, overflowY: 'auto', outline: 'none', color: memoBaseColor, fontSize: memoFontSize, lineHeight: 1.65, fontFamily: 'inherit', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', boxSizing: 'border-box', cursor: memoPeriodDate ? 'text' : 'not-allowed' }}/>
+                    </div>
+                    <div style={{ height: 49, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', borderTop: '1px solid #e5e7eb', background: '#fff' }}>
+                        <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: memoDirty ? '#b45309' : '#64748b', fontSize: 10.5, fontWeight: 700 }}>{memoMessage}</span>
+                        <button type="button" onClick={() => setMemoOpen(false)}
+                            style={{ height: 32, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: 7, background: '#fff', color: '#475569', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
+                            <X size={14}/> 나가기
+                        </button>
+                        <button type="button" onClick={saveMemo} disabled={!memoPeriodDate || memoSaving}
+                            style={{ height: 32, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 13px', border: 0, borderRadius: 7, background: !memoPeriodDate || memoSaving ? '#cbd5e1' : '#7c3aed', color: '#fff', cursor: !memoPeriodDate || memoSaving ? 'default' : 'pointer', fontSize: 12, fontWeight: 900 }}>
+                            <Save size={14}/>{memoSaving ? '저장 중' : '저장'}
+                        </button>
+                    </div>
+                </section>
             )}
 
             <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, paddingTop: 7, color: '#73716b', fontSize: 11 }}>
