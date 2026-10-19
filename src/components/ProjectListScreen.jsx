@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 're
 import { createPortal } from 'react-dom';   // 헤더 ▼ 드롭다운을 body로 꺼내 그림 — 틀고정(sticky) 칸 뒤로 숨지 않게 (2026-09-10)
 import {
     Upload, Download, Trash2, X, Shuffle,
-    AlertTriangle, ListChecks, Search,
+    AlertTriangle, ListChecks, Search, Wrench,
     FileSpreadsheet, TerminalSquare, Eye,
     Edit2, Save, ChevronUp, ChevronDown, Check, Copy,
     Database, HardDrive, CloudUpload, Clock, Plus, Settings, AlignJustify, Calendar,
@@ -7958,7 +7958,7 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                             {teamDropOpen && (<>
                                 <div className="fixed inset-0 z-40" onClick={() => setTeamDropOpen(false)}/>
                                 <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-[#dde2e9] rounded-lg shadow-lg py-1 min-w-[130px]">
-                                    {LIST_TEAMS.map(t => (
+                                    {LIST_TEAMS.filter(t => !getTeamProfile(t)?.보조장부).map(t => (
                                         <button key={t} onClick={() => { setTeamDropOpen(false); switchTeam(t); }}
                                             className={`w-full text-left px-3.5 py-1.5 text-[12px] font-bold hover:bg-blue-50 transition-colors ${t === currentTeam ? 'text-[#1e7ac8]' : 'text-[#37352f]'}`}>
                                             {displayTeamName(t)}{t === currentTeam ? ' ✓' : ''}
@@ -8455,6 +8455,23 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
                 </div>
             </header>
 
+            {/* 보조 장부는 제목줄 아래 별도 메뉴로 이동 (2026-10-19). 기존 switchTeam의 미저장 확인을 공통 적용한다. */}
+            {(teamProfile.상위팀 || LIST_TEAMS.some(t => getTeamProfile(t)?.상위팀 === currentTeam)) && (
+                <nav aria-label="프로젝트 보조 메뉴" className="flex items-center gap-2 mb-2 shrink-0">
+                    {teamProfile.상위팀 && (
+                        <button onClick={() => switchTeam(teamProfile.상위팀)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#bcd6f0] bg-[#f0f7fd] hover:bg-[#e3effa] text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
+                            <ListChecks size={13}/> {displayTeamName(teamProfile.상위팀)} 프로젝트 List
+                        </button>
+                    )}
+                    {LIST_TEAMS.filter(t => getTeamProfile(t)?.상위팀 === currentTeam).map(t => (
+                        <button key={t} onClick={() => switchTeam(t)} title={getTeamProfile(t).홈줄?.설명}
+                            className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#bcd6f0] bg-[#f0f7fd] hover:bg-[#e3effa] text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
+                            <Wrench size={13}/> {getTeamProfile(t).List버튼 || displayTeamName(t)}
+                        </button>
+                    ))}
+                </nav>
+            )}
 
             {/* ── 빈 상태 / 테이블 ── */}
             {activeHeaders.length === 0 ? (((!fbLoaded || !fbMetaLoaded) && dataSource === 'firebase') ? (

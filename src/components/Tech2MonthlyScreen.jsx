@@ -8,6 +8,14 @@ import { displayTeamName } from '../teamNames';
 import { appId, db } from '../firebase';
 
 const norm = (value) => String(value ?? '').replace(/\s/g, '').toLowerCase();
+// S/W 월간보고 진행내용만 List의 항목별 줄바꿈 규칙으로 표시한다. 원본·엑셀 값은 유지.
+const softwareContentLines = (value) => {
+    const text = String(value ?? '').replace(/\r\n?/g, '\n').trim();
+    if (!text) return [];
+    let lines = text.split('\n');
+    if (lines.length === 1 && /^[-·•]/.test(text)) lines = text.split(/\s+(?=[-·•]\s)/);
+    return lines.map(line => line.trim()).filter(Boolean);
+};
 const numberOf = (value) => {
     const text = String(value ?? '').replace(/[,%\s]/g, '');
     if (!text) return null;
@@ -846,7 +854,9 @@ export default function Tech2MonthlyScreen({ currentTeam, progressRecordsMap = {
                                                 setRowContextMenu({ row, x: Math.min(event.clientX, window.innerWidth - 170), y: Math.min(event.clientY, window.innerHeight - 70) });
                                             } : undefined}
                                             style={{ height: Math.max(34, tableFontSize + 22), padding: '5px 8px', fontSize: tableFontSize, color: '#37352f', textAlign: column.align || 'left', borderRight: '1px solid #e7ebf0', borderBottom: '1px solid #ebe9e6', whiteSpace: column.key === 'content' ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: rowIndex % 2 ? '#fbfcfd' : '#fff', fontVariantNumeric: 'tabular-nums', cursor: column.key === 'project' ? 'pointer' : undefined }}>
-                                            <span style={isSelectedProjectRow ? { fontWeight: 900, color: '#0f5a99', fontSize: Math.max(16, tableFontSize) } : undefined}>{column.key === 'status' ? statusCell(value, isSelectedProjectRow) : value}</span>
+                                            <span style={isSelectedProjectRow ? { fontWeight: 900, color: '#0f5a99', fontSize: Math.max(16, tableFontSize) } : undefined}>{isSoftware && column.key === 'content'
+                                                ? <span style={{ display: 'block', lineHeight: 1.45, wordBreak: 'break-word' }}>{softwareContentLines(value).map((line, index) => <span key={index} style={{ display: 'block', paddingLeft: /^[-·•]/.test(line) ? 0 : 10 }}>{line}</span>)}</span>
+                                                : column.key === 'status' ? statusCell(value, isSelectedProjectRow) : value}</span>
                                         </td>
                                     );
                                 })}

@@ -92,7 +92,9 @@ function ctxFor(team, cells, news, filters) {
         activeFilterCount: filters ? 3 : 0,                // 왼쪽 '필터 N' 배지
         onGoToPms: () => {}, onGoToBacklog: () => {},      // 오른쪽 [월간 업무 보고]·[작업 백로그] 단추 (App.js가 항상 넘김)
         activeStatusChips: new Set(), hiddenCols: [], teamProfile: { 팀: team, 열: {}, 기능: {} },
-        LIST_TEAMS: ['기술1팀', '기술2팀', '기술3팀', 'Software팀'],
+        LIST_TEAMS: ['기술1팀', '기술2팀', '기술3팀', 'Software팀', 'Software팀 유지보수'],
+        displayTeamName: t => t.replace(/^Software팀/, 'S/W팀'),
+        getTeamProfile: t => ({ 보조장부: t === 'Software팀 유지보수' }),
     };
     return new Proxy(base, {
         has: () => true,                                   // with(ctx) 가 모든 이름을 여기서 찾게
@@ -128,7 +130,7 @@ ok(markup('기술2팀', 0, 1, false).includes('저장 새 행 1건'), '새 행 1
 console.log('\n■ 3-1. 눈금 — 실제 화면의 단추·배지가 검사 그림에도 전부 있는가');
 const full = markup('기술2팀', 3, 1, true);
 const rightHtml = full.slice(full.lastIndexOf('justify-end gap-1 shrink-0'));
-const MUST = [['홈', '홈 — 팀 선택 화면으로'], ['서식 팔레트', 'title="서식'], ['프로젝트 추가', 'title="프로젝트 추가"'], ['월간 업무 보고', 'title="월간 업무 보고"'],
+const MUST = [['홈', '홈 — 팀 선택 화면으로'], ['서식 팔레트', 'title="서식'], ['프로젝트 추가', 'title="프로젝트 추가"'], ['월간보고', 'title="월간보고"'],
               ['작업 백로그', 'title="작업 백로그'], ['[저장 N칸]', '저장 3칸+새 행 1건'], ['[취소]', 'title="임시 편집 전부 되돌리기']];
 MUST.forEach(([nm, sig]) => ok(rightHtml.includes(sig), '오른쪽 단추 있음: ' + nm));
 ok(full.includes('필터 3'), "왼쪽 '필터 N' 배지 있음 (열 필터 켜진 상태)");

@@ -13,7 +13,7 @@ import {
   Plus, Search, ArrowUpDown, Trash2, Edit2, Clock, 
   Filter, X, LayoutGrid, Settings, ChevronDown, Play, 
   Activity, Cpu, Monitor, Calendar, BarChart3, Info, Users, FileText, 
-  LogOut, Wrench, TerminalSquare, AlertTriangle, Upload, Save, Database, CornerDownRight,
+  LogOut, TerminalSquare, AlertTriangle, Upload, Save, Database, CornerDownRight,
   Eye, ChevronRight, HelpCircle, CheckCircle2, Menu, PieChart, Target, Zap,
   ZoomIn, ZoomOut, Maximize, Minus, Download, FileSpreadsheet, ChevronUp, ListChecks,
   HardDrive, Link, Link2Off, PanelRight, X as XIcon, RefreshCw, AlignJustify, List, BookMarked, CheckCheck, Shuffle, TrendingUp, Smartphone,
@@ -6018,31 +6018,6 @@ const TechTeamPMS = () => {
                                                   </div>
                                                   <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#047857] group-hover/btn:text-white group-hover/btn:border-[#047857] transition-all">열기 <ChevronRight size={12} /></span>
                                               </button>
-
-                                              {/* 1-2. 보조 장부 줄 (2026-09-16 팀장님, Software팀 유지보수) —
-                                                   팀 카드에 '상위팀: 이 카드'가 적힌 장부를 줄로 단다. 오른쪽 배지 = 미처리 N · N월 완료 N (홈 통계와 같은 규칙) */}
-                                              {LIST_TEAMS.filter(t => getTeamProfile(t)?.상위팀 === card.id).map(t => {
-                                                  const _p = getTeamProfile(t), _st = homeStats[t];
-                                                  const _open = _st ? (_p.홈요약?.미처리 || []).reduce((s, v) => s + (_st.statusCounts?.[v] || 0), 0) : null;
-                                                  return (
-                                                  <button key={t} onClick={() => { setCurrentTeam(t); setCurrentMode('projectList'); }}
-                                                      className="w-full flex items-center gap-3 px-5 py-2 border-t border-[#f0edea] border-l-[3px] border-l-transparent hover:border-l-[#7c3aed] hover:bg-[#f7f4fd] transition-all text-left group/btn cursor-pointer">
-                                                      <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-[#f3f1ee] group-hover/btn:bg-white border border-transparent group-hover/btn:border-[#d6c9f5] transition-colors shrink-0">
-                                                          <Wrench size={14} className="text-[#73716b] group-hover/btn:text-[#7c3aed] transition-colors" />
-                                                      </div>
-                                                      <div className="flex-1 min-w-0">
-                                                          <div className="text-[#37352f] font-semibold text-[13.5px] group-hover/btn:text-[#7c3aed] transition-colors">{_p.홈줄?.제목 || '유지보수 장표'}</div>
-                                                          <div className="text-[#a4a097] text-xs mt-px">{_p.홈줄?.설명 || ''}</div>
-                                                      </div>
-                                                      {_st && (_st.total > 0) && (
-                                                          <span className="shrink-0 text-[11px] font-bold text-[#8f8b84] mr-1 whitespace-nowrap">
-                                                              미처리 <span className="text-[#d97706]">{_open}</span> · {new Date().getMonth() + 1}월 완료 <span className="text-[#047857]">{_st.doneThisMonth}</span>
-                                                          </span>
-                                                      )}
-                                                      <span className="shrink-0 flex items-center gap-0.5 text-[11.5px] font-bold pl-2.5 pr-1.5 py-1 rounded-full border border-[#dcd8d2] text-[#8f8b84] bg-white group-hover/btn:bg-[#7c3aed] group-hover/btn:text-white group-hover/btn:border-[#7c3aed] transition-all">열기 <ChevronRight size={12} /></span>
-                                                  </button>
-                                                  );
-                                              })}
 
                                               {/* 2. 월간 업무 보고 */}
                                               <button onClick={() => {
