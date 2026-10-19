@@ -8456,14 +8456,8 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
             </header>
 
             {/* 보조 장부는 제목줄 아래 별도 메뉴로 이동 (2026-10-19). 기존 switchTeam의 미저장 확인을 공통 적용한다. */}
-            {(teamProfile.상위팀 || LIST_TEAMS.some(t => getTeamProfile(t)?.상위팀 === currentTeam)) && (
+            {LIST_TEAMS.some(t => getTeamProfile(t)?.상위팀 === currentTeam) && (
                 <nav aria-label="프로젝트 보조 메뉴" className="flex items-center gap-2 mb-2 shrink-0">
-                    {teamProfile.상위팀 && (
-                        <button onClick={() => switchTeam(teamProfile.상위팀)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#bcd6f0] bg-[#f0f7fd] hover:bg-[#e3effa] text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
-                            <ListChecks size={13}/> {displayTeamName(teamProfile.상위팀)} 프로젝트 List
-                        </button>
-                    )}
                     {LIST_TEAMS.filter(t => getTeamProfile(t)?.상위팀 === currentTeam).map(t => (
                         <button key={t} onClick={() => switchTeam(t)} title={getTeamProfile(t).홈줄?.설명}
                             className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#bcd6f0] bg-[#f0f7fd] hover:bg-[#e3effa] text-[#1e7ac8] transition-all shrink-0 text-xs font-bold">
