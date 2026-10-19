@@ -5233,6 +5233,12 @@ const ProjectListScreen = ({ currentTeam, user, onBack, onGoToPms, onGoToBacklog
         };
         if (!sortConfig.key) return attachSubs(out);
         return attachSubs([...out].sort((a, b) => {
+            // 카드에서 지정한 열만 빈칸을 정렬 방향에 관계없이 맨 뒤로 보낸다.
+            if ((teamProfile?.정렬빈칸뒤열 || []).some(col => aliasCol(col) === sortConfig.key)) {
+                const aBlank = String(a[sortConfig.key] ?? '').trim() === '';
+                const bBlank = String(b[sortConfig.key] ?? '').trim() === '';
+                if (aBlank || bBlank) return aBlank === bBlank ? 0 : aBlank ? 1 : -1;
+            }
             const av = String(a[sortConfig.key]||'').toLowerCase();
             const bv = String(b[sortConfig.key]||'').toLowerCase();
             // 둘 다 숫자면 숫자로 비교 (2026-07-20): '1'과 '001' 혼재기·포인트 등 숫자열도 순서 보장
